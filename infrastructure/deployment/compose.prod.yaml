@@ -1,0 +1,119 @@
+# Single-host production deployment (see docs/operations/deployment.md).
+#   cp .env.production.example .env.production   # fill in real secrets (never commit)
+#   IMAGE_TAG=v1.2.3 ../../scripts/ops/deploy.sh   # or: docker compose -f compose.prod.yaml up -d
+# For larger installations use managed PostgreSQL/Redis/S3 and run api/worker on an
+# orchestrator; the images and the migrate job stay the same.
+name: sma
+
+x-app: &app
+  env_file: .env.production
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options: { max-size: '20m', max-file: '5' }
+
+services:
+  # One-shot: applies database migrations and syncs system roles before the new version starts.
+  migrate:
+    <<: *app
+    image: ${REGISTRY:?set REGISTRY}/sma-api-migrate:${IMAGE_TAG:?set IMAGE_TAG}
+    restart: 'no'
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  api:
+    <<: *app
+    image: ${REGISTRY}/sma-api:${IMAGE_TAG}
+    environment:
+      METRICS_HOST: 0.0.0.0
+      TRUST_PROXY_HOPS: '1'
+    deploy:
+      replicas: ${API_REPLICAS:-2}
+    stop_grace_period: 30s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      clamav: { condition: service_healthy }
+
+  worker:
+    <<: *app
+    image: ${REGISTRY}/sma-api:${IMAGE_TAG}
+    command: ['node', 'dist/worker.js']
+    environment:
+      METRICS_HOST: 0.0.0.0
+    deploy:
+      replicas: ${WORKER_REPLICAS:-2}
+    # Waits for in-flight jobs on SIGTERM.
+    stop_grace_period: 60s
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:9465/metrics').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+
+  web:
+    <<: *app
+    image: ${REGISTRY}/sma-web:${IMAGE_TAG}
+    depends_on: [api]
+
+  # TLS termination and routing: /api and /socket.io → api replicas, everything else → web.
+  caddy:
+    image: caddy:2.10.2
+    restart: unless-stopped
+    environment:
+      SMA_DOMAIN: ${SMA_DOMAIN:?set SMA_DOMAIN}
+    ports: ['80:80', '443:443']
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on: [api, web]
+
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    env_file: .env.postgres
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4.6-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes: [redis-data:/data]
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      retries: 20
+
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    environment:
+      CLAMD_CONF_StreamMaxLength: 1100M
+      CLAMD_CONF_MaxFileSize: 1100M
+      CLAMD_CONF_MaxScanSize: 1100M
+      CLAMD_CONF_AlertExceedsMax: 'yes'
+    volumes: [clamav-data:/var/lib/clamav]
+    healthcheck:
+      test: ['CMD', 'clamdcheck.sh']
+      interval: 30s
+      retries: 20
+      start_period: 300s
+
+volumes:
+  caddy-data:
+  postgres-data:
+  redis-data:
+  clamav-data:

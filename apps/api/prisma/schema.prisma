@@ -1,0 +1,919 @@
+// Storeline data model. See docs/architecture/data-model.md.
+// Conventions: UUID ids, timestamptz(3), every business-owned row carries businessId.
+
+generator client {
+  provider        = "prisma-client-js"
+  // "native" for local development; debian-openssl-3.0.x for the node:24-bookworm-slim images.
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
+  // Loads `include`d relations with one SQL query (LATERAL joins) instead of one per relation.
+  previewFeatures = ["relationJoins"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+enum UserKind {
+  INTERNAL
+  EXTERNAL
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+model User {
+  id                  String     @id @default(uuid()) @db.Uuid
+  username            String     @unique @db.VarChar(32)
+  displayName         String     @db.VarChar(80)
+  kind                UserKind   @default(INTERNAL)
+  status              UserStatus @default(ACTIVE)
+  passwordHash        String
+  mustChangePassword  Boolean    @default(false)
+  passwordChangedAt   DateTime?  @db.Timestamptz(3)
+  failedLoginCount    Int        @default(0)
+  lockedUntil         DateTime?  @db.Timestamptz(3)
+  /// AES-256-GCM encrypted TOTP secret (see infra/crypto). Never selected outside AuthModule.
+  mfaSecretEnc        String?
+  mfaPendingSecretEnc String?
+  mfaEnabledAt        DateTime?  @db.Timestamptz(3)
+  /// Last accepted TOTP time step, prevents code replay.
+  mfaLastUsedStep     BigInt?
+  lastActiveAt        DateTime?  @db.Timestamptz(3)
+  createdAt           DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime   @updatedAt @db.Timestamptz(3)
+
+  contact               UserContact?
+  businessMemberships   BusinessMembership[]
+  storeMemberships      StoreMembership[]
+  roleAssignments       RoleAssignment[]             @relation("assignee")
+  grantedAssignments    RoleAssignment[]             @relation("grantor")
+  sessions              Session[]
+  conversationMembers   ConversationMember[]
+  sentMessages          Message[]
+  reactions             MessageReaction[]
+  starredMessages       StarredMessage[]
+  createdConversations  Conversation[]               @relation("creator")
+  mediaAssets           MediaAsset[]
+  auditEntries          AuditLog[]
+  emergencyContacts     EmergencyContact[]
+  reportedIncidents     EmergencyIncident[]          @relation("incidentReporter")
+  acknowledgedIncidents EmergencyIncident[]          @relation("incidentAcknowledger")
+  resolvedIncidents     EmergencyIncident[]          @relation("incidentResolver")
+  incidentAlerts        EmergencyIncidentRecipient[]
+  createdCampaigns      BulkCampaign[]               @relation("campaignCreator")
+  campaignDeliveries    BulkCampaignRecipient[]
+  suppressions          CampaignSuppression[]        @relation("suppressedUser")
+  devices               Device[]
+  notificationPrefs     NotificationPreference?
+}
+
+/// Private contact details. Only read by explicitly authorized, audited flows (ADR-0006).
+model UserContact {
+  userId          String    @id @db.Uuid
+  email           String?   @unique @db.VarChar(254)
+  emailVerifiedAt DateTime? @db.Timestamptz(3)
+  phone           String?   @db.VarChar(16)
+  phoneVerifiedAt DateTime? @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model Session {
+  id            String         @id @default(uuid()) @db.Uuid
+  userId        String         @db.Uuid
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  lastUsedAt    DateTime       @default(now()) @db.Timestamptz(3)
+  expiresAt     DateTime       @db.Timestamptz(3)
+  revokedAt     DateTime?      @db.Timestamptz(3)
+  revokeReason  String?        @db.VarChar(64)
+  mfaVerifiedAt DateTime?      @db.Timestamptz(3)
+  userAgent     String?        @db.VarChar(256)
+  /// SHA-256 of client IP (no raw IPs stored on sessions).
+  ipHash        String?        @db.VarChar(64)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  refreshTokens RefreshToken[]
+  device        Device?
+
+  @@index([userId, revokedAt])
+}
+
+/// Rotating refresh tokens. A session is the token family; reuse of a consumed token revokes it.
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  sessionId String    @db.Uuid
+  tokenHash String    @unique @db.VarChar(64)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt DateTime  @db.Timestamptz(3)
+  usedAt    DateTime? @db.Timestamptz(3)
+  session   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+// ───────────────────────────── Tenancy ─────────────────────────────
+
+enum BusinessStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum StoreStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  REVOKED
+}
+
+model Business {
+  id         String         @id @default(uuid()) @db.Uuid
+  slug       String         @unique @db.VarChar(48)
+  name       String         @db.VarChar(120)
+  status     BusinessStatus @default(ACTIVE)
+  timeZone   String         @default("UTC") @db.VarChar(64)
+  locale     String         @default("en") @db.VarChar(10)
+  /// BusinessPolicy JSON (validated by @storeline/shared businessPolicySchema).
+  policy     Json           @default("{}")
+  createdAt  DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime       @updatedAt @db.Timestamptz(3)
+  archivedAt DateTime?      @db.Timestamptz(3)
+
+  stores          Store[]
+  departments     Department[]
+  memberships     BusinessMembership[]
+  roles           Role[]
+  roleAssignments RoleAssignment[]
+  conversations   Conversation[]
+  mediaAssets     MediaAsset[]
+  incidents       EmergencyIncident[]
+  campaigns       BulkCampaign[]
+  suppressions    CampaignSuppression[]
+  quota           TenantQuota?
+}
+
+model TenantQuota {
+  businessId        String   @id @db.Uuid
+  maxUsers          Int      @default(5000)
+  maxStores         Int      @default(500)
+  maxStorageBytes   BigInt   @default(107374182400)
+  messagesPerMinute Int      @default(3000)
+  maxCampaignSize   Int      @default(100000)
+  updatedAt         DateTime @updatedAt @db.Timestamptz(3)
+  business          Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+}
+
+model Store {
+  id                         String      @id @default(uuid()) @db.Uuid
+  businessId                 String      @db.Uuid
+  code                       String      @db.VarChar(16)
+  name                       String      @db.VarChar(120)
+  status                     StoreStatus @default(ACTIVE)
+  timeZone                   String?     @db.VarChar(64)
+  address                    Json?
+  createdAt                  DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime    @updatedAt @db.Timestamptz(3)
+  archivedAt                 DateTime?   @db.Timestamptz(3)
+  /// Seconds an emergency alert waits for acknowledgement before escalating (15-1800).
+  emergencyAckTimeoutSeconds Int         @default(120)
+
+  business          Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  memberships       StoreMembership[]
+  departments       Department[]
+  roleAssignments   RoleAssignment[]
+  conversations     Conversation[]
+  emergencyContacts EmergencyContact[]
+  incidents         EmergencyIncident[]
+
+  @@unique([businessId, code])
+  /// Lets child tables reference (businessId, storeId) so a store can never be paired with another tenant.
+  @@unique([businessId, id])
+}
+
+model Department {
+  id         String            @id @default(uuid()) @db.Uuid
+  businessId String            @db.Uuid
+  storeId    String?           @db.Uuid
+  name       String            @db.VarChar(80)
+  createdAt  DateTime          @default(now()) @db.Timestamptz(3)
+  business   Business          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  store      Store?            @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  members    StoreMembership[]
+
+  @@unique([businessId, storeId, name])
+}
+
+model BusinessMembership {
+  id         String           @id @default(uuid()) @db.Uuid
+  businessId String           @db.Uuid
+  userId     String           @db.Uuid
+  status     MembershipStatus @default(ACTIVE)
+  createdAt  DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime         @updatedAt @db.Timestamptz(3)
+  business   Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([businessId, userId])
+  @@index([userId, status])
+}
+
+model StoreMembership {
+  id           String           @id @default(uuid()) @db.Uuid
+  businessId   String           @db.Uuid
+  storeId      String           @db.Uuid
+  userId       String           @db.Uuid
+  departmentId String?          @db.Uuid
+  status       MembershipStatus @default(ACTIVE)
+  createdAt    DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime         @updatedAt @db.Timestamptz(3)
+  store        Store            @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  department   Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, userId])
+  @@index([userId, status])
+}
+
+// ───────────────────────────── Access control ─────────────────────────────
+
+enum ScopeType {
+  PLATFORM
+  BUSINESS
+  STORE
+}
+
+model Role {
+  id            String           @id @default(uuid()) @db.Uuid
+  /// null for system roles.
+  businessId    String?          @db.Uuid
+  key           String           @db.VarChar(48)
+  name          String           @db.VarChar(80)
+  description   String?          @db.VarChar(300)
+  isSystem      Boolean          @default(false)
+  allowedScopes ScopeType[]
+  createdAt     DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime         @updatedAt @db.Timestamptz(3)
+  business      Business?        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  permissions   RolePermission[]
+  assignments   RoleAssignment[]
+
+  @@unique([businessId, key])
+}
+
+model RolePermission {
+  roleId     String @db.Uuid
+  permission String @db.VarChar(64)
+  role       Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permission])
+}
+
+model RoleAssignment {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  roleId      String    @db.Uuid
+  scopeType   ScopeType
+  businessId  String?   @db.Uuid
+  storeId     String?   @db.Uuid
+  grantedById String?   @db.Uuid
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  revokedAt   DateTime? @db.Timestamptz(3)
+  user        User      @relation("assignee", fields: [userId], references: [id], onDelete: Restrict)
+  grantedBy   User?     @relation("grantor", fields: [grantedById], references: [id], onDelete: SetNull)
+  role        Role      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  business    Business? @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  store       Store?    @relation(fields: [storeId], references: [id], onDelete: Restrict)
+
+  @@index([userId, revokedAt])
+  @@index([businessId, revokedAt])
+}
+
+// ───────────────────────────── Messaging ─────────────────────────────
+
+enum ConversationType {
+  DIRECT
+  GROUP
+  EMERGENCY
+  /// One read-only announcements channel per recipient and business (bulk campaigns, phase 6).
+  BROADCAST
+}
+
+enum PostingPolicy {
+  ALL_MEMBERS
+  ADMINS_ONLY
+}
+
+enum GroupCategory {
+  OPERATIONS
+  SECURITY
+  EMERGENCY_RESPONSE
+  MANAGEMENT
+  ANNOUNCEMENTS
+  GENERAL
+}
+
+enum FileSharingPolicy {
+  ALL_MEMBERS
+  ADMINS_ONLY
+  DISABLED
+}
+
+enum MemberRole {
+  MEMBER
+  ADMIN
+}
+
+model Conversation {
+  id                String            @id @default(uuid()) @db.Uuid
+  businessId        String            @db.Uuid
+  storeId           String?           @db.Uuid
+  type              ConversationType
+  title             String?           @db.VarChar(100)
+  description       String?           @db.VarChar(500)
+  category          GroupCategory?
+  postingPolicy     PostingPolicy     @default(ALL_MEMBERS)
+  fileSharingPolicy FileSharingPolicy @default(ALL_MEMBERS)
+  /// "businessId:userA:userB" with sorted user ids; dedupes direct conversations.
+  directKey         String?           @unique @db.VarChar(120)
+  /// "businessId:userId" for BROADCAST channels; dedupes the per-recipient announcements channel.
+  channelKey        String?           @unique @db.VarChar(80)
+  /// Gap-free per-conversation message counter (ADR-0003).
+  lastSeq           Int               @default(0)
+  lastMessageId     String?           @unique @db.Uuid
+  lastActivityAt    DateTime          @default(now()) @db.Timestamptz(3)
+  memberCount       Int               @default(0)
+  createdById       String?           @db.Uuid
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+  archivedAt        DateTime?         @db.Timestamptz(3)
+
+  business       Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  store          Store?               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  createdBy      User?                @relation("creator", fields: [createdById], references: [id], onDelete: SetNull)
+  lastMessage    Message?             @relation("lastMessage", fields: [lastMessageId], references: [id], onDelete: SetNull)
+  members        ConversationMember[]
+  messages       Message[]            @relation("messages")
+  pinnedMessages PinnedMessage[]
+  mediaAssets    MediaAsset[]
+  incident       EmergencyIncident?
+
+  @@index([businessId])
+}
+
+model ConversationMember {
+  id               String       @id @default(uuid()) @db.Uuid
+  conversationId   String       @db.Uuid
+  userId           String       @db.Uuid
+  role             MemberRole   @default(MEMBER)
+  /// Member may read messages with seq > historyFromSeq.
+  historyFromSeq   Int          @default(0)
+  lastDeliveredSeq Int          @default(0)
+  lastReadSeq      Int          @default(0)
+  markedUnread     Boolean      @default(false)
+  mutedUntil       DateTime?    @db.Timestamptz(3)
+  pinnedAt         DateTime?    @db.Timestamptz(3)
+  archivedAt       DateTime?    @db.Timestamptz(3)
+  joinedAt         DateTime     @default(now()) @db.Timestamptz(3)
+  /// Non-null when the member left or was removed: all access ends (docs D3).
+  leftAt           DateTime?    @db.Timestamptz(3)
+  addedById        String?      @db.Uuid
+  conversation     Conversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  user             User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([conversationId, userId])
+  @@index([userId, leftAt])
+  @@index([conversationId, leftAt])
+}
+
+enum MessageKind {
+  TEXT
+  SYSTEM
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+/// Sender-side pipeline state (docs/architecture/messaging.md).
+enum MessageState {
+  ACCEPTED
+  DISPATCHED
+  FAILED
+}
+
+model Message {
+  id              String       @id @default(uuid()) @db.Uuid
+  conversationId  String       @db.Uuid
+  seq             Int
+  senderId        String       @db.Uuid
+  clientMessageId String       @db.Uuid
+  kind            MessageKind  @default(TEXT)
+  body            String?
+  systemEvent     Json?
+  replyToId       String?      @db.Uuid
+  forwardedFromId String?      @db.Uuid
+  state           MessageState @default(ACCEPTED)
+  failureReason   String?      @db.VarChar(120)
+  editedAt        DateTime?    @db.Timestamptz(3)
+  deletedAt       DateTime?    @db.Timestamptz(3)
+  deletedById     String?      @db.Uuid
+  createdAt       DateTime     @default(now()) @db.Timestamptz(3)
+
+  conversation  Conversation        @relation("messages", fields: [conversationId], references: [id], onDelete: Restrict)
+  sender        User                @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  replyTo       Message?            @relation("replies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies       Message[]           @relation("replies")
+  forwardedFrom Message?            @relation("forwards", fields: [forwardedFromId], references: [id], onDelete: SetNull)
+  forwards      Message[]           @relation("forwards")
+  revisions     MessageRevision[]
+  reactions     MessageReaction[]
+  stars         StarredMessage[]
+  pins          PinnedMessage[]
+  attachments   MessageAttachment[]
+  lastMessageOf Conversation?       @relation("lastMessage")
+
+  @@unique([conversationId, seq])
+  @@unique([senderId, clientMessageId])
+}
+
+model MessageRevision {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @db.Uuid
+  /// Body before the change.
+  body      String?
+  reason    String   @db.VarChar(16) // EDIT | DELETE
+  editorId  String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+  @@index([createdAt])
+}
+
+model MessageReaction {
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  emoji     String   @db.VarChar(16)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([messageId, userId])
+}
+
+model StarredMessage {
+  userId    String   @db.Uuid
+  messageId String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([userId, messageId])
+  @@index([userId, createdAt])
+}
+
+model PinnedMessage {
+  conversationId String       @db.Uuid
+  messageId      String       @db.Uuid
+  pinnedById     String       @db.Uuid
+  createdAt      DateTime     @default(now()) @db.Timestamptz(3)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  message        Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, messageId])
+}
+
+// ───────────────────────────── Media (phase 4) ─────────────────────────────
+
+enum MediaKind {
+  IMAGE
+  VIDEO
+  DOCUMENT
+}
+
+/// Lifecycle: PENDING_UPLOAD → VERIFYING → READY | QUARANTINED | REJECTED; FAILED for
+/// expired or broken uploads. Only READY assets can be attached or downloaded.
+enum MediaStatus {
+  PENDING_UPLOAD
+  VERIFYING
+  READY
+  QUARANTINED
+  REJECTED
+  FAILED
+}
+
+/// An uploaded file. Bytes live in private object storage, never in PostgreSQL.
+model MediaAsset {
+  id                String      @id @default(uuid()) @db.Uuid
+  businessId        String      @db.Uuid
+  /// Upload context: a conversation, or a draft bulk campaign (exactly one; CHECK constraint).
+  conversationId    String?     @db.Uuid
+  campaignId        String?     @db.Uuid
+  uploaderId        String      @db.Uuid
+  kind              MediaKind
+  status            MediaStatus @default(PENDING_UPLOAD)
+  /// Sanitised display name; never used to build storage keys.
+  fileName          String      @db.VarChar(200)
+  /// Declared type from the allow-list; verified against the file signature before READY.
+  mimeType          String      @db.VarChar(120)
+  sizeBytes         BigInt
+  /// Computed by the scanner while streaming the object.
+  sha256            String?     @db.VarChar(64)
+  /// Unverified bytes land here (incoming/…); download URLs are never issued for this key.
+  incomingKey       String      @db.VarChar(200)
+  /// Verified bytes (media/<business>/…). Set when READY.
+  objectKey         String?     @db.VarChar(200)
+  thumbnailKey      String?     @db.VarChar(200)
+  multipartUploadId String?     @db.VarChar(1024)
+  partSize          Int?
+  partCount         Int?
+  width             Int?
+  height            Int?
+  failureReason     String?     @db.VarChar(64)
+  uploadExpiresAt   DateTime    @db.Timestamptz(3)
+  createdAt         DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime    @updatedAt @db.Timestamptz(3)
+  readyAt           DateTime?   @db.Timestamptz(3)
+
+  business     Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  conversation Conversation?       @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  campaign     BulkCampaign?       @relation("campaignUploads", fields: [campaignId], references: [id], onDelete: Restrict)
+  uploader     User                @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+  attachments  MessageAttachment[]
+  campaigns    BulkCampaign[]      @relation("campaignAttachment")
+
+  @@index([businessId, status])
+  @@index([status, uploadExpiresAt])
+  @@index([conversationId])
+  @@index([campaignId])
+}
+
+model MessageAttachment {
+  messageId String     @db.Uuid
+  mediaId   String     @db.Uuid
+  position  Int        @default(0)
+  message   Message    @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  media     MediaAsset @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+
+  @@id([messageId, position])
+  @@index([mediaId])
+}
+
+// ───────────────────────────── Emergency (phase 5) ─────────────────────────────
+
+/// Ordered emergency contacts of a store (1 = primary, 2 = backup, ...). A pointer to a user:
+/// private contact values are never copied here (docs/architecture/emergency.md).
+model EmergencyContact {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @db.Uuid
+  storeId     String   @db.Uuid
+  userId      String   @db.Uuid
+  priority    Int
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  store       Store    @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([storeId, userId])
+  @@unique([storeId, priority])
+}
+
+enum EmergencyCategory {
+  MEDICAL
+  SECURITY
+  FIRE
+  OTHER
+}
+
+/// OPEN -> (ESCALATED)* -> ACKNOWLEDGED -> RESOLVED; OPEN/ESCALATED -> CANCELLED by the reporter.
+enum IncidentStatus {
+  OPEN
+  ESCALATED
+  ACKNOWLEDGED
+  RESOLVED
+  CANCELLED
+}
+
+model EmergencyIncident {
+  id                String            @id @default(uuid()) @db.Uuid
+  businessId        String            @db.Uuid
+  storeId           String            @db.Uuid
+  reporterId        String            @db.Uuid
+  /// Client-generated idempotency key (unique per reporter).
+  clientIncidentId  String            @db.Uuid
+  conversationId    String            @unique @db.Uuid
+  category          EmergencyCategory @default(OTHER)
+  description       String?           @db.VarChar(1000)
+  status            IncidentStatus    @default(OPEN)
+  /// Current escalation level (1 = primary contact).
+  level             Int               @default(1)
+  /// Number of levels in the escalation chain snapshot taken at creation.
+  maxLevel          Int
+  ackTimeoutSeconds Int
+  /// When the current level escalates. null once acknowledged, closed, or the chain is exhausted.
+  ackDeadlineAt     DateTime?         @db.Timestamptz(3)
+  chainExhaustedAt  DateTime?         @db.Timestamptz(3)
+  acknowledgedAt    DateTime?         @db.Timestamptz(3)
+  acknowledgedById  String?           @db.Uuid
+  resolvedAt        DateTime?         @db.Timestamptz(3)
+  resolvedById      String?           @db.Uuid
+  resolutionNote    String?           @db.VarChar(500)
+  cancelledAt       DateTime?         @db.Timestamptz(3)
+  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
+
+  business       Business                     @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  store          Store                        @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
+  reporter       User                         @relation("incidentReporter", fields: [reporterId], references: [id], onDelete: Restrict)
+  acknowledgedBy User?                        @relation("incidentAcknowledger", fields: [acknowledgedById], references: [id], onDelete: Restrict)
+  resolvedBy     User?                        @relation("incidentResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  conversation   Conversation                 @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  recipients     EmergencyIncidentRecipient[]
+  events         EmergencyIncidentEvent[]
+
+  @@unique([reporterId, clientIncidentId])
+  @@index([businessId, storeId, createdAt])
+  @@index([status, ackDeadlineAt])
+}
+
+/// Per-recipient notification state. Queuing an alert never marks it delivered:
+/// QUEUED -> SENT_TO_GATEWAY (worker emitted it) -> DELIVERED_TO_DEVICE (client confirmed)
+/// -> READ (opened) -> ACKNOWLEDGED. PENDING = later escalation level, not yet alerted.
+enum AlertState {
+  PENDING
+  QUEUED
+  SENT_TO_GATEWAY
+  DELIVERED_TO_DEVICE
+  READ
+  ACKNOWLEDGED
+  FAILED
+  SKIPPED
+}
+
+/// Why the user is in the escalation chain.
+enum ResponderSource {
+  CONTACT
+  STORE_MANAGER
+  BUSINESS_ADMIN
+  /// Joined through the incident.acknowledge permission (e.g. security on shift).
+  RESPONDER
+}
+
+model EmergencyIncidentRecipient {
+  id             String            @id @default(uuid()) @db.Uuid
+  incidentId     String            @db.Uuid
+  userId         String            @db.Uuid
+  level          Int
+  source         ResponderSource
+  state          AlertState        @default(PENDING)
+  notifiedAt     DateTime?         @db.Timestamptz(3)
+  sentAt         DateTime?         @db.Timestamptz(3)
+  deliveredAt    DateTime?         @db.Timestamptz(3)
+  readAt         DateTime?         @db.Timestamptz(3)
+  acknowledgedAt DateTime?         @db.Timestamptz(3)
+  failedAt       DateTime?         @db.Timestamptz(3)
+  failureReason  String?           @db.VarChar(64)
+  incident       EmergencyIncident @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  user           User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@unique([incidentId, userId])
+  @@index([userId, state])
+}
+
+enum IncidentEventType {
+  CREATED
+  NOTIFIED
+  ESCALATED
+  RECIPIENT_SKIPPED
+  CHAIN_EXHAUSTED
+  NOTIFY_FAILED
+  JOINED
+  ACKNOWLEDGED
+  RESOLVED
+  CANCELLED
+}
+
+/// Append-only incident timeline (the emergency history shown to responders).
+model EmergencyIncidentEvent {
+  id         String            @id @default(uuid()) @db.Uuid
+  /// Total order of the timeline (events of one transaction share createdAt).
+  seq        Int               @default(autoincrement())
+  incidentId String            @db.Uuid
+  type       IncidentEventType
+  actorId    String?           @db.Uuid
+  level      Int?
+  /// User ids affected (notified, skipped, ...). Never contact values.
+  userIds    String[]          @db.Uuid
+  createdAt  DateTime          @default(now()) @db.Timestamptz(3)
+  incident   EmergencyIncident @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+
+  @@index([incidentId, seq])
+}
+
+// ───────────────────────────── Bulk campaigns (phase 6) ─────────────────────────────
+
+/// DRAFT -> SCHEDULED -> SENDING <-> PAUSED -> COMPLETED; DRAFT/SCHEDULED/SENDING/PAUSED -> CANCELLED.
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+/// Recipient pipeline state. Delivery and read are derived from the channel watermarks.
+enum CampaignRecipientState {
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+  CANCELLED
+}
+
+model BulkCampaign {
+  id               String         @id @default(uuid()) @db.Uuid
+  businessId       String         @db.Uuid
+  createdById      String         @db.Uuid
+  /// Idempotency key from the client (unique per creator).
+  clientCampaignId String         @db.Uuid
+  name             String         @db.VarChar(120)
+  description      String?        @db.VarChar(500)
+  body             String?
+  mediaId          String?        @db.Uuid
+  /// CampaignAudience JSON (validated by @storeline/shared campaignAudienceSchema).
+  audience         Json
+  status           CampaignStatus @default(DRAFT)
+  scheduledAt      DateTime?      @db.Timestamptz(3)
+  /// PENDING recipients are skipped after this time.
+  expiresAt        DateTime?      @db.Timestamptz(3)
+  startedAt        DateTime?      @db.Timestamptz(3)
+  /// Recipients snapshotted (audience resolved) at this time.
+  materializedAt   DateTime?      @db.Timestamptz(3)
+  pausedAt         DateTime?      @db.Timestamptz(3)
+  completedAt      DateTime?      @db.Timestamptz(3)
+  cancelledAt      DateTime?      @db.Timestamptz(3)
+  /// Recipient count the sender confirmed for a large broadcast.
+  confirmedCount   Int?
+  totalRecipients  Int            @default(0)
+  /// Round-robin fairness across tenants: least recently served first.
+  lastDispatchAt   DateTime?      @db.Timestamptz(3)
+  createdAt        DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime       @updatedAt @db.Timestamptz(3)
+
+  business   Business                @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  createdBy  User                    @relation("campaignCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  media      MediaAsset?             @relation("campaignAttachment", fields: [mediaId], references: [id], onDelete: Restrict)
+  uploads    MediaAsset[]            @relation("campaignUploads")
+  recipients BulkCampaignRecipient[]
+
+  @@unique([createdById, clientCampaignId])
+  @@index([businessId, createdAt])
+  @@index([status, scheduledAt])
+}
+
+model BulkCampaignRecipient {
+  campaignId  String                 @db.Uuid
+  userId      String                 @db.Uuid
+  state       CampaignRecipientState @default(PENDING)
+  /// The message written to the recipient's announcements channel.
+  messageId   String?                @unique @db.Uuid
+  reason      String?                @db.VarChar(64)
+  processedAt DateTime?              @db.Timestamptz(3)
+  campaign    BulkCampaign           @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+  user        User                   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([campaignId, userId])
+  @@index([campaignId, state])
+}
+
+/// People who must not receive campaigns from a business (admin suppression or self opt-out).
+model CampaignSuppression {
+  businessId  String   @db.Uuid
+  userId      String   @db.Uuid
+  /// ADMIN or SELF_OPT_OUT
+  reason      String   @db.VarChar(32)
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  user        User     @relation("suppressedUser", fields: [userId], references: [id], onDelete: Restrict)
+
+  @@id([businessId, userId])
+}
+
+// ───────────────────────────── Devices and notifications (phase 8) ─────────────────────────────
+
+enum DevicePlatform {
+  WEB
+  DESKTOP
+  IOS
+  ANDROID
+}
+
+enum PushProvider {
+  WEB_PUSH
+  FCM
+  APNS
+}
+
+/// A signed-in client. Bound 1:1 to its session: revoking the session (sign out, password
+/// change, admin action) ends the device and its push registration with it.
+model Device {
+  id            String         @id @default(uuid()) @db.Uuid
+  userId        String         @db.Uuid
+  sessionId     String         @unique @db.Uuid
+  platform      DevicePlatform
+  name          String         @db.VarChar(80)
+  appVersion    String?        @db.VarChar(32)
+  pushProvider  PushProvider?
+  /// AES-256-GCM encrypted push token / Web Push subscription (it lets anyone push to the device).
+  pushTokenEnc  String?
+  /// Keyed hash of the push endpoint/token: one registration per physical device.
+  pushTokenHash String?        @unique @db.VarChar(64)
+  pushUpdatedAt DateTime?      @db.Timestamptz(3)
+  lastPushAt    DateTime?      @db.Timestamptz(3)
+  lastPushError String?        @db.VarChar(120)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+  user          User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  session       Session        @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// What appears on lock screens. Defaults keep message content off the lock screen.
+enum PushPreview {
+  /// "New message" only
+  NONE
+  /// Sender and conversation name, no content
+  SENDER
+  /// Message text (only where the business allows it)
+  CONTENT
+}
+
+model NotificationPreference {
+  userId      String      @id @db.Uuid
+  pushEnabled Boolean     @default(true)
+  preview     PushPreview @default(NONE)
+  updatedAt   DateTime    @updatedAt @db.Timestamptz(3)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+// ───────────────────────────── Reliability & audit ─────────────────────────────
+
+enum OutboxStatus {
+  PENDING
+  PUBLISHED
+  FAILED
+}
+
+model OutboxEvent {
+  id          String       @id @default(uuid()) @db.Uuid
+  type        String       @db.VarChar(64)
+  businessId  String?      @db.Uuid
+  payload     Json
+  status      OutboxStatus @default(PENDING)
+  attempts    Int          @default(0)
+  availableAt DateTime     @default(now()) @db.Timestamptz(3)
+  publishedAt DateTime?    @db.Timestamptz(3)
+  lastError   String?      @db.VarChar(500)
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([status, availableAt])
+  @@index([publishedAt])
+}
+
+enum AuditOutcome {
+  SUCCESS
+  DENIED
+  FAILURE
+}
+
+/// Append-only. Never store message bodies, secrets, tokens or contact values in metadata.
+model AuditLog {
+  id             String       @id @default(uuid()) @db.Uuid
+  occurredAt     DateTime     @default(now()) @db.Timestamptz(3)
+  actorUserId    String?      @db.Uuid
+  actorSessionId String?      @db.Uuid
+  action         String       @db.VarChar(80)
+  outcome        AuditOutcome @default(SUCCESS)
+  businessId     String?      @db.Uuid
+  storeId        String?      @db.Uuid
+  targetType     String?      @db.VarChar(40)
+  targetId       String?      @db.Uuid
+  metadata       Json         @default("{}")
+  requestId      String?      @db.VarChar(64)
+  ipHash         String?      @db.VarChar(64)
+  actor          User?        @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, occurredAt])
+  @@index([actorUserId, occurredAt])
+  @@index([action, occurredAt])
+}

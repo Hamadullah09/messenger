@@ -1,0 +1,21 @@
+node_modules/
+dist/
+.next/
+out/
+coverage/
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.turbo/
+
+# Local operations output
+.load/
+backups/
+!**/.env.*.example
+
+# Alpha test output
+e2e/results/
+e2e/report/

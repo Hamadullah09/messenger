@@ -1,0 +1,143 @@
+# Alerting rules for SMA. Severity: critical = page on-call now; warning = next business hour.
+# Every alert links to the matching section of docs/operations/runbook.md.
+groups:
+  - name: sma-availability
+    rules:
+      - alert: SmaApiDown
+        expr: up{job="sma-api"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'API instance {{ $labels.instance }} is not responding to scrapes'
+          runbook: 'docs/operations/runbook.md#health'
+      - alert: SmaWorkerDown
+        expr: up{job="sma-worker"} == 0 or absent(up{job="sma-worker"})
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'No worker is running: deliveries, media checks, campaigns and emergency escalation are stopped'
+          runbook: 'docs/operations/runbook.md#emergency-alerts'
+      - alert: SmaRedisDown
+        expr: sma_redis_up == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Redis is unreachable: realtime delivery, queues and rate limits are degraded'
+          runbook: 'docs/operations/runbook.md#key-signals-and-what-to-do'
+      - alert: SmaHighErrorRate
+        expr: |
+          sum(rate(sma_http_requests_total{status="5xx"}[5m]))
+            / clamp_min(sum(rate(sma_http_requests_total[5m])), 1e-9) > 0.02
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'More than 2% of API requests fail with 5xx'
+      - alert: SmaHighLatency
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(sma_http_request_duration_seconds_bucket{route!~".*/report.csv"}[5m]))) > 0.5
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'API p95 latency above 500 ms for 10 minutes'
+
+  - name: sma-delivery
+    rules:
+      - alert: SmaOutboxBacklog
+        expr: sma_outbox_oldest_pending_seconds > 30
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Outbox events older than 30 s are not being published (relay stalled or Redis down)'
+          runbook: 'docs/operations/runbook.md#key-signals-and-what-to-do'
+      - alert: SmaDeliveryDeadLetters
+        expr: increase(sma_delivery_jobs_total{outcome="dead_letter"}[10m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $value }} delivery jobs were dead-lettered in 10 minutes'
+          runbook: 'docs/operations/runbook.md#key-signals-and-what-to-do'
+      - alert: SmaDeliveryLatency
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(sma_delivery_latency_seconds_bucket{type="message.created"}[5m]))) > 2
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'p95 message delivery (accept → emit) above 2 s'
+      - alert: SmaQueueBacklog
+        expr: sma_queue_jobs{state="waiting"} > 5000
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Queue {{ $labels.queue }} has {{ $value }} waiting jobs — add worker replicas'
+      - alert: SmaCampaignStalled
+        expr: sma_campaigns_sending > 0 and increase(sma_campaign_messages_written_total[10m]) == 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Campaigns are sending but no messages were written for 10 minutes'
+
+  - name: sma-emergency
+    rules:
+      - alert: SmaEmergencyEscalationOverdue
+        expr: sma_emergency_overdue_seconds > 30
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'An emergency alert is past its acknowledgement deadline and has not escalated (sweeper not running?)'
+          runbook: 'docs/operations/runbook.md#emergency-alerts'
+      - alert: SmaEmergencyUnanswered
+        expr: increase(sma_emergency_escalations_total{result="chain_exhausted"}[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: 'An emergency alert reached the end of its escalation chain with no response'
+          runbook: 'docs/operations/runbook.md#emergency-alerts'
+
+  - name: sma-data
+    rules:
+      - alert: SmaDbConnectionsHigh
+        expr: sma_db_connections > 80
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: '{{ $value }} database connections (default max_connections is 100)'
+      - alert: SmaDbSlowQueries
+        expr: |
+          histogram_quantile(0.95, sum by (le) (rate(sma_db_query_duration_seconds_bucket[5m]))) > 0.1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'p95 database query time above 100 ms'
+      - alert: SmaMediaVerificationBacklog
+        expr: sma_media_verifying > 50
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Uploads are waiting for the malware scanner (ClamAV down or slow?)'
+          runbook: 'docs/operations/runbook.md#key-signals-and-what-to-do'
+      - alert: SmaMalwareQuarantined
+        expr: increase(sma_media_processed_total{outcome="quarantined"}[15m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: 'An upload was quarantined as malware — review with security'
+      - alert: SmaTenantStorageNearQuota
+        expr: sma_tenant_storage_usage_ratio_max > 0.9
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: 'A tenant has used more than 90% of its storage quota'
+
+  - name: sma-security
+    rules:
+      - alert: SmaLoginFailureSpike
+        expr: sum(rate(sma_auth_login_failures_total[5m])) * 60 > 30
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'More than 30 failed sign-ins per minute (credential stuffing?)'
+          runbook: 'docs/operations/runbook.md#security-incidents'
+      - alert: SmaAuthorizationDenialSpike
+        expr: sum(rate(sma_authz_denials_total{reason!="MFA_REQUIRED"}[5m])) * 60 > 60
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Unusual number of authorization denials (probing?)'
+          runbook: 'docs/operations/runbook.md#security-incidents'

@@ -1,0 +1,55 @@
+{
+  "name": "storeline",
+  "private": true,
+  "description": "Multi-tenant business messaging and store operations platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "npm run build -w @storeline/shared && npm run build -w @storeline/api && npm run build -w @storeline/web",
+    "build:shared": "npm run build -w @storeline/shared",
+    "dev:api": "npm run dev -w @storeline/api",
+    "dev:worker": "npm run dev:worker -w @storeline/api",
+    "dev:web": "npm run dev -w @storeline/web",
+    "db:migrate": "npm run db:migrate -w @storeline/api",
+    "db:seed": "npm run db:seed -w @storeline/api",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "test:unit": "npm run test -w @storeline/shared && npm run test:unit -w @storeline/api",
+    "test:integration": "npm run test:integration -w @storeline/api",
+    "brand:assets": "node scripts/generate-brand-assets.cjs",
+    "test:alpha": "playwright test -c e2e"
+  },
+  "allowScripts": {
+    "@prisma/engines@6.19.3": true,
+    "@swc/core@1.16.13": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
+    "@eslint/js": "^9.39.5",
+    "@playwright/test": "^1.63.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.5.0",
+    "prettier": "^3.9.9",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.71.1"
+  },
+  "overrides": {
+    "@nestjs/swagger": {
+      "js-yaml": "^5.4.3"
+    },
+    "next": {
+      "postcss": "^8.5.29"
+    }
+  }
+}

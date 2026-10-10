@@ -1,0 +1,12 @@
+node_modules
+dist
+.next
+coverage
+package-lock.json
+apps/api/prisma/migrations
+.claude
+*.md
+# Generated API contract (exact bytes are checked by test/openapi.e2e-spec.ts)
+docs/api/openapi.json
+e2e/report
+e2e/results

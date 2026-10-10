@@ -1,0 +1,113 @@
+# Local development infrastructure. Not for production (see docs/operations/deployment.md).
+# Host ports are offset (1xxxx) to avoid clashing with other local services and with
+# Windows' dynamically reserved port ranges (which commonly cover 50000-65535).
+name: storeline
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    environment:
+      POSTGRES_USER: storeline
+      POSTGRES_PASSWORD: storeline_dev_password
+      POSTGRES_DB: storeline
+    ports:
+      - '127.0.0.1:15432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infrastructure/docker/postgres/init.sql:/docker-entrypoint-initdb.d/10-test-db.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U storeline -d storeline']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4.6-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    ports:
+      - '127.0.0.1:16379:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # S3-compatible object storage for media (phase 4). MinIO community images are no
+  # longer published, see ADR-0005.
+  objectstore:
+    image: chrislusf/seaweedfs:3.97
+    command:
+      [
+        'server',
+        '-s3',
+        '-s3.config=/etc/seaweedfs/s3.json',
+        '-dir=/data',
+        '-master.volumeSizeLimitMB=1024',
+      ]
+    ports:
+      - '127.0.0.1:18333:8333'
+    volumes:
+      - objectstore-data:/data
+      - ./infrastructure/docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro
+
+  # Malware scanning for uploads (clamd INSTREAM on 3310). The first start downloads
+  # signature databases and can take a few minutes before the health check passes.
+  clamav:
+    image: clamav/clamav:1.4
+    environment:
+      # Limits must exceed MEDIA_PLATFORM_MAX_MB; AlertExceedsMax makes oversized files a
+      # detection (Heuristics.Limits.Exceeded) instead of silently skipping them.
+      CLAMD_CONF_StreamMaxLength: 1100M
+      CLAMD_CONF_MaxFileSize: 1100M
+      CLAMD_CONF_MaxScanSize: 1100M
+      CLAMD_CONF_AlertExceedsMax: 'yes'
+    ports:
+      - '127.0.0.1:13310:3310'
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ['CMD', 'clamdcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+
+  # Monitoring (optional): docker compose --profile monitoring up -d
+  # Prometheus scrapes the API/worker metrics ports on the host; Grafana ships the SMA dashboard.
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ['monitoring']
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=15d'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    ports:
+      - '127.0.0.1:19090:9090'
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infrastructure/monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    profiles: ['monitoring']
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'false'
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    ports:
+      - '127.0.0.1:13000:3000'
+    volumes:
+      - ./infrastructure/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+
+volumes:
+  clamav-data:
+  postgres-data:
+  redis-data:
+  objectstore-data:
+  prometheus-data:
+  grafana-data:

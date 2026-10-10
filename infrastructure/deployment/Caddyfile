@@ -1,0 +1,28 @@
+# TLS (automatic certificates) and routing for SMA.
+{$SMA_DOMAIN} {
+	encode zstd gzip
+
+	@backend path /api/* /socket.io/*
+	handle @backend {
+		reverse_proxy {
+			# Every api replica; WebSocket-only clients need no sticky sessions.
+			dynamic a {
+				name api
+				port 4000
+				refresh 10s
+			}
+			lb_policy least_conn
+			health_uri /api/v1/health/ready
+			health_interval 10s
+		}
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		-Server
+	}
+}

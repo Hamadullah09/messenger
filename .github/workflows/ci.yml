@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Reused by the release workflow before images are built.
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:17.6-alpine
+        env:
+          POSTGRES_USER: storeline
+          POSTGRES_PASSWORD: storeline_ci_password
+          POSTGRES_DB: storeline_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U storeline -d storeline_test"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7.4.6-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      NODE_ENV: test
+      LOG_LEVEL: warn
+      DATABASE_URL: postgresql://storeline:storeline_ci_password@localhost:5432/storeline_test?schema=public
+      REDIS_URL: redis://localhost:6379/1
+      # Ephemeral CI-only values; never used outside this job.
+      JWT_ACCESS_SECRET: ci-only-jwt-secret-0123456789abcdefghijklmnopqrstuvwxyz
+      DATA_ENCRYPTION_KEY: Y2ktb25seS0zMi1ieXRlLWtleS0wMTIzNDU2Nzg5YWI=
+      COOKIE_SECURE: 'false'
+      CORS_ORIGINS: http://localhost:3000
+      S3_ENDPOINT: http://127.0.0.1:18333
+      S3_PUBLIC_ENDPOINT: http://127.0.0.1:18333
+      S3_BUCKET: storeline-media-test
+      S3_ACCESS_KEY_ID: storeline_dev_access_key
+      S3_SECRET_ACCESS_KEY: storeline_dev_secret_key_change_me
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_AUTO_CREATE_BUCKET: 'true'
+      MALWARE_SCANNER: clamav
+      CLAMAV_HOST: 127.0.0.1
+      CLAMAV_PORT: '13310'
+      # Background timers are driven explicitly by the tests (sweepOnce / runOnce).
+      EMERGENCY_SWEEP_INTERVAL_MS: '3600000'
+      CAMPAIGN_DISPATCH_INTERVAL_MS: '3600000'
+      METRICS_ENABLED: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      # Object storage and malware scanning for the media tests. Service containers cannot
+      # take custom commands or config mounts, so these start as plain containers.
+      - name: Start object storage and ClamAV
+        run: |
+          docker run -d --name objectstore -p 127.0.0.1:18333:8333             -v "$PWD/infrastructure/docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro"             chrislusf/seaweedfs:3.97 server -s3 -s3.config=/etc/seaweedfs/s3.json -dir=/data
+          docker run -d --name clamav -p 127.0.0.1:13310:3310             -e CLAMD_CONF_StreamMaxLength=1100M -e CLAMD_CONF_MaxFileSize=1100M             -e CLAMD_CONF_MaxScanSize=1100M -e CLAMD_CONF_AlertExceedsMax=yes             clamav/clamav:1.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate --schema apps/api/prisma/schema.prisma
+      - name: Build shared package
+        run: npm run build:shared
+      - name: Lint
+        run: npm run lint
+      - name: Format check
+        run: npm run format:check
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit tests
+        run: npm run test:unit
+      - name: Wait for ClamAV signatures
+        run: |
+          for i in $(seq 1 60); do
+            docker exec clamav clamdcheck.sh >/dev/null 2>&1 && exit 0
+            sleep 5
+          done
+          docker logs clamav | tail -50
+          exit 1
+      - name: Integration tests (PostgreSQL, Redis, S3, ClamAV)
+        run: npm run test:integration
+      - name: Build API and web
+        run: npm run build
+      - name: Dependency audit (production dependencies)
+        run: npm audit --omit=dev --audit-level=critical
+      - name: Validate monitoring rules and production compose
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD/infrastructure/monitoring:/etc/prometheus:ro"             prom/prometheus:v3.5.0 check config /etc/prometheus/prometheus.yml
+          cd infrastructure/deployment
+          cp .env.production.example .env.production && cp .env.postgres.example .env.postgres
+          REGISTRY=ghcr.io/example IMAGE_TAG=ci SMA_DOMAIN=example.com docker compose -f compose.prod.yaml config -q

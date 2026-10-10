@@ -1,0 +1,14 @@
+{
+  "identities": [
+    {
+      "name": "storeline-dev",
+      "credentials": [
+        {
+          "accessKey": "storeline_dev_access_key",
+          "secretKey": "storeline_dev_secret_key_change_me"
+        }
+      ],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}
