@@ -1,8 +1,15 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import {
   PINNED_MESSAGES_MAX,
   resolveBusinessPolicy,
+  type AudioDetails,
+  type EventResponseRequest,
   type ForwardMessageRequest,
+  type LiveLocationUpdate,
+  type MessageMeta,
+  type PollVoteRequest,
+  type RichContent,
   type ListMessagesQuery,
   type MessageDto,
   type MessageInfoDto,
@@ -27,6 +34,7 @@ import {
 } from './conversation-access.service';
 import { canPost, canShareFiles, messageInclude, toMessageDto } from './mappers';
 import { MessageWriter } from './message-writer.service';
+import { BroadcastService } from './broadcast.service';
 import { RealtimeEmitter } from '../realtime/realtime-emitter.service';
 import { metrics } from '../../infra/metrics/metrics';
 
@@ -50,6 +58,7 @@ export class MessagesService {
     private readonly rateLimiter: RateLimiterService,
     private readonly audit: AuditService,
     private readonly realtime: RealtimeEmitter,
+    private readonly broadcast: BroadcastService,
   ) {}
 
   async list(
@@ -169,19 +178,28 @@ export class MessagesService {
         const media = request.mediaId
           ? await this.requireAttachableMedia(tx, actor, current, member, request.mediaId)
           : null;
+        const rich = request.content
+          ? await this.richContent(tx, current.businessId, request.content)
+          : null;
+        if (request.audio && media?.kind !== 'AUDIO')
+          throw ApiError.validation('Audio details need an audio file.', 'audio');
         return this.writer.create(tx, {
           conversationId,
           businessId: current.businessId,
           senderId: actor.userId,
           clientMessageId: request.clientMessageId,
-          kind: media?.kind ?? 'TEXT',
-          body: request.body ?? null,
+          kind: rich?.kind ?? media?.kind ?? 'TEXT',
+          body: rich ? rich.body : (request.body ?? null),
+          meta: rich?.meta ?? (media?.kind === 'AUDIO' ? audioMeta(request.audio) : null),
           mediaId: media?.id ?? null,
           replyToId: request.replyToId ?? null,
         });
       });
       await this.outbox.dispatch([event]);
       metrics.messagesAccepted.inc({ kind: request.mediaId ? 'MEDIA' : 'TEXT' });
+      // Broadcast list: every recipient also gets it as a direct message.
+      if (conversation.type === 'BROADCAST_LIST')
+        await this.broadcast.fanOut(actor, conversationId, id);
       return { message: await this.loadDto(id), duplicate: false };
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -197,7 +215,10 @@ export class MessagesService {
     if (message.senderId !== actor.userId)
       throw ApiError.forbidden('You can only edit your own messages.');
     // Text and attachment captions can be edited; system messages cannot.
-    if (message.kind === 'SYSTEM' || message.deletedAt)
+    if (
+      message.deletedAt ||
+      !['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT'].includes(message.kind)
+    )
       throw ApiError.conflict('This message cannot be edited.');
     const policy = resolveBusinessPolicy(conversation.business.policy);
     if (Date.now() - message.createdAt.getTime() > policy.messageEditWindowMinutes * 60_000) {
@@ -301,9 +322,17 @@ export class MessagesService {
       where: { messageId, media: { status: 'READY' } },
       select: { mediaId: true },
     });
-    if (message.deletedAt || message.kind === 'SYSTEM' || (message.body === null && !attachment)) {
+    const meta = (message.meta as MessageMeta | null) ?? null;
+    if (
+      message.deletedAt ||
+      ['SYSTEM', 'POLL', 'CALL'].includes(message.kind) ||
+      (message.body === null && !attachment && !meta)
+    ) {
       throw ApiError.conflict('This message cannot be forwarded.');
     }
+    // A forwarded location is a snapshot: live sharing stays with the original.
+    const forwardedMeta: MessageMeta | null =
+      meta?.type === 'location' ? { ...meta, live: null } : meta;
     const results: SendResult[] = [];
     for (const target of request.targets) {
       const existing = await this.findByClientId(actor.userId, target.clientMessageId);
@@ -331,15 +360,176 @@ export class MessagesService {
           clientMessageId: target.clientMessageId,
           kind: message.kind,
           body: message.body,
+          meta: forwardedMeta,
           // Forwarding shares the same verified file; access follows the new message.
           mediaId: attachment?.mediaId ?? null,
           forwardedFromId: message.id,
         });
       });
       await this.outbox.dispatch([event]);
+      if (conversation.type === 'BROADCAST_LIST')
+        await this.broadcast.fanOut(actor, target.conversationId, id);
       results.push({ message: await this.loadDto(id), duplicate: false });
     }
     return results;
+  }
+
+  /** Poll vote: replaces the person's choices (empty removes the vote). */
+  async votePoll(actor: Actor, messageId: string, request: PollVoteRequest): Promise<MessageDto> {
+    const { message, conversation } = await this.loadForMember(actor, messageId);
+    const meta = message.meta as MessageMeta | null;
+    if (message.kind !== 'POLL' || message.deletedAt || meta?.type !== 'poll')
+      throw ApiError.conflict('This is not an open poll.');
+    const options = [...new Set(request.options)];
+    if (options.some((o) => o >= meta.options.length))
+      throw ApiError.validation('That option does not exist.', 'options');
+    if (!meta.multiple && options.length > 1)
+      throw ApiError.validation('Choose one option.', 'options');
+    const event = await this.prisma.$transaction(async (tx) => {
+      await tx.pollVote.deleteMany({ where: { messageId, userId: actor.userId } });
+      if (options.length > 0)
+        await tx.pollVote.createMany({
+          data: options.map((option) => ({ messageId, userId: actor.userId, option })),
+        });
+      return this.outbox.add(tx, 'message.updated', { messageId }, conversation.businessId);
+    });
+    await this.outbox.dispatch([event]);
+    return this.loadDto(messageId);
+  }
+
+  /** Going / maybe / not going to an event (null clears the answer). */
+  async respondToEvent(
+    actor: Actor,
+    messageId: string,
+    request: EventResponseRequest,
+  ): Promise<MessageDto> {
+    const { message, conversation } = await this.loadForMember(actor, messageId);
+    if (message.kind !== 'EVENT' || message.deletedAt)
+      throw ApiError.conflict('This is not an event.');
+    const event = await this.prisma.$transaction(async (tx) => {
+      if (request.response === null) {
+        await tx.eventResponse.deleteMany({ where: { messageId, userId: actor.userId } });
+      } else {
+        await tx.eventResponse.upsert({
+          where: { messageId_userId: { messageId, userId: actor.userId } },
+          create: { messageId, userId: actor.userId, response: request.response },
+          update: { response: request.response },
+        });
+      }
+      return this.outbox.add(tx, 'message.updated', { messageId }, conversation.businessId);
+    });
+    await this.outbox.dispatch([event]);
+    return this.loadDto(messageId);
+  }
+
+  /** Live location: the sender's app sends new positions while sharing is on. */
+  async updateLiveLocation(
+    actor: Actor,
+    messageId: string,
+    update: LiveLocationUpdate | null,
+  ): Promise<MessageDto> {
+    const { message, conversation } = await this.loadForMember(actor, messageId);
+    const meta = message.meta as MessageMeta | null;
+    if (message.senderId !== actor.userId || meta?.type !== 'location' || !meta.live)
+      throw ApiError.conflict('This is not your live location.');
+    const now = new Date();
+    if (meta.live.stoppedAt || new Date(meta.live.until) <= now) {
+      if (update) throw ApiError.conflict('Live location sharing has ended.');
+      return this.loadDto(messageId);
+    }
+    const next: MessageMeta = update
+      ? {
+          ...meta,
+          lat: update.lat,
+          lng: update.lng,
+          accuracy: update.accuracy ?? null,
+          live: { ...meta.live, updatedAt: now.toISOString() },
+        }
+      : { ...meta, live: { ...meta.live, stoppedAt: now.toISOString() } };
+    const event = await this.prisma.$transaction(async (tx) => {
+      await tx.message.update({
+        where: { id: messageId },
+        data: { meta: next as unknown as Prisma.InputJsonValue },
+      });
+      return this.outbox.add(tx, 'message.updated', { messageId }, conversation.businessId);
+    });
+    await this.outbox.dispatch([event]);
+    return this.loadDto(messageId);
+  }
+
+  /** Validates a location, contact, poll, event or sticker and builds what is stored. */
+  private async richContent(
+    tx: Tx,
+    businessId: string,
+    content: RichContent,
+  ): Promise<{ kind: 'LOCATION' | 'CONTACT' | 'POLL' | 'EVENT' | 'STICKER'; body: string | null; meta: MessageMeta }> {
+    switch (content.kind) {
+      case 'LOCATION': {
+        const now = new Date();
+        return {
+          kind: 'LOCATION',
+          body: content.name ?? null,
+          meta: {
+            type: 'location',
+            lat: content.lat,
+            lng: content.lng,
+            accuracy: content.accuracy ?? null,
+            name: content.name ?? null,
+            address: content.address ?? null,
+            live: content.liveMinutes
+              ? {
+                  until: new Date(now.getTime() + content.liveMinutes * 60_000).toISOString(),
+                  stoppedAt: null,
+                  updatedAt: now.toISOString(),
+                }
+              : null,
+          },
+        };
+      }
+      case 'CONTACT': {
+        // Only people of the same business can be shared (no private contact details are sent).
+        const user = await tx.user.findFirst({
+          where: {
+            id: content.userId,
+            status: 'ACTIVE',
+            deletedAt: null,
+            businessMemberships: { some: { businessId, status: 'ACTIVE' } },
+          },
+          select: { id: true, displayName: true, username: true },
+        });
+        if (!user) throw ApiError.validation('That person is not in this business.', 'content');
+        return {
+          kind: 'CONTACT',
+          body: null,
+          meta: {
+            type: 'contact',
+            userId: user.id,
+            displayName: user.displayName,
+            username: user.username,
+          },
+        };
+      }
+      case 'POLL':
+        return {
+          kind: 'POLL',
+          body: content.question,
+          meta: { type: 'poll', options: content.options, multiple: content.multiple },
+        };
+      case 'EVENT':
+        return {
+          kind: 'EVENT',
+          body: content.title,
+          meta: {
+            type: 'event',
+            startsAt: content.startsAt.toISOString(),
+            endsAt: content.endsAt?.toISOString() ?? null,
+            location: content.location ?? null,
+            description: content.description ?? null,
+          },
+        };
+      case 'STICKER':
+        return { kind: 'STICKER', body: null, meta: { type: 'sticker', sticker: content.sticker } };
+    }
   }
 
   async setStar(actor: Actor, messageId: string, starred: boolean): Promise<void> {
@@ -507,6 +697,7 @@ export class MessagesService {
         state: true,
         deletedAt: true,
         createdAt: true,
+        meta: true,
       },
     });
     if (!message) throw ApiError.notFound('Message');
@@ -579,4 +770,13 @@ export class MessagesService {
     }
     return { message: toMessageDto(existing), duplicate: true };
   }
+}
+
+function audioMeta(details: AudioDetails | undefined): MessageMeta {
+  return {
+    type: 'audio',
+    voice: details?.voice ?? false,
+    durationMs: details?.durationMs ?? 0,
+    waveform: details?.waveform ?? null,
+  };
 }

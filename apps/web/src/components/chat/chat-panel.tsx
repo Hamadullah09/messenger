@@ -10,10 +10,13 @@ import {
   BellOff,
   Info,
   MailWarning,
+  Megaphone,
   MoreVertical,
+  Phone,
   Pin,
   PinOff,
   Search,
+  Video,
   X,
   Siren,
 } from 'lucide-react';
@@ -35,6 +38,8 @@ import { formatRelativeShort, formatTime } from '@/lib/format';
 import { activeTypers, useLive } from '@/lib/live-store';
 import { useSocket } from '@/lib/realtime';
 import { Alert, Avatar, Button, cx, Dialog, Spinner } from '../ui';
+import { startCall } from '@/lib/calls';
+import { BroadcastInfoPanel, useBroadcastList } from './broadcast';
 import { Composer } from './composer';
 import { UploadTray } from './upload-tray';
 import { ChatInfoPanel } from './chat-info';
@@ -58,7 +63,7 @@ export function ChatPanel({
   const detail = useConversationDetail(conversationId);
   const messages = useMessages(conversationId);
   const loadOlder = useLoadOlder(conversationId);
-  const { send, retry } = useSendMessage(conversationId);
+  const { send, sendContent, retry } = useSendMessage(conversationId);
   const uploads = useMediaSend(conversationId);
   const action = useMessageAction();
   const myState = useUpdateMyState(conversationId);
@@ -73,6 +78,10 @@ export function ChatPanel({
   const [infoFor, setInfoFor] = useState<MessageDto | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [searching, setSearching] = useState(false);
+  const broadcastList = useBroadcastList(
+    conversationId,
+    detail.data?.type === 'BROADCAST_LIST',
+  );
   // Remember where unread started when the chat was opened, for the "Unread messages" marker.
   const unreadMarker = useRef<{ id: string; seq: number | null } | null>(null);
 
@@ -177,6 +186,8 @@ export function ChatPanel({
             : `@${conversation.counterpart?.username ?? ''}`
         : conversation.type === 'BROADCAST'
           ? `Announcements · ${conversation.memberCount} members`
+          : conversation.type === 'BROADCAST_LIST'
+            ? `Broadcast list · ${broadcastList.data?.recipients.length ?? '…'} recipients`
           : conversation.members
               .slice(0, 6)
               .map((m) => (m.user.id === me.user.id ? 'You' : m.user.displayName))
@@ -205,13 +216,19 @@ export function ChatPanel({
             title={conversation.type === 'DIRECT' ? 'Contact info' : 'Group info'}
             className="flex h-full min-w-0 flex-1 items-center gap-3 text-left"
           >
-            <Avatar
-              name={conversation.title}
-              size={40}
-              online={
-                conversation.type === 'DIRECT' ? (counterpartPresence?.online ?? false) : undefined
-              }
-            />
+            {conversation.type === 'BROADCAST_LIST' ? (
+              <span className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand">
+                <Megaphone className="size-5" aria-hidden />
+              </span>
+            ) : (
+              <Avatar
+                name={conversation.title}
+                size={40}
+                online={
+                  conversation.type === 'DIRECT' ? (counterpartPresence?.online ?? false) : undefined
+                }
+              />
+            )}
             <span className="min-w-0">
               <span className="block truncate text-[1rem] font-medium">{conversation.title}</span>
               <span
@@ -225,6 +242,28 @@ export function ChatPanel({
               </span>
             </span>
           </button>
+          {conversation.type === 'DIRECT' && conversation.me.canPost && (
+            <>
+              <button
+                type="button"
+                aria-label="Video call"
+                title="Video call"
+                className={HEADER_ICON}
+                onClick={() => void startCall(conversationId, 'video')}
+              >
+                <Video className="size-5" aria-hidden />
+              </button>
+              <button
+                type="button"
+                aria-label="Voice call"
+                title="Voice call"
+                className={HEADER_ICON}
+                onClick={() => void startCall(conversationId, 'audio')}
+              >
+                <Phone className="size-5" aria-hidden />
+              </button>
+            </>
+          )}
           <button
             type="button"
             aria-label="Search in chat"
@@ -305,8 +344,13 @@ export function ChatPanel({
         <UploadTray items={uploads.items} onCancel={uploads.cancel} onRetry={uploads.retry} />
         <Composer
           conversationId={conversationId}
+          businessId={conversation.businessId}
           canShareFiles={conversation.me.canShareFiles}
-          onSendFile={(file, caption) => uploads.send(file, caption)}
+          onSendFile={(file, caption, audio) => uploads.send(file, caption, audio ?? null)}
+          onSendContent={(content) => {
+            sendContent(content, replyTo);
+            setReplyTo(null);
+          }}
           disabledReason={
             conversation.me.canPost
               ? null
@@ -358,11 +402,19 @@ export function ChatPanel({
       {/* WhatsApp Web-style info panel: beside the chat on large screens, over it on smaller ones. */}
       {infoOpen && (
         <div className="absolute inset-0 z-20 lg:static lg:w-[38%] lg:max-w-[460px] lg:min-w-[340px] lg:shrink-0">
-          <ChatInfoPanel
-            conversation={conversation}
-            canManage={canManage}
-            onClose={() => setInfoOpen(false)}
-          />
+          {conversation.type === 'BROADCAST_LIST' ? (
+            <BroadcastInfoPanel
+              conversationId={conversationId}
+              onClose={() => setInfoOpen(false)}
+              onDeleted={onBack}
+            />
+          ) : (
+            <ChatInfoPanel
+              conversation={conversation}
+              canManage={canManage}
+              onClose={() => setInfoOpen(false)}
+            />
+          )}
         </div>
       )}
     </div>

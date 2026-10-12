@@ -108,6 +108,18 @@ export const PERMISSIONS = definePermissions({
     salesOnly: true,
   },
   'sales.team.manage': { description: 'Add and manage Sales & Marketing users', salesOnly: true },
+  'sales.target.manage': {
+    description: "Set the sales team's monthly targets",
+    salesOnly: true,
+  },
+  'sales.catalog.manage': {
+    description: 'Manage the services SMA sells and their prices',
+    salesOnly: true,
+  },
+  'sales.billing.manage': {
+    description: 'Create and send invoices and record payments',
+    salesOnly: true,
+  },
   'task.work': { description: "See your store's tasks and shifts and mark tasks done" },
   'task.manage': { description: 'Assign store tasks and plan staff shifts' },
   'report.read': { description: 'View business reports (messages, response times, campaigns)' },

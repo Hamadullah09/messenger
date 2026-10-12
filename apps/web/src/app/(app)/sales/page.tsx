@@ -21,17 +21,22 @@ import {
   ArrowDownUp,
   BadgeCheck,
   BarChart3,
+  Briefcase,
   CalendarClock,
   Download,
+  Globe,
   Kanban,
   List,
   Mail,
   MessageCircle,
+  Package,
   PhoneCall,
   Plus,
+  Receipt,
   Search,
   Target,
   TrendingUp,
+  Trophy,
   UserPlus,
   Users,
   type LucideIcon,
@@ -39,6 +44,15 @@ import {
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useState, type DragEvent } from 'react';
+import {
+  CrmCustomersTab,
+  DealsTab,
+  InvoicesTab,
+  RevenueStrip,
+  ServicesTab,
+  TargetsTab,
+  WebsiteFormDialog,
+} from '@/components/sales/crm';
 import { LeadFormDialog } from '@/components/sales/lead-form';
 import { LeadPanel, OwnerBadge, StageChip } from '@/components/sales/lead-panel';
 import {
@@ -66,12 +80,25 @@ import { api, downloadFile, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth-store';
 import { formatDay, formatRelativeShort } from '@/lib/format';
 
-type Tab = 'overview' | 'pipeline' | 'leads' | 'customers' | 'team';
+type Tab =
+  | 'overview'
+  | 'pipeline'
+  | 'leads'
+  | 'deals'
+  | 'customers'
+  | 'invoices'
+  | 'targets'
+  | 'services'
+  | 'team';
 const TABS: Array<{ key: Tab; label: string; Icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', Icon: BarChart3 },
   { key: 'pipeline', label: 'Pipeline', Icon: Kanban },
   { key: 'leads', label: 'Leads', Icon: List },
+  { key: 'deals', label: 'Deals', Icon: Briefcase },
   { key: 'customers', label: 'SMA customers', Icon: BadgeCheck },
+  { key: 'invoices', label: 'Invoices', Icon: Receipt },
+  { key: 'targets', label: 'Targets', Icon: Trophy },
+  { key: 'services', label: 'Services', Icon: Package },
   { key: 'team', label: 'Team', Icon: Users },
 ];
 
@@ -81,6 +108,7 @@ function SalesScreen() {
   const me = useAuth((s) => s.me)!;
   const tab = (TABS.find((t) => t.key === params.get('tab'))?.key ?? 'overview') as Tab;
   const [creating, setCreating] = useState(false);
+  const [websiteForm, setWebsiteForm] = useState(false);
   const [openLead, setOpenLead] = useState<string | null>(null);
   const context = useQuery({
     queryKey: ['sales-context'],
@@ -120,6 +148,13 @@ function SalesScreen() {
                 </Link>
               )}
               <Button
+                variant="secondary"
+                onClick={() => setWebsiteForm(true)}
+                icon={<Globe className="size-5" aria-hidden />}
+              >
+                Website form
+              </Button>
+              <Button
                 onClick={() => setCreating(true)}
                 icon={<Plus className="size-5" aria-hidden />}
               >
@@ -157,10 +192,21 @@ function SalesScreen() {
           )}
         </div>
         <div role="tabpanel">
-          {tab === 'overview' && <Overview context={ctx} onOpen={setOpenLead} />}
+          {tab === 'overview' && (
+            <div className="flex flex-col gap-6">
+              <RevenueStrip myId={me.user.id} />
+              <Overview context={ctx} onOpen={setOpenLead} />
+            </div>
+          )}
           {tab === 'pipeline' && <Pipeline context={ctx} onOpen={setOpenLead} />}
           {tab === 'leads' && <Leads context={ctx} team={team.data ?? []} onOpen={setOpenLead} />}
-          {tab === 'customers' && <Customers context={ctx} onOpen={setOpenLead} />}
+          {tab === 'deals' && <DealsTab context={ctx} team={team.data ?? []} />}
+          {tab === 'customers' && (
+            <Customers context={ctx} team={team.data ?? []} onOpen={setOpenLead} />
+          )}
+          {tab === 'invoices' && <InvoicesTab />}
+          {tab === 'targets' && <TargetsTab />}
+          {tab === 'services' && <ServicesTab />}
           {tab === 'team' && <TeamTab context={ctx} team={team.data} loading={team.isLoading} />}
         </div>
       </div>
@@ -175,6 +221,7 @@ function SalesScreen() {
           }}
         />
       )}
+      {websiteForm && <WebsiteFormDialog onClose={() => setWebsiteForm(false)} />}
       {openLead && (
         <LeadPanel
           leadId={openLead}
@@ -833,28 +880,24 @@ function Leads({
 
 function Customers({
   context,
+  team,
   onOpen,
 }: {
   context: SalesContextDto;
+  team: SalesUserDto[];
   onOpen: (id: string) => void;
 }) {
   const won = useLeads({ stage: 'WON' });
   const exporting = useMutation({
     mutationFn: () => downloadFile('/sales/leads-export.csv?customers=true', 'sma-customers.csv'),
   });
-  const customers = (won.data ?? []).sort((a, b) =>
-    (b.customer?.convertedAt ?? b.lastActivityAt).localeCompare(
-      a.customer?.convertedAt ?? a.lastActivityAt,
-    ),
-  );
   return (
     <div className="flex flex-col gap-4">
-      <Alert tone="info" title="SMA customers are businesses that buy SMA">
-        They come from won leads. Each business manages its own stores, staff and store customers;
-        those store customers are not SMA customers and never appear here.
-      </Alert>
-      {context.canSeeAll && (
-        <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-muted">
+          Businesses that buy SMA: what they bought, paid and owe. Use Upsell to sell them more.
+        </p>
+        {context.canSeeAll && (
           <Button
             variant="secondary"
             size="sm"
@@ -862,58 +905,16 @@ function Customers({
             icon={<Download className="size-4" aria-hidden />}
             onClick={() => exporting.mutate()}
           >
-            Export SMA customers (CSV)
+            Export (CSV)
           </Button>
-        </div>
-      )}
-      {won.isLoading && <Spinner label="Loading customers" />}
-      {won.data?.length === 0 && (
-        <EmptyState
-          icon={<BadgeCheck className="size-9" aria-hidden />}
-          title="No SMA customers yet"
-        >
-          Win a lead and convert it to create the first one.
-        </EmptyState>
-      )}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-        {customers.map((l) => (
-          <button
-            key={l.id}
-            type="button"
-            onClick={() => onOpen(l.id)}
-            className="flex flex-col gap-2 rounded-2xl border border-line bg-surface p-4 text-left shadow-card hover:border-brand/40"
-          >
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-lg font-bold">
-                {l.customer?.businessName ?? l.companyName}
-              </span>
-              {l.customer ? (
-                <span className="rounded-full bg-success-soft px-2.5 py-0.5 text-xs font-bold text-success">
-                  On SMA
-                </span>
-              ) : (
-                <span className="rounded-full bg-warning-surface px-2.5 py-0.5 text-xs font-bold text-warning">
-                  Won · not set up yet
-                </span>
-              )}
-            </div>
-            <p className="text-sm text-muted">
-              {l.contactName}
-              {l.city ? ` · ${l.city}` : ''}
-              {l.storeCount !== null ? ` · ${l.storeCount} stores` : ''}
-            </p>
-            <div className="flex items-center justify-between gap-2 text-sm">
-              <OwnerBadge name={l.owner?.displayName ?? null} />
-              <span className="font-semibold">{money(l.estimatedValue, l.currency)} / month</span>
-            </div>
-            <p className="text-xs text-muted">
-              {l.customer
-                ? `Customer since ${formatDay(l.customer.convertedAt)}`
-                : 'Open it and choose Convert to SMA customer.'}
-            </p>
-          </button>
-        ))}
+        )}
       </div>
+      <CrmCustomersTab
+        context={context}
+        team={team}
+        wonNotSetUp={(won.data ?? []).filter((l) => !l.customer)}
+        onOpenLead={onOpen}
+      />
     </div>
   );
 }

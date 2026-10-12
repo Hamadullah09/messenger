@@ -24,6 +24,12 @@ import {
   listMessagesQuerySchema,
   paginationQuerySchema,
   reactionRequestSchema,
+  pollVoteRequestSchema,
+  eventResponseRequestSchema,
+  liveLocationUpdateSchema,
+  type PollVoteRequest,
+  type EventResponseRequest,
+  type LiveLocationUpdate,
   searchMessagesQuerySchema,
   sendMessageRequestSchema,
   seqAckSchema,
@@ -272,6 +278,46 @@ export class MessagesController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<MessageDto> {
     return this.messages.delete(actor, id);
+  }
+
+  @Put(':id/poll-vote')
+  @ApiZodBody(pollVoteRequestSchema)
+  vote(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(pollVoteRequestSchema)) body: PollVoteRequest,
+  ): Promise<MessageDto> {
+    return this.messages.votePoll(actor, id, body);
+  }
+
+  @Put(':id/event-response')
+  @ApiZodBody(eventResponseRequestSchema)
+  respond(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(eventResponseRequestSchema)) body: EventResponseRequest,
+  ): Promise<MessageDto> {
+    return this.messages.respondToEvent(actor, id, body);
+  }
+
+  /** New position while sharing live location (sender only). */
+  @Put(':id/live-location')
+  @ApiZodBody(liveLocationUpdateSchema)
+  liveLocation(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(liveLocationUpdateSchema)) body: LiveLocationUpdate,
+  ): Promise<MessageDto> {
+    return this.messages.updateLiveLocation(actor, id, body);
+  }
+
+  /** Stop sharing live location. */
+  @Delete(':id/live-location')
+  stopLiveLocation(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<MessageDto> {
+    return this.messages.updateLiveLocation(actor, id, null);
   }
 
   @Put(':id/reaction')

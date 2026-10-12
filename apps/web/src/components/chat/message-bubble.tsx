@@ -27,6 +27,18 @@ import { copyText } from '@/lib/clipboard';
 import { describeSystemEvent, formatTime } from '@/lib/format';
 import { Avatar, cx } from '../ui';
 import { AttachmentView } from './attachment-view';
+import {
+  AudioMessage,
+  CallMessage,
+  ContactMessage,
+  EventMessage,
+  LocationMessage,
+  PollMessage,
+  StickerMessage,
+} from './rich-content';
+
+/** Kinds whose text is a plain body (copy/edit apply). */
+const TEXT_KINDS = new Set(['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT']);
 
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '🙏', '✅'];
 
@@ -189,6 +201,13 @@ export function MessageBubble({
     (message.pinned ? 16 : 0) +
     (message.starred ? 16 : 0);
   const metaColor = mine ? 'text-wa-meta-out' : 'text-wa-meta-in';
+  const meta = message.deleted ? null : message.meta;
+  const sticker = meta?.type === 'sticker';
+  /** Structured messages draw their own content; the body is part of it (poll question…). */
+  const rich =
+    !message.deleted &&
+    !!meta &&
+    ['location', 'contact', 'poll', 'event', 'call', 'sticker'].includes(meta.type);
 
   return (
     <div
@@ -225,13 +244,13 @@ export function MessageBubble({
           transition: swipe.dx ? 'none' : 'transform 180ms ease-out',
         }}
         className={cx(
-          'wa-bubble relative max-w-[85%] min-w-[5.5rem] rounded-lg px-1.5 pt-1.5 pb-2 text-[length:var(--chat-font,0.95rem)] sm:max-w-[65%]',
-          mine ? 'bg-wa-out' : 'bg-wa-in',
-          showSender && (mine ? 'rounded-tr-none' : 'rounded-tl-none'),
+          'relative max-w-[85%] min-w-[5.5rem] rounded-lg px-1.5 pt-1.5 pb-2 text-[length:var(--chat-font,0.95rem)] sm:max-w-[65%]',
+          sticker ? 'bg-transparent' : cx('wa-bubble', mine ? 'bg-wa-out' : 'bg-wa-in'),
+          showSender && !sticker && (mine ? 'rounded-tr-none' : 'rounded-tl-none'),
           message.local === 'failed' && 'ring-2 ring-danger',
         )}
       >
-        {showSender && <Tail mine={mine} />}
+        {showSender && !sticker && <Tail mine={mine} />}
         {showSender && group && !mine && (
           <p
             className="truncate px-1 pb-0.5 text-[0.82rem] font-semibold"
@@ -253,12 +272,30 @@ export function MessageBubble({
             </p>
           </div>
         )}
-        {!message.deleted && message.attachment && (
+        {!message.deleted && message.attachment && message.kind === 'AUDIO' && (
+          <AudioMessage
+            attachment={message.attachment}
+            meta={meta?.type === 'audio' ? meta : null}
+            mine={mine}
+            senderName={message.sender.displayName}
+          />
+        )}
+        {!message.deleted && message.attachment && message.kind !== 'AUDIO' && (
           <div className="-mx-0.5 mb-0.5">
             <AttachmentView attachment={message.attachment} />
           </div>
         )}
-        {message.deleted ? (
+        {meta?.type === 'location' && <LocationMessage message={message} meta={meta} mine={mine} />}
+        {meta?.type === 'contact' && <ContactMessage message={message} meta={meta} mine={mine} />}
+        {meta?.type === 'poll' && (
+          <PollMessage message={message} meta={meta} myId={myId} nameOf={nameOf} />
+        )}
+        {meta?.type === 'event' && <EventMessage message={message} meta={meta} myId={myId} />}
+        {meta?.type === 'call' && <CallMessage message={message} meta={meta} myId={myId} />}
+        {meta?.type === 'sticker' && <StickerMessage meta={meta} />}
+        {rich ? (
+          <div className="h-4" aria-hidden />
+        ) : message.deleted ? (
           <p className={cx('flex items-center gap-1.5 px-1 italic', metaColor)}>
             <Ban className="size-4" aria-hidden />
             This message was deleted
@@ -466,22 +503,26 @@ function MessageMenu({
                 >
                   <Reply className="size-5 text-wa-icon" aria-hidden /> Reply
                 </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={item}
-                  onClick={run(() => actions.onForward(message))}
-                >
-                  <Forward className="size-5 text-wa-icon" aria-hidden /> Forward
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className={item}
-                  onClick={run(() => void copyText(message.body ?? ''))}
-                >
-                  <Copy className="size-5 text-wa-icon" aria-hidden /> Copy
-                </button>
+                {message.kind !== 'POLL' && message.kind !== 'CALL' && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={item}
+                    onClick={run(() => actions.onForward(message))}
+                  >
+                    <Forward className="size-5 text-wa-icon" aria-hidden /> Forward
+                  </button>
+                )}
+                {TEXT_KINDS.has(message.kind) && message.body && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={item}
+                    onClick={run(() => void copyText(message.body ?? ''))}
+                  >
+                    <Copy className="size-5 text-wa-icon" aria-hidden /> Copy
+                  </button>
+                )}
                 <button
                   type="button"
                   role="menuitem"
@@ -518,14 +559,16 @@ function MessageMenu({
                     >
                       <Info className="size-5 text-wa-icon" aria-hidden /> Message info
                     </button>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      className={item}
-                      onClick={run(() => actions.onEdit(message))}
-                    >
-                      <Pencil className="size-5 text-wa-icon" aria-hidden /> Edit
-                    </button>
+                    {TEXT_KINDS.has(message.kind) && (
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className={item}
+                        onClick={run(() => actions.onEdit(message))}
+                      >
+                        <Pencil className="size-5 text-wa-icon" aria-hidden /> Edit
+                      </button>
+                    )}
                   </>
                 )}
               </>

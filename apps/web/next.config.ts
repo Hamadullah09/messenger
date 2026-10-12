@@ -29,6 +29,9 @@ const csp = [
   "object-src 'none'",
 ].join('; ');
 
+/** The website lead form may be embedded (iframe) on any site; nothing else may. */
+const embedCsp = csp.replace("frame-ancestors 'none'", 'frame-ancestors *');
+
 const config: NextConfig = {
   reactStrictMode: true,
   // Development-only badge; keep it away from the sidebar's bottom controls.
@@ -46,12 +49,25 @@ const config: NextConfig = {
   async headers() {
     return [
       {
-        source: '/:path*',
+        source: '/((?!embed/).*)',
         headers: [
           { key: 'Content-Security-Policy', value: csp },
           { key: 'X-Content-Type-Options', value: 'nosniff' },
           { key: 'Referrer-Policy', value: 'no-referrer' },
           { key: 'X-Frame-Options', value: 'DENY' },
+          // Voice notes and calls need the microphone/camera; location sharing needs GPS.
+          {
+            key: 'Permissions-Policy',
+            value: 'camera=(self), microphone=(self), geolocation=(self)',
+          },
+        ],
+      },
+      {
+        source: '/embed/:path*',
+        headers: [
+          { key: 'Content-Security-Policy', value: embedCsp },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
           { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
         ],
       },

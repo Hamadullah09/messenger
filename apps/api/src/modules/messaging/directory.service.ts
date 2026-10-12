@@ -55,6 +55,17 @@ export class DirectoryService {
     return match === 1;
   }
 
+  /** Which of these people the actor may message directly in the business. */
+  async reachableIds(actor: Actor, businessId: string, userIds: string[]): Promise<Set<string>> {
+    const where = await this.reachableWhere(actor, businessId);
+    if (!where || userIds.length === 0) return new Set();
+    const rows = await this.prisma.user.findMany({
+      where: { AND: [where, { id: { in: userIds } }] },
+      select: { id: true },
+    });
+    return new Set(rows.map((r) => r.id));
+  }
+
   /** Prisma filter for users reachable by the actor in a business, or null if none are. */
   private async reachableWhere(
     actor: Actor,

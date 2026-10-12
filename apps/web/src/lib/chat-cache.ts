@@ -7,12 +7,17 @@ import type {
   MessageDto,
   MessagePageDto,
   Page,
+  RichContent,
 } from '@storeline/shared';
 import type { QueryClient } from '@tanstack/react-query';
 import { api } from './api';
 
 /** A message as the client knows it: server state plus local sending/failed state. */
-export type ClientMessage = MessageDto & { local?: 'sending' | 'failed' };
+export type ClientMessage = MessageDto & {
+  local?: 'sending' | 'failed';
+  /** Structured content still to be sent (kept for retries). */
+  pendingContent?: RichContent;
+};
 
 export interface MessageWindow {
   items: ClientMessage[];

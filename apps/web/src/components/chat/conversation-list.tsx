@@ -40,12 +40,14 @@ export function ConversationList({
   onSelect,
   onNewChat,
   onNewGroup,
+  onNewBroadcast,
   canCreateGroup,
 }: {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onNewChat: () => void;
   onNewGroup: () => void;
+  onNewBroadcast?: () => void;
   canCreateGroup: boolean;
 }) {
   const { data, isPending, isLoading, isError, refetch } = useConversations();
@@ -179,6 +181,19 @@ export function ConversationList({
                   className="flex min-h-11 w-full items-center gap-3 px-5 text-left hover:bg-wa-hover"
                 >
                   <Users className="size-5 text-wa-icon" aria-hidden /> New group
+                </button>
+              )}
+              {onNewBroadcast && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onNewBroadcast();
+                  }}
+                  className="flex min-h-11 w-full items-center gap-3 px-5 text-left hover:bg-wa-hover"
+                >
+                  <Megaphone className="size-5 text-wa-icon" aria-hidden /> New broadcast list
                 </button>
               )}
               <button
@@ -326,7 +341,7 @@ function ConversationRow({
           selected ? 'bg-wa-active' : 'hover:bg-wa-hover',
         )}
       >
-        {c.type === 'BROADCAST' ? (
+        {c.type === 'BROADCAST' || c.type === 'BROADCAST_LIST' ? (
           <span
             className="inline-flex size-[49px] shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand"
             aria-hidden

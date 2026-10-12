@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { api, errorMessage } from '@/lib/api';
+import { LeadDeals } from './crm';
 import { countryName } from '@/lib/countries';
 import { formatDay, formatRelativeShort, formatTime } from '@/lib/format';
 import {
@@ -388,6 +389,8 @@ export function LeadPanel({
               </Button>
             )}
           </section>
+
+          <LeadDeals lead={{ id: l.id, companyName: l.companyName }} context={context} team={team} />
 
           {l.notes && (
             <section>

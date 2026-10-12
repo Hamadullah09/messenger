@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type MessageKind } from '@prisma/client';
-import type { SystemEventDto } from '@storeline/shared';
+import type { MessageMeta, SystemEventDto } from '@storeline/shared';
 import type { Tx } from '../../infra/prisma/prisma.service';
 import { OutboxService, type PendingOutboxEvent } from '../outbox/outbox.service';
 
@@ -15,6 +15,8 @@ export interface NewMessage {
   mediaId?: string | null;
   body: string | null;
   systemEvent?: SystemEventDto;
+  /** Kind-specific content (MessageMeta). */
+  meta?: MessageMeta | null;
   replyToId?: string | null;
   forwardedFromId?: string | null;
 }
@@ -54,6 +56,7 @@ export class MessageWriter {
         systemEvent: message.systemEvent
           ? (message.systemEvent as Prisma.InputJsonValue)
           : Prisma.JsonNull,
+        meta: message.meta ? (message.meta as Prisma.InputJsonValue) : Prisma.JsonNull,
         replyToId: message.replyToId ?? null,
         forwardedFromId: message.forwardedFromId ?? null,
       },

@@ -12,6 +12,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { PUSH_QUEUE, type PushJobData } from '../outbox/outbox.types';
 import { PushGateway } from './push-gateway';
+import { kindPreview } from '../messaging/mappers';
 
 const PREVIEW_MAX = 120;
 const CATEGORY_LABEL = {
@@ -105,10 +106,7 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
       message.conversation.type === 'DIRECT'
         ? message.sender.displayName
         : `${message.sender.displayName} · ${message.conversation.title ?? 'Group'}`;
-    const text =
-      message.kind === 'TEXT'
-        ? (message.body ?? '')
-        : `${message.kind === 'IMAGE' ? 'Photo' : message.kind === 'VIDEO' ? 'Video' : 'Document'}${message.body ? `: ${message.body}` : ''}`;
+    const text = kindPreview(message.kind, message.body) ?? '';
 
     return this.deliver(offline, false, (preview): PushPayload => {
       const effective = preview === 'CONTENT' && !contentAllowed ? 'SENDER' : preview;

@@ -29,6 +29,7 @@ import {
   toMediaAssetDto,
 } from './media.mapper';
 import { metrics } from '../../infra/metrics/metrics';
+import { visibleStatusWhere } from '../status/status-audience';
 
 const MB = 1024 * 1024;
 const UPLOAD_RATE_LIMIT = { name: 'media:upload', limit: 30, windowSeconds: 60 } as const;
@@ -114,6 +115,7 @@ export class MediaService {
           businessId: context.businessId,
           conversationId: context.conversationId,
           campaignId: context.campaignId,
+          forStatus: context.forStatus,
           uploaderId: actor.userId,
           kind,
           fileName,
@@ -325,6 +327,7 @@ export class MediaService {
         businessId: true,
         conversationId: true,
         campaignId: true,
+        forStatus: true,
         uploaderId: true,
         status: true,
         kind: true,
@@ -353,6 +356,15 @@ export class MediaService {
         (await this.hasPermissionInBusiness(actor, 'bulk_message.send', media.businessId)))
     )
       return { media, sensitiveConversationId };
+    // Status photos and videos: the uploader, and whoever can currently see the status.
+    if (media.forStatus) {
+      if (media.uploaderId === actor.userId) return { media, sensitiveConversationId };
+      const visible = await this.prisma.statusPost.count({
+        where: { AND: [{ mediaId }, visibleStatusWhere(actor.userId)] },
+      });
+      if (visible > 0) return { media, sensitiveConversationId };
+      throw notFound;
+    }
     if (media.uploaderId === actor.userId && media.conversationId) {
       const member = await this.prisma.conversationMember.findFirst({
         where: { conversationId: media.conversationId, userId: actor.userId, leftAt: null },
@@ -415,6 +427,7 @@ export class MediaService {
         businessId: true,
         conversationId: true,
         campaignId: true,
+        forStatus: true,
         status: true,
         incomingKey: true,
         multipartUploadId: true,
@@ -431,6 +444,7 @@ export class MediaService {
       throw ApiError.conflict('This upload has expired. Please start again.');
     // The uploader must still be allowed to post in the conversation / manage the campaign.
     if (media.conversationId) await this.access.requireMember(media.conversationId, actor.userId);
+    else if (media.forStatus) await this.statusUploadContext(actor, media.businessId);
     else await this.campaignUploadContext(actor, media.campaignId!);
     return media;
   }
@@ -443,8 +457,10 @@ export class MediaService {
     policy: unknown;
     conversationId: string | null;
     campaignId: string | null;
+    forStatus: boolean;
   }> {
     if (request.campaignId) return this.campaignUploadContext(actor, request.campaignId);
+    if (request.statusBusinessId) return this.statusUploadContext(actor, request.statusBusinessId);
     const { conversation, member } = await this.access.requireMember(
       request.conversationId!,
       actor.userId,
@@ -462,6 +478,25 @@ export class MediaService {
       policy: conversation.business.policy,
       conversationId: conversation.id,
       campaignId: null,
+      forStatus: false,
+    };
+  }
+
+  /** Status photos and videos: people who may post a status in the business. */
+  private async statusUploadContext(actor: Actor, businessId: string) {
+    const business = await this.prisma.business.findFirst({
+      where: { id: businessId, status: 'ACTIVE', deletedAt: null },
+      select: { id: true, policy: true },
+    });
+    if (!business || !(await this.authz.can(actor, 'status.post', { businessId })))
+      throw ApiError.notFound('Business');
+    await this.requirePermission(actor, 'media.upload', businessId);
+    return {
+      businessId,
+      policy: business.policy,
+      conversationId: null,
+      campaignId: null,
+      forStatus: true,
     };
   }
 
@@ -489,6 +524,7 @@ export class MediaService {
       policy: campaign.business.policy,
       conversationId: null,
       campaignId,
+      forStatus: false,
     };
   }
 

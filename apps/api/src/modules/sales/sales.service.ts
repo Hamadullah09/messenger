@@ -527,6 +527,15 @@ export class SalesService {
             lastActivityAt: new Date(),
           },
         });
+        // Deals and invoices of the lead now belong to the new customer.
+        await tx.deal.updateMany({
+          where: { leadId, businessId: null },
+          data: { businessId: business.id },
+        });
+        await tx.invoice.updateMany({
+          where: { leadId, businessId: null },
+          data: { businessId: business.id },
+        });
         await tx.leadActivity.create({
           data: {
             leadId,
@@ -808,7 +817,7 @@ export class SalesService {
         notes: request.message ?? null,
         source: 'WEBSITE',
         direction: 'INBOUND',
-        sourceDetail: 'Request a demo form',
+        sourceDetail: request.sourceDetail ?? 'Request a demo form',
       },
       select: { id: true },
     });

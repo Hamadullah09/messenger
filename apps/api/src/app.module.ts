@@ -23,6 +23,11 @@ import { RealtimeModule } from './modules/realtime/realtime.module';
 import { TenancyModule } from './modules/tenancy/tenancy.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { SalesModule } from './modules/sales/sales.module';
+import { StatusModule } from './modules/status/status.module';
+import { CallsModule } from './modules/calls/calls.module';
+import { OperationsModule } from './modules/operations/operations.module';
+import { ReportsModule } from './modules/reports/reports.module';
+import { IntegrationsModule } from './modules/platform/integrations.module';
 import { UsersModule } from './modules/users/users.module';
 
 /** Shared infrastructure for both process types (api and worker). */
@@ -51,6 +56,11 @@ export const CORE_IMPORTS = [
     MessagingModule,
     RealtimeModule,
     MediaModule,
+    StatusModule,
+    CallsModule,
+    OperationsModule,
+    ReportsModule,
+    IntegrationsModule,
     EmergencyModule,
     CampaignsModule,
     DevicesModule,

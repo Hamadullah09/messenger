@@ -17,3 +17,4 @@ export * from './schemas/customers';
 export * from './sales-types';
 export * from './schemas/rich-messages';
 export * from './feature-types';
+export * from './crm';

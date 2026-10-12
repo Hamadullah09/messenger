@@ -3,7 +3,10 @@
 import {
   isMediaMimeType,
   mimeTypeFromFileName,
+  type AudioDetails,
   type ConversationDetailDto,
+  type MessageMeta,
+  type RichContent,
   type ConversationSummaryDto,
   type MessageDto,
   type MessagePageDto,
@@ -23,6 +26,7 @@ import {
   type ClientMessage,
   type MessageWindow,
 } from './chat-cache';
+import { useLiveShares } from './live-location';
 import { UploadCancelledError, uploadFile } from './uploads';
 import { uuid } from './uuid';
 
@@ -80,13 +84,24 @@ export function useSendMessage(conversationId: string) {
       try {
         const saved = await api<MessageDto>(`/conversations/${conversationId}/messages`, {
           method: 'POST',
-          body: {
-            clientMessageId: local.clientMessageId,
-            body: local.body,
-            replyToId: local.replyTo?.id,
-          },
+          body: local.pendingContent
+            ? {
+                clientMessageId: local.clientMessageId,
+                content: local.pendingContent,
+                replyToId: local.replyTo?.id,
+              }
+            : {
+                clientMessageId: local.clientMessageId,
+                body: local.body,
+                replyToId: local.replyTo?.id,
+              },
         });
         upsertMessages(client, conversationId, [saved]);
+        // Live location: this device keeps sending positions until it ends.
+        if (saved.meta?.type === 'location' && saved.meta.live && !saved.meta.live.stoppedAt)
+          useLiveShares
+            .getState()
+            .add({ messageId: saved.id, until: Date.parse(saved.meta.live.until) });
         patchConversation(client, conversationId, (c) => ({
           ...c,
           lastMessage: saved,
@@ -145,7 +160,94 @@ export function useSendMessage(conversationId: string) {
     [me, conversationId, sendExisting],
   );
 
-  return { send, retry: sendExisting };
+  /** Location, contact, poll, event or sticker (shown at once, confirmed by the server). */
+  const sendContent = useCallback(
+    (content: RichContent, replyTo: MessageDto | null) => {
+      if (!me) return;
+      const preview = previewOf(content);
+      const local: ClientMessage = {
+        id: `local-${uuid()}`,
+        clientMessageId: uuid(),
+        conversationId,
+        seq: Number.MAX_SAFE_INTEGER,
+        sender: me.user,
+        kind: content.kind,
+        body: preview.body,
+        systemEvent: null,
+        deleted: false,
+        editedAt: null,
+        createdAt: new Date().toISOString(),
+        state: 'ACCEPTED',
+        forwarded: false,
+        replyTo: replyTo
+          ? {
+              id: replyTo.id,
+              seq: replyTo.seq,
+              senderDisplayName: replyTo.sender.displayName,
+              bodyPreview: replyTo.body?.slice(0, 120) ?? null,
+              deleted: replyTo.deleted,
+            }
+          : null,
+        reactions: [],
+        pinned: false,
+        attachment: null,
+        meta: preview.meta,
+        pollVotes: [],
+        eventResponses: [],
+        local: 'sending',
+        pendingContent: content,
+      };
+      void sendExisting(local);
+    },
+    [me, conversationId, sendExisting],
+  );
+
+  return { send, sendContent, retry: sendExisting };
+}
+
+/** What a structured message looks like before the server confirms it. */
+function previewOf(content: RichContent): { body: string | null; meta: MessageMeta | null } {
+  switch (content.kind) {
+    case 'LOCATION':
+      return {
+        body: content.name ?? null,
+        meta: {
+          type: 'location',
+          lat: content.lat,
+          lng: content.lng,
+          accuracy: content.accuracy ?? null,
+          name: content.name ?? null,
+          address: content.address ?? null,
+          live: content.liveMinutes
+            ? {
+                until: new Date(Date.now() + content.liveMinutes * 60_000).toISOString(),
+                stoppedAt: null,
+                updatedAt: new Date().toISOString(),
+              }
+            : null,
+        },
+      };
+    case 'POLL':
+      return {
+        body: content.question,
+        meta: { type: 'poll', options: content.options, multiple: content.multiple },
+      };
+    case 'EVENT':
+      return {
+        body: content.title,
+        meta: {
+          type: 'event',
+          startsAt: content.startsAt.toISOString(),
+          endsAt: content.endsAt?.toISOString() ?? null,
+          location: content.location ?? null,
+          description: content.description ?? null,
+        },
+      };
+    case 'STICKER':
+      return { body: null, meta: { type: 'sticker', sticker: content.sticker } };
+    case 'CONTACT':
+      return { body: null, meta: null };
+  }
 }
 
 export function useMessageAction() {
@@ -212,6 +314,8 @@ export function useUpdateMyState(conversationId: string) {
 
 interface UploadJob extends UploadItem {
   mimeType: string | null;
+  /** Voice note / audio details sent with the file. */
+  audio: AudioDetails | null;
   clientMessageId: string;
   mediaId: string | null;
   controller: AbortController;
@@ -257,6 +361,7 @@ export function useMediaSend(conversationId: string) {
             clientMessageId: job.clientMessageId,
             mediaId,
             body: job.caption.trim() || undefined,
+            ...(job.audio ? { audio: job.audio } : {}),
           },
         });
         upsertMessages(client, conversationId, [saved]);
@@ -285,8 +390,9 @@ export function useMediaSend(conversationId: string) {
   );
 
   const send = useCallback(
-    (file: File, caption: string) => {
-      const declared = isMediaMimeType(file.type) ? file.type : mimeTypeFromFileName(file.name);
+    (file: File, caption: string, audio: AudioDetails | null = null) => {
+      const type = file.type.split(';')[0]!.trim();
+      const declared = isMediaMimeType(type) ? type : mimeTypeFromFileName(file.name);
       const job: UploadJob = {
         key: uuid(),
         file,
@@ -295,6 +401,7 @@ export function useMediaSend(conversationId: string) {
         fraction: 0,
         error: null,
         mimeType: declared,
+        audio,
         clientMessageId: uuid(),
         mediaId: null,
         controller: new AbortController(),

@@ -191,6 +191,8 @@ export const publicLeadRequestSchema = z.object({
   country: z.string().trim().length(2).toUpperCase().optional(),
   storeCount: z.number().int().min(0).max(100000).optional(),
   message: text(1000).optional(),
+  /** Where the form was filled in (e.g. the page of the company website). */
+  sourceDetail: text(160).optional(),
   website: z.string().max(0, 'Leave this field empty').optional(),
 });
 export type PublicLeadRequest = z.infer<typeof publicLeadRequestSchema>;

@@ -286,6 +286,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       useEmergencyAlerts.getState().push(incident);
       applyIncidentUpdate(client, incident);
     });
+    s.on('status.changed', () => void client.invalidateQueries({ queryKey: ['status'] }));
+    s.on('task.changed', () => {
+      void client.invalidateQueries({ queryKey: ['tasks'] });
+      void client.invalidateQueries({ queryKey: ['shifts'] });
+    });
     s.on('emergency.incident_updated', (incident) => {
       applyIncidentUpdate(client, incident);
       if (!AWAITING.includes(incident.status)) useEmergencyAlerts.getState().remove(incident.id);

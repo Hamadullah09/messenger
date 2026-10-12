@@ -1,4 +1,4 @@
-import type { MessageDto, SystemEventDto } from '@storeline/shared';
+import { STICKERS, type MessageDto, type SystemEventDto } from '@storeline/shared';
 
 const timeFormat = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 const dayFormat = new Intl.DateTimeFormat(undefined, {
@@ -77,6 +77,33 @@ export function messagePreview(
   if (!message) return 'No messages yet';
   if (message.deleted) return 'This message was deleted';
   if (message.systemEvent) return describeSystemEvent(message.systemEvent, nameOf);
+  const prefixYou = message.sender.id === myId ? 'You: ' : '';
+  const meta = message.meta;
+  if (meta) {
+    switch (meta.type) {
+      case 'audio': {
+        const s = Math.round(meta.durationMs / 1000);
+        const length = s > 0 ? ` (${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')})` : '';
+        return `${prefixYou}${meta.voice ? '🎤 Voice message' : '🎵 Audio'}${length}`;
+      }
+      case 'location':
+        return `${prefixYou}📍 ${meta.live ? 'Live location' : (meta.name ?? 'Location')}`;
+      case 'contact':
+        return `${prefixYou}👤 ${meta.displayName}`;
+      case 'poll':
+        return `${prefixYou}📊 ${message.body ?? 'Poll'}`;
+      case 'event':
+        return `${prefixYou}📅 ${message.body ?? 'Event'}`;
+      case 'sticker':
+        return `${prefixYou}${STICKERS.find((x) => x.id === meta.sticker)?.emoji ?? ''} Sticker`;
+      case 'call': {
+        const kind = meta.media === 'video' ? 'video call' : 'voice call';
+        const outgoing = meta.callerId === myId;
+        if (meta.outcome === 'answered') return `📞 ${outgoing ? 'Outgoing' : 'Incoming'} ${kind}`;
+        return outgoing ? `📞 ${kind[0]!.toUpperCase()}${kind.slice(1)} · no answer` : `📞 Missed ${kind}`;
+      }
+    }
+  }
   if (message.attachment) {
     const label =
       message.attachment.kind === 'IMAGE'

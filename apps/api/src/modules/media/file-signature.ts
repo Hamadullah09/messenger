@@ -17,6 +17,8 @@ const ISO_BMFF_BRANDS: Record<string, MediaMimeType> = {
   mif1: 'image/heic',
   msf1: 'image/heic',
   'qt  ': 'video/quicktime',
+  'M4A ': 'audio/mp4',
+  'M4B ': 'audio/mp4',
 };
 
 function startsWith(head: Buffer, bytes: number[], offset = 0): boolean {
@@ -38,6 +40,14 @@ export function detectBinaryType(head: Buffer): MediaMimeType | null {
   if (ascii(head, 0, 6) === 'GIF87a' || ascii(head, 0, 6) === 'GIF89a') return 'image/gif';
   if (ascii(head, 0, 4) === 'RIFF' && ascii(head, 8, 12) === 'WEBP') return 'image/webp';
   if (ascii(head, 0, 5) === '%PDF-') return 'application/pdf';
+  if (ascii(head, 0, 4) === 'OggS') return 'audio/ogg';
+  if (ascii(head, 0, 4) === 'RIFF' && ascii(head, 8, 12) === 'WAVE') return 'audio/wav';
+  if (ascii(head, 0, 3) === 'ID3') return 'audio/mpeg';
+  if (head.length >= 2 && head[0] === 0xff) {
+    // ADTS (AAC) frames have layer bits 00; MPEG audio (MP3) frames do not.
+    if ((head[1]! & 0xf6) === 0xf0) return 'audio/aac';
+    if ((head[1]! & 0xe0) === 0xe0 && (head[1]! & 0x06) !== 0) return 'audio/mpeg';
+  }
   if (startsWith(head, [0x1a, 0x45, 0xdf, 0xa3])) return 'video/webm';
   if (ascii(head, 4, 8) === 'ftyp') {
     const brand = ascii(head, 8, 12);
@@ -100,9 +110,12 @@ export function verifySignature(
   const detected = detectBinaryType(head);
   if (detected === null) return { ok: false, reason: 'unrecognised_content' };
   // QuickTime and MP4 share the ISO BMFF container; browsers label .mov files either way.
+  // Voice notes: WebM/MP4 containers with only an audio track look like video files.
   const compatible =
     detected === declared ||
     (declared === 'video/quicktime' && detected === 'video/mp4') ||
-    (declared === 'video/mp4' && detected === 'video/quicktime');
+    (declared === 'video/mp4' && (detected === 'video/quicktime' || detected === 'audio/mp4')) ||
+    (declared === 'audio/webm' && detected === 'video/webm') ||
+    (declared === 'audio/mp4' && detected === 'video/mp4');
   return compatible ? { ok: true } : { ok: false, reason: 'type_mismatch' };
 }

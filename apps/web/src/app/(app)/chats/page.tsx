@@ -5,6 +5,7 @@ import { Suspense, useState } from 'react';
 import { BrandIcon } from '@/components/brand';
 import { ChatPanel } from '@/components/chat/chat-panel';
 import { ConversationList } from '@/components/chat/conversation-list';
+import { NewBroadcastDialog } from '@/components/chat/broadcast';
 import { NewChatDialog, NewGroupDialog } from '@/components/chat/dialogs';
 import { cx, Spinner } from '@/components/ui';
 import { hasPermission, useAuth } from '@/lib/auth-store';
@@ -17,6 +18,7 @@ function ChatsScreen() {
   const businessId = useAuth((s) => s.activeBusinessId);
   const [newChat, setNewChat] = useState(false);
   const [newGroup, setNewGroup] = useState(false);
+  const [newBroadcast, setNewBroadcast] = useState(false);
 
   const select = (id: string | null) => router.push(id ? `/chats?c=${id}` : '/chats');
 
@@ -34,6 +36,11 @@ function ChatsScreen() {
           onSelect={select}
           onNewChat={() => setNewChat(true)}
           onNewGroup={() => setNewGroup(true)}
+          onNewBroadcast={
+            hasPermission(me, 'conversation.direct.create', businessId)
+              ? () => setNewBroadcast(true)
+              : undefined
+          }
           canCreateGroup={hasPermission(me, 'group.create', businessId)}
         />
       </div>
@@ -60,6 +67,11 @@ function ChatsScreen() {
       </div>
       <NewChatDialog open={newChat} onClose={() => setNewChat(false)} onOpened={select} />
       <NewGroupDialog open={newGroup} onClose={() => setNewGroup(false)} onCreated={select} />
+      <NewBroadcastDialog
+        open={newBroadcast}
+        onClose={() => setNewBroadcast(false)}
+        onCreated={select}
+      />
     </div>
   );
 }

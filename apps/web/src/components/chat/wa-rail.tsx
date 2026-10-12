@@ -1,7 +1,9 @@
 'use client';
 
 import {
+  CircleDashed,
   LayoutDashboard,
+  Phone,
   Megaphone,
   MessageCircle,
   Moon,
@@ -94,6 +96,8 @@ export function WaRail({ unreadChats }: { unreadChats: number }) {
           active={pathname.startsWith('/chats')}
           badge={unreadChats}
         />
+        <RailLink href="/status" label="Status" Icon={CircleDashed} active={false} />
+        <RailLink href="/calls" label="Calls" Icon={Phone} active={false} />
         {showEmergency && (
           <RailLink
             href="/emergency"

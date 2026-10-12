@@ -19,6 +19,7 @@ export const messageInclude = {
       id: true,
       seq: true,
       body: true,
+      kind: true,
       deletedAt: true,
       sender: { select: { displayName: true } },
     },
@@ -30,9 +31,31 @@ export const messageInclude = {
     take: 1,
     select: { media: { select: attachmentMediaSelect } },
   },
+  pollVotes: { select: { userId: true, option: true }, orderBy: { createdAt: 'asc' } },
+  eventResponses: { select: { userId: true, response: true } },
 } as const satisfies Prisma.MessageInclude;
 
 export type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
+
+const KIND_PREVIEW: Partial<Record<string, string>> = {
+  IMAGE: '📷 Photo',
+  VIDEO: '🎬 Video',
+  DOCUMENT: '📄 Document',
+  AUDIO: '🎤 Voice message',
+  LOCATION: '📍 Location',
+  CONTACT: '👤 Contact',
+  POLL: '📊 Poll',
+  EVENT: '📅 Event',
+  CALL: '📞 Call',
+  STICKER: 'Sticker',
+};
+
+/** Text for a message in reply previews and notifications. */
+export function kindPreview(kind: string, body: string | null): string | null {
+  const label = KIND_PREVIEW[kind];
+  if (!label) return body;
+  return body ? `${label}: ${body}` : label;
+}
 
 /** Viewer-independent message representation (safe to fan out to every member). */
 export function toMessageDto(row: MessageRow): MessageDto {
@@ -58,7 +81,7 @@ export function toMessageDto(row: MessageRow): MessageDto {
           senderDisplayName: row.replyTo.sender.displayName,
           bodyPreview: row.replyTo.deletedAt
             ? null
-            : (row.replyTo.body?.slice(0, PREVIEW_LENGTH) ?? null),
+            : kindPreview(row.replyTo.kind, row.replyTo.body)?.slice(0, PREVIEW_LENGTH) ?? null,
           deleted: row.replyTo.deletedAt !== null,
         }
       : null,
@@ -66,8 +89,8 @@ export function toMessageDto(row: MessageRow): MessageDto {
     pinned: !deleted && row.pins.length > 0,
     attachment: !deleted && row.attachments[0] ? toAttachmentDto(row.attachments[0].media) : null,
     meta: deleted ? null : ((row.meta as MessageMeta | null) ?? null),
-    pollVotes: [],
-    eventResponses: [],
+    pollVotes: deleted ? [] : row.pollVotes,
+    eventResponses: deleted ? [] : row.eventResponses,
   };
 }
 

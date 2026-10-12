@@ -19,6 +19,9 @@
  * - Light/dark driven by data-theme ("light" | "dark") or, when unset, the OS preference.
  */
 :root {
+  /* Chart series (validated for colour-blind separation and contrast; see components/sales/crm). */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
   --bg: #f4f5f8;
   --surface: #ffffff;
   --surface-2: #f2f4f7;
@@ -80,6 +83,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
+    --series-1: #3987e5;
+    --series-2: #d95926;
     --bg: #0b0f17;
     --surface: #121826;
     --surface-2: #1a2233;
@@ -140,6 +145,8 @@
 }
 
 :root[data-theme='dark'] {
+  --series-1: #3987e5;
+  --series-2: #d95926;
   --bg: #0b0f17;
   --surface: #121826;
   --surface-2: #1a2233;

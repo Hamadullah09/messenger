@@ -38,6 +38,20 @@ export class RealtimeEmitter {
     }
   }
 
+  /** To specific signed-in devices (sessions) only, e.g. the two devices in a call. */
+  toSessions<E extends keyof ServerToClientEvents>(
+    sessionIds: readonly string[],
+    event: E,
+    ...args: Parameters<ServerToClientEvents[E]>
+  ): void {
+    if (sessionIds.length === 0) return;
+    (
+      this.emitter.to([...new Set(sessionIds)].map(sessionRoom)) as {
+        emit: (event: string, ...payload: unknown[]) => void;
+      }
+    ).emit(event, ...args);
+  }
+
   /** Tells the sessions' sockets why, then closes them on every node. */
   disconnectSessions(sessionIds: readonly string[], reason: string): void {
     if (sessionIds.length === 0) return;

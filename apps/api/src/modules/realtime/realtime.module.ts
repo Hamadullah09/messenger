@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { ZodPipe } from '../../infra/http/zod';
 import { CurrentActor, type Actor } from '../auth/actor';
 import { AuthModule } from '../auth/auth.module';
+import { CallsModule } from '../calls/calls.module';
 import { MessagingModule } from '../messaging/messaging.module';
 import { PresenceService } from './presence.service';
 import { RealtimeGateway } from './realtime.gateway';
@@ -32,7 +33,7 @@ export class PresenceController {
 }
 
 @Module({
-  imports: [AuthModule, MessagingModule],
+  imports: [AuthModule, MessagingModule, CallsModule],
   controllers: [PresenceController],
   providers: [RealtimeGateway, PresenceService],
 })

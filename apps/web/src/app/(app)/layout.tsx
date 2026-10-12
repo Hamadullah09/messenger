@@ -1,6 +1,6 @@
 'use client';
 
-import { LayoutDashboard, Menu, MessageCircle, Search, X } from 'lucide-react';
+import { CircleDashed, LayoutDashboard, Menu, MessageCircle, Phone, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -15,6 +15,8 @@ import { useConversations } from '@/lib/chat-hooks';
 import { useLive } from '@/lib/live-store';
 import { setTitleCount } from '@/lib/notify';
 import { MessageToast } from '@/components/chat/message-toast';
+import { CallHost } from '@/lib/calls';
+import { useLiveLocationSharing } from '@/lib/live-location';
 import { useDeviceRegistration } from '@/lib/push';
 
 /** Accessible slide-in navigation for phones, built on <dialog> (focus trap + Esc). */
@@ -61,6 +63,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const chatOpen = useLive((s) => s.openConversationId !== null);
   useDeviceRegistration();
+  useLiveLocationSharing();
 
   useEffect(() => {
     if (status === 'signed-out') router.replace('/login');
@@ -109,6 +112,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-dvh bg-bg">
       <MessageToast />
+      <CallHost />
       {messenger ? (
         <WaRail unreadChats={unread.length} />
       ) : (
@@ -164,14 +168,15 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <nav
           aria-label="Quick"
           className={cx(
-            'grid grid-cols-4 border-t border-line bg-surface md:hidden',
+            'grid grid-cols-5 border-t border-line bg-surface md:hidden',
             chatOpen && 'hidden',
           )}
         >
           {[
             { href: '/dashboard', label: 'Home', Icon: LayoutDashboard },
             { href: '/chats', label: 'Messages', Icon: MessageCircle, badge: unread.length },
-            { href: '/search', label: 'Search', Icon: Search },
+            { href: '/status', label: 'Status', Icon: CircleDashed },
+            { href: '/calls', label: 'Calls', Icon: Phone },
           ].map(({ href, label, Icon, badge }) => {
             const active = pathname.startsWith(href);
             return (

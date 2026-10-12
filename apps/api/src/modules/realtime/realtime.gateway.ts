@@ -10,6 +10,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import {
+  callSignalSchema,
   conversationRefSchema,
   REALTIME_NAMESPACE,
   seqAckSchema,
@@ -23,6 +24,7 @@ import { ApiError } from '../../infra/http/api-error';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import type { Actor } from '../auth/actor';
 import { SessionService } from '../auth/session.service';
+import { CallsService } from '../calls/calls.service';
 import { ConversationAccessService } from '../messaging/conversation-access.service';
 import { ReceiptsService } from '../messaging/receipts.service';
 import { PresenceService } from './presence.service';
@@ -79,6 +81,7 @@ export class RealtimeGateway
     private readonly receipts: ReceiptsService,
     private readonly access: ConversationAccessService,
     private readonly presence: PresenceService,
+    private readonly calls: CallsService,
   ) {}
 
   afterInit(): void {
@@ -172,6 +175,17 @@ export class RealtimeGateway
     @MessageBody() payload: unknown,
   ): Promise<AckResponse> {
     return this.handle(socket, () => this.typing(socket, payload, false));
+  }
+
+  /** WebRTC offer/answer/ICE, relayed to the other device in the call. */
+  @SubscribeMessage('call.signal')
+  onCallSignal(
+    @ConnectedSocket() socket: AppSocket,
+    @MessageBody() payload: unknown,
+  ): Promise<AckResponse> {
+    return this.handle(socket, () =>
+      this.calls.signal(socket.data.actor, callSignalSchema.parse(payload)),
+    );
   }
 
   onModuleDestroy(): void {

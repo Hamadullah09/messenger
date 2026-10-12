@@ -1,4 +1,9 @@
 import {
+  BarChart3,
+  CircleDashed,
+  ClipboardList,
+  Plug,
+  Phone,
   Building2,
   Contact,
   HelpCircle,
@@ -40,6 +45,23 @@ export function primaryNav(me: MeDto | null): NavItem[] {
       match: (p) => p.startsWith('/chats'),
     },
   ];
+  items.push(
+    {
+      href: '/status',
+      label: 'Status',
+      Icon: CircleDashed,
+      match: (p) => p.startsWith('/status'),
+    },
+    { href: '/calls', label: 'Calls', Icon: Phone, match: (p) => p.startsWith('/calls') },
+  );
+  if (hasPermission(me, 'task.work') || hasPermission(me, 'task.manage')) {
+    items.push({
+      href: '/tasks',
+      label: 'Tasks & shifts',
+      Icon: ClipboardList,
+      match: (p) => p.startsWith('/tasks'),
+    });
+  }
   if (hasPermission(me, 'sales.access')) {
     items.push({
       href: '/sales',
@@ -102,6 +124,22 @@ export function adminNav(me: MeDto | null, businessId: string | null): NavItem[]
       label: 'Emergency setup',
       Icon: Siren,
       match: at('emergency'),
+    });
+  }
+  if (hasPermission(me, 'report.read', businessId)) {
+    items.push({
+      href: '/reports',
+      label: 'Reports',
+      Icon: BarChart3,
+      match: (p) => p.startsWith('/reports'),
+    });
+  }
+  if (isPlatformAdmin(me) && hasPermission(me, 'platform.config')) {
+    items.push({
+      href: '/integrations',
+      label: 'Integrations',
+      Icon: Plug,
+      match: (p) => p.startsWith('/integrations'),
     });
   }
   if (businessId && hasPermission(me, 'audit.read', businessId)) {

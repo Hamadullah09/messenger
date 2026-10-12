@@ -63,6 +63,40 @@ const envSchema = z.object({
   /** Messages sent per dispatch round (every CAMPAIGN_DISPATCH_INTERVAL_MS). */
   CUSTOMER_CAMPAIGN_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(30),
 
+  // ── Voice and video calls (WebRTC) ──
+  /**
+   * ICE servers as JSON, e.g. [{"urls":"stun:stun.example.com:3478"},{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}].
+   * Empty works on one local network; calls across the internet need STUN, and often TURN.
+   */
+  CALL_ICE_SERVERS: z
+    .string()
+    .default('[]')
+    .transform((v, ctx) => {
+      try {
+        const parsed = JSON.parse(v) as unknown;
+        if (!Array.isArray(parsed)) throw new Error('not an array');
+        return parsed as Array<{ urls: string | string[]; username?: string; credential?: string }>;
+      } catch {
+        ctx.addIssue({ code: 'custom', message: 'CALL_ICE_SERVERS must be a JSON array' });
+        return z.NEVER;
+      }
+    }),
+  /** Seconds a call rings before it counts as missed. */
+  CALL_RING_SECONDS: z.coerce.number().int().min(10).max(120).default(45),
+
+  // ── CRM (deals, invoices, targets) ──
+  /** Currency of deals, invoices and targets (ISO 4217). */
+  CRM_CURRENCY: z.string().length(3).toUpperCase().default('USD'),
+  /** Days until an invoice is due. */
+  INVOICE_DUE_DAYS: z.coerce.number().int().min(0).max(365).default(14),
+  /** Printed at the top of invoices. */
+  INVOICE_COMPANY_NAME: z.string().max(160).default('SMA Technology'),
+  INVOICE_COMPANY_ADDRESS: z.string().max(500).default(''),
+  INVOICE_COMPANY_EMAIL: z.string().max(254).default(''),
+  INVOICE_COMPANY_PHONE: z.string().max(40).default(''),
+  /** Payment instructions printed at the bottom (bank account, etc.). */
+  INVOICE_PAYMENT_DETAILS: z.string().max(1000).default(''),
+
   // ── Object storage (S3-compatible). Credentials stay server-side. ──
   /** Endpoint the API/worker use. Omit for AWS S3. */
   S3_ENDPOINT: z.string().url().optional(),

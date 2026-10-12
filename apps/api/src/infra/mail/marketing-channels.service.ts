@@ -1,7 +1,8 @@
 import { Inject, Injectable } from '@nestjs/common';
-import type { MarketingChannel, MarketingChannelsDto } from '@storeline/shared';
+import type { IntegrationKey, MarketingChannel, MarketingChannelsDto } from '@storeline/shared';
 import { APP_CONFIG, type AppConfig } from '../config/config';
 import { MailService } from './mail.service';
+import { PlatformSettingsService } from './platform-settings.service';
 
 export interface OutgoingMarketingMessage {
   /** Email address or E.164 phone number. */
@@ -28,17 +29,23 @@ export class MarketingChannelsService {
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly mail: MailService,
+    private readonly settings: PlatformSettingsService,
   ) {}
 
+  /** Provider keys: the Super Admin's settings in the app, else the server's environment. */
+  private key(name: Exclude<IntegrationKey, 'SMTP_URL' | 'MAIL_FROM'>): string | undefined {
+    return this.settings.get(name) ?? (this.config[name] as string | undefined);
+  }
+
   available(): MarketingChannelsDto {
-    const c = this.config;
+    const k = (n: Parameters<MarketingChannelsService['key']>[0]) => this.key(n);
     return {
       EMAIL: this.mail.enabled,
-      SMS: !!(c.TWILIO_ACCOUNT_SID && c.TWILIO_AUTH_TOKEN && c.TWILIO_FROM),
+      SMS: !!(k('TWILIO_ACCOUNT_SID') && k('TWILIO_AUTH_TOKEN') && k('TWILIO_FROM')),
       WHATSAPP: !!(
-        c.WHATSAPP_PHONE_NUMBER_ID &&
-        c.WHATSAPP_ACCESS_TOKEN &&
-        c.WHATSAPP_TEMPLATE_NAME
+        k('WHATSAPP_PHONE_NUMBER_ID') &&
+        k('WHATSAPP_ACCESS_TOKEN') &&
+        k('WHATSAPP_TEMPLATE_NAME')
       ),
     };
   }
@@ -67,10 +74,14 @@ export class MarketingChannelsService {
   }
 
   private async sms(m: OutgoingMarketingMessage): Promise<SendResult> {
-    const c = this.config;
+    const c = {
+      TWILIO_ACCOUNT_SID: this.key('TWILIO_ACCOUNT_SID')!,
+      TWILIO_AUTH_TOKEN: this.key('TWILIO_AUTH_TOKEN')!,
+      TWILIO_FROM: this.key('TWILIO_FROM')!,
+    };
     const params = new URLSearchParams({ To: m.to, Body: m.text });
-    if (c.TWILIO_FROM!.startsWith('MG')) params.set('MessagingServiceSid', c.TWILIO_FROM!);
-    else params.set('From', c.TWILIO_FROM!);
+    if (c.TWILIO_FROM.startsWith('MG')) params.set('MessagingServiceSid', c.TWILIO_FROM);
+    else params.set('From', c.TWILIO_FROM);
     const res = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(c.TWILIO_ACCOUNT_SID!)}/Messages.json`,
       {
@@ -90,10 +101,15 @@ export class MarketingChannelsService {
   }
 
   private async whatsapp(m: OutgoingMarketingMessage): Promise<SendResult> {
-    const c = this.config;
+    const c = {
+      WHATSAPP_PHONE_NUMBER_ID: this.key('WHATSAPP_PHONE_NUMBER_ID')!,
+      WHATSAPP_ACCESS_TOKEN: this.key('WHATSAPP_ACCESS_TOKEN')!,
+      WHATSAPP_TEMPLATE_NAME: this.key('WHATSAPP_TEMPLATE_NAME')!,
+      WHATSAPP_TEMPLATE_LANGUAGE: this.key('WHATSAPP_TEMPLATE_LANGUAGE') ?? 'en',
+    };
     const [name, text] = m.templateParams ?? [m.name, m.text];
     const res = await fetch(
-      `https://graph.facebook.com/v21.0/${encodeURIComponent(c.WHATSAPP_PHONE_NUMBER_ID!)}/messages`,
+      `https://graph.facebook.com/v21.0/${encodeURIComponent(c.WHATSAPP_PHONE_NUMBER_ID)}/messages`,
       {
         method: 'POST',
         headers: {

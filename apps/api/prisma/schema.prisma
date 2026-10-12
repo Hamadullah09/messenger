@@ -90,6 +90,11 @@ model User {
   completedTasks        StoreTask[]                  @relation("taskCompleter")
   shifts                Shift[]                      @relation("shiftUser")
   createdShifts         Shift[]                      @relation("shiftCreator")
+  ownedDeals            Deal[]                       @relation("dealOwner")
+  createdDeals          Deal[]                       @relation("dealCreator")
+  createdInvoices       Invoice[]                    @relation("invoiceCreator")
+  recordedPayments      Payment[]                    @relation("paymentRecorder")
+  salesTargets          SalesTarget[]                @relation("salesTargets")
 }
 
 /// Private contact details. Only read by explicitly authorized, audited flows (ADR-0006).
@@ -215,6 +220,9 @@ model Business {
   suppressions    CampaignSuppression[]
   quota           TenantQuota?
   statusPosts     StatusPost[]
+  /// CRM: what SMA sold to this customer and billed them.
+  deals           Deal[]                @relation("customerDeals")
+  invoices        Invoice[]             @relation("customerInvoices")
 }
 
 model TenantQuota {
@@ -1292,6 +1300,8 @@ model Lead {
   createdBy         User?          @relation("leadCreator", fields: [createdById], references: [id], onDelete: SetNull)
   convertedBusiness Business?      @relation("leadCustomer", fields: [convertedBusinessId], references: [id], onDelete: SetNull)
   activities        LeadActivity[]
+  deals             Deal[]
+  invoices          Invoice[]
 
   @@index([stage, deletedAt])
   @@index([ownerId, stage])
@@ -1407,4 +1417,207 @@ model CustomerCampaignRecipient {
 
   @@unique([campaignId, customerId])
   @@index([campaignId, state])
+}
+
+// ───────────────────────────── CRM: services, deals, invoices, payments, targets ─────────────────────────────
+
+enum ServiceBilling {
+  ONE_TIME
+  MONTHLY
+  YEARLY
+}
+
+/// What SMA sells (plans, add-ons, setup, training…). Deals and invoices copy name and price.
+model CrmService {
+  id           String         @id @default(uuid()) @db.Uuid
+  name         String         @db.VarChar(120)
+  description  String?        @db.VarChar(1000)
+  category     String?        @db.VarChar(60)
+  price        Decimal        @db.Decimal(12, 2)
+  billing      ServiceBilling @default(ONE_TIME)
+  active       Boolean        @default(true)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
+  dealItems    DealItem[]
+  invoiceItems InvoiceItem[]
+}
+
+enum DealType {
+  /// Winning a new customer (from a lead).
+  NEW_BUSINESS
+  /// Selling more to an existing customer.
+  UPSELL
+  RENEWAL
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+/// A sale: which services, to whom, for how much. Won deals count towards the owner's target.
+model Deal {
+  id              String     @id @default(uuid()) @db.Uuid
+  title           String     @db.VarChar(160)
+  type            DealType
+  status          DealStatus @default(OPEN)
+  /// New business: the lead it comes from.
+  leadId          String?    @db.Uuid
+  /// The SMA customer (always set for upsells; set for new business once the lead converts).
+  businessId      String?    @db.Uuid
+  ownerId         String?    @db.Uuid
+  /// Sum of the items.
+  amount          Decimal    @default(0) @db.Decimal(12, 2)
+  currency        String     @db.VarChar(3)
+  expectedCloseAt DateTime?  @db.Timestamptz(3)
+  /// When it was marked WON or LOST.
+  closedAt        DateTime?  @db.Timestamptz(3)
+  lostReason      String?    @db.VarChar(300)
+  notes           String?    @db.VarChar(2000)
+  createdById     String?    @db.Uuid
+  createdAt       DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime   @updatedAt @db.Timestamptz(3)
+  deletedAt       DateTime?  @db.Timestamptz(3)
+  lead            Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  business        Business?  @relation("customerDeals", fields: [businessId], references: [id], onDelete: Restrict)
+  owner           User?      @relation("dealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdBy       User?      @relation("dealCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  items           DealItem[]
+  invoices        Invoice[]
+
+  @@index([ownerId, status])
+  @@index([status, closedAt])
+  @@index([businessId])
+  @@index([leadId])
+}
+
+model DealItem {
+  id          String         @id @default(uuid()) @db.Uuid
+  dealId      String         @db.Uuid
+  serviceId   String?        @db.Uuid
+  name        String         @db.VarChar(160)
+  quantity    Int
+  unitPrice   Decimal        @db.Decimal(12, 2)
+  /// Percentage discount on this line (0–100).
+  discountPct Decimal        @default(0) @db.Decimal(5, 2)
+  total       Decimal        @db.Decimal(12, 2)
+  billing     ServiceBilling @default(ONE_TIME)
+  position    Int            @default(0)
+  deal        Deal           @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  service     CrmService?    @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([dealId])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_PAID
+  PAID
+  VOID
+}
+
+/// A bill to an SMA customer (or a lead before conversion). Totals are kept in sync with items
+/// and payments by the API; "overdue" = issued, unpaid and past the due date.
+model Invoice {
+  id            String        @id @default(uuid()) @db.Uuid
+  /// INV-2026-00001
+  number        String        @unique @db.VarChar(20)
+  dealId        String?       @db.Uuid
+  businessId    String?       @db.Uuid
+  leadId        String?       @db.Uuid
+  billToName    String        @db.VarChar(160)
+  billToEmail   String?       @db.VarChar(254)
+  billToPhone   String?       @db.VarChar(16)
+  billToAddress String?       @db.VarChar(500)
+  status        InvoiceStatus @default(DRAFT)
+  issueDate     DateTime      @db.Date
+  dueDate       DateTime      @db.Date
+  currency      String        @db.VarChar(3)
+  subtotal      Decimal       @default(0) @db.Decimal(12, 2)
+  discount      Decimal       @default(0) @db.Decimal(12, 2)
+  taxRate       Decimal       @default(0) @db.Decimal(5, 2)
+  taxAmount     Decimal       @default(0) @db.Decimal(12, 2)
+  total         Decimal       @default(0) @db.Decimal(12, 2)
+  amountPaid    Decimal       @default(0) @db.Decimal(12, 2)
+  notes         String?       @db.VarChar(2000)
+  createdById   String?       @db.Uuid
+  issuedAt      DateTime?     @db.Timestamptz(3)
+  paidAt        DateTime?     @db.Timestamptz(3)
+  voidedAt      DateTime?     @db.Timestamptz(3)
+  voidReason    String?       @db.VarChar(300)
+  lastEmailedAt DateTime?     @db.Timestamptz(3)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+  deal          Deal?         @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  business      Business?     @relation("customerInvoices", fields: [businessId], references: [id], onDelete: Restrict)
+  lead          Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  createdBy     User?         @relation("invoiceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  items         InvoiceItem[]
+  payments      Payment[]
+
+  @@index([status, dueDate])
+  @@index([businessId])
+  @@index([dealId])
+}
+
+model InvoiceItem {
+  id          String      @id @default(uuid()) @db.Uuid
+  invoiceId   String      @db.Uuid
+  serviceId   String?     @db.Uuid
+  name        String      @db.VarChar(160)
+  description String?     @db.VarChar(500)
+  quantity    Int
+  unitPrice   Decimal     @db.Decimal(12, 2)
+  total       Decimal     @db.Decimal(12, 2)
+  position    Int         @default(0)
+  invoice     Invoice     @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  service     CrmService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  CARD
+  CHEQUE
+  ONLINE
+  OTHER
+}
+
+/// Money received against an invoice. Voided payments stay for the record.
+model Payment {
+  id           String        @id @default(uuid()) @db.Uuid
+  invoiceId    String        @db.Uuid
+  amount       Decimal       @db.Decimal(12, 2)
+  paidAt       DateTime      @db.Timestamptz(3)
+  method       PaymentMethod
+  reference    String?       @db.VarChar(120)
+  notes        String?       @db.VarChar(500)
+  recordedById String?       @db.Uuid
+  voidedAt     DateTime?     @db.Timestamptz(3)
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  invoice      Invoice       @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  recordedBy   User?         @relation("paymentRecorder", fields: [recordedById], references: [id], onDelete: SetNull)
+
+  @@index([invoiceId])
+  @@index([paidAt])
+}
+
+/// A sales person's goal for one month (won deal value). History stays month by month.
+model SalesTarget {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  /// First day of the month.
+  month     DateTime @db.Date
+  amount    Decimal  @db.Decimal(12, 2)
+  currency  String   @db.VarChar(3)
+  setById   String?  @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  user      User     @relation("salesTargets", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
 }
