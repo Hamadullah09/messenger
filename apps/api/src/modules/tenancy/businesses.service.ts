@@ -90,7 +90,12 @@ export class BusinessesService {
     if (!scope.all && scope.businessIds.length === 0) return { items: [], nextCursor: null };
     const cursor = decodeCursor(query.cursor, isIdCursor);
     const rows = await this.prisma.business.findMany({
-      where: { deletedAt: null, ...(scope.all ? {} : { id: { in: scope.businessIds } }) },
+      where: {
+        deletedAt: null,
+        // SMA's internal sales team is not a customer business.
+        internal: false,
+        ...(scope.all ? {} : { id: { in: scope.businessIds } }),
+      },
       select: businessSelect,
       orderBy: { id: 'asc' },
       take: query.limit + 1,
@@ -282,9 +287,10 @@ export class BusinessesService {
   async delete(actor: Actor, businessId: string): Promise<void> {
     const existing = await this.prisma.business.findUnique({
       where: { id: businessId },
-      select: { deletedAt: true, slug: true, name: true },
+      select: { deletedAt: true, slug: true, name: true, internal: true },
     });
     if (!existing || existing.deletedAt) throw ApiError.notFound('Business');
+    if (existing.internal) throw ApiError.conflict('The SMA sales team cannot be deleted.');
     await this.authz.require(actor, 'business.archive', { businessId });
     await this.prisma.$transaction(async (tx) => {
       const now = new Date();

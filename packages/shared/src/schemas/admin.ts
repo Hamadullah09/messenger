@@ -119,6 +119,8 @@ export type UpdateStoreRequest = z.infer<typeof updateStoreRequestSchema>;
 
 export const systemRoleKeySchema = z.enum([
   'SUPER_ADMIN',
+  'SALES_MANAGER',
+  'SALES_AGENT',
   'BUSINESS_OWNER',
   'BUSINESS_ADMIN',
   'BUSINESS_MANAGER',

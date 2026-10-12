@@ -1,5 +1,6 @@
 import {
   Building2,
+  Contact,
   HelpCircle,
   LayoutDashboard,
   Megaphone,
@@ -8,6 +9,7 @@ import {
   Settings,
   ShieldAlert,
   Siren,
+  Target,
   Store,
   Users,
   type LucideIcon,
@@ -38,6 +40,14 @@ export function primaryNav(me: MeDto | null): NavItem[] {
       match: (p) => p.startsWith('/chats'),
     },
   ];
+  if (hasPermission(me, 'sales.access')) {
+    items.push({
+      href: '/sales',
+      label: 'Sales',
+      Icon: Target,
+      match: (p) => p.startsWith('/sales'),
+    });
+  }
   if (hasPermission(me, 'emergency.trigger') || hasPermission(me, 'incident.read')) {
     items.push({
       href: '/emergency',
@@ -69,6 +79,14 @@ export function adminNav(me: MeDto | null, businessId: string | null): NavItem[]
     (hasPermission(me, 'user.create', businessId) || hasPermission(me, 'group.create', businessId))
   ) {
     items.push({ href: '/admin?tab=people', label: 'People', Icon: Users, match: at('people') });
+  }
+  if (businessId && hasTenantPermission(me, 'customer.read', businessId)) {
+    items.push({
+      href: '/admin?tab=customers',
+      label: 'Store customers',
+      Icon: Contact,
+      match: at('customers'),
+    });
   }
   if (hasTenantPermission(me, 'bulk_message.send', businessId)) {
     items.push({

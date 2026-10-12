@@ -88,6 +88,8 @@ export const RATE_LIMITS = {
   /** "Forgot password" requests: per IP and per account identifier (stops mail bombing). */
   passwordResetPerIp: { name: 'pwreset:ip', limit: 10, windowSeconds: 900 },
   passwordResetPerIdentifier: { name: 'pwreset:id', limit: 3, windowSeconds: 900 },
+  /** Website "Request a demo" form. */
+  publicLeadPerIp: { name: 'lead:ip', limit: 5, windowSeconds: 3600 },
   passwordResetConfirmPerIp: { name: 'pwreset:confirm', limit: 20, windowSeconds: 900 },
   messageSendPerUser: { name: 'msg:user', limit: 60, windowSeconds: 60 },
   messageSendPerBusiness: { name: 'msg:biz', limit: 3000, windowSeconds: 60 },

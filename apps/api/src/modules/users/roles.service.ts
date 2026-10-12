@@ -73,7 +73,12 @@ export class RolesService {
     const ctx = await this.authz.context(actor);
     const permissions = [...new Set(request.permissions)] as Permission[];
     for (const permission of permissions) {
-      const def = PERMISSIONS[permission] as { platformOnly?: boolean };
+      const def = PERMISSIONS[permission] as { platformOnly?: boolean; salesOnly?: boolean };
+      if (def.salesOnly)
+        throw ApiError.validation(
+          `"${permission}" belongs to the Sales & Marketing roles only.`,
+          'permissions',
+        );
       if (def.platformOnly)
         throw ApiError.validation(
           `"${permission}" cannot be part of a business role.`,

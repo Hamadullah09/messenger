@@ -19,13 +19,15 @@ import { Alert, Button, ConfirmDialog, Dialog, SelectField, TextField } from '..
 
 export const ROLE_LABELS: Record<SystemRoleKey, string> = {
   SUPER_ADMIN: 'Super Admin',
+  SALES_MANAGER: 'Sales Manager',
+  SALES_AGENT: 'Sales Agent',
   BUSINESS_OWNER: 'Business Owner',
   BUSINESS_ADMIN: 'Business Admin',
   BUSINESS_MANAGER: 'Business Manager',
   STORE_MANAGER: 'Store Manager',
   SECURITY: 'Security / Surveillance',
   EMPLOYEE: 'Employee',
-  CUSTOMER: 'Customer',
+  CUSTOMER: 'Store Customer',
 };
 
 const INTERNAL_ROLES: SystemRoleKey[] = [

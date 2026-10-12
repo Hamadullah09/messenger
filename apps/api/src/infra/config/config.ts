@@ -43,6 +43,21 @@ const envSchema = z.object({
   WEB_APP_URL: z.string().url().default('http://localhost:3000'),
   PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
 
+  // ── Marketing to store customers (each channel is off until its keys are set) ──
+  /** SMS through Twilio. */
+  TWILIO_ACCOUNT_SID: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  TWILIO_AUTH_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** Sender number (E.164) or Messaging Service SID (MG…). */
+  TWILIO_FROM: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** WhatsApp Business through Meta's Cloud API. */
+  WHATSAPP_PHONE_NUMBER_ID: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  WHATSAPP_ACCESS_TOKEN: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  /** An approved template with two body variables: {{1}} customer name, {{2}} message. */
+  WHATSAPP_TEMPLATE_NAME: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
+  WHATSAPP_TEMPLATE_LANGUAGE: z.string().default('en'),
+  /** Messages sent per dispatch round (every CAMPAIGN_DISPATCH_INTERVAL_MS). */
+  CUSTOMER_CAMPAIGN_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(30),
+
   // ── Object storage (S3-compatible). Credentials stay server-side. ──
   /** Endpoint the API/worker use. Omit for AWS S3. */
   S3_ENDPOINT: z.string().url().optional(),

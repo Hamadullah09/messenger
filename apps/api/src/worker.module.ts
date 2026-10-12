@@ -6,6 +6,7 @@ import { PushGateway } from './modules/devices/push-gateway';
 import { PushProcessor } from './modules/devices/push.processor';
 import { CampaignDispatcher } from './modules/campaigns/campaign-dispatcher.service';
 import { CampaignWorker } from './modules/campaigns/campaign-worker';
+import { CustomerCampaignDispatcher } from './modules/customers/customer-campaign-dispatcher';
 import { EmergencyEscalationService } from './modules/emergency/emergency-escalation.service';
 import { EmergencyQueryService } from './modules/emergency/emergency-query.service';
 import { EmergencySweeper } from './modules/emergency/emergency-sweeper';
@@ -33,6 +34,7 @@ import { OutboxRelayService } from './modules/outbox/outbox-relay.service';
     EmergencySweeper,
     CampaignDispatcher,
     CampaignWorker,
+    CustomerCampaignDispatcher,
     PushGateway,
     PushProcessor,
   ],

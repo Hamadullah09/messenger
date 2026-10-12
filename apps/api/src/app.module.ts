@@ -21,6 +21,8 @@ import { OutboxModule } from './modules/outbox/outbox.module';
 import { RealtimeEmitterModule } from './modules/realtime/realtime-emitter.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { TenancyModule } from './modules/tenancy/tenancy.module';
+import { CustomersModule } from './modules/customers/customers.module';
+import { SalesModule } from './modules/sales/sales.module';
 import { UsersModule } from './modules/users/users.module';
 
 /** Shared infrastructure for both process types (api and worker). */
@@ -44,6 +46,8 @@ export const CORE_IMPORTS = [
     AuthModule,
     TenancyModule,
     UsersModule,
+    SalesModule,
+    CustomersModule,
     MessagingModule,
     RealtimeModule,
     MediaModule,

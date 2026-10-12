@@ -1,5 +1,17 @@
 @import 'tailwindcss';
 
+/* `dark:` follows the app's theme choice (data-theme) and otherwise the device setting. */
+@custom-variant dark {
+  &:where([data-theme='dark'], [data-theme='dark'] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme='light']), :root:not([data-theme='light']) *) {
+      @slot;
+    }
+  }
+}
+
 /*
  * Design tokens.
  * - Calm, high-contrast palette: text ≥ 7:1, muted text ≥ 4.5:1, control borders ≥ 3:1.

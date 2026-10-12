@@ -9,11 +9,22 @@ import type {
   StoreDto,
 } from '@storeline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Plus, ScrollText, Siren, Store, Trash2, UserCog, Users } from 'lucide-react';
+import {
+  Building2,
+  Contact,
+  Plus,
+  ScrollText,
+  Siren,
+  Store,
+  Trash2,
+  UserCog,
+  Users,
+} from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { EmergencySettingsTab } from '@/components/emergency/emergency-settings';
 import { BusinessCard, StoreCard } from '@/components/manage/cards';
+import { StoreCustomersTab } from '@/components/manage/store-customers';
 import {
   assignableRoles,
   CreatePersonDialog,
@@ -49,9 +60,9 @@ import {
 import { api, errorMessage } from '@/lib/api';
 import { hasPermission, isPlatformAdmin, useAuth } from '@/lib/auth-store';
 
-type Tab = 'businesses' | 'stores' | 'people' | 'emergency' | 'audit';
+type Tab = 'businesses' | 'stores' | 'people' | 'customers' | 'emergency' | 'audit';
 
-const TAB_KEYS: Tab[] = ['businesses', 'stores', 'people', 'emergency', 'audit'];
+const TAB_KEYS: Tab[] = ['businesses', 'stores', 'people', 'customers', 'emergency', 'audit'];
 
 function AdminScreen() {
   const router = useRouter();
@@ -73,6 +84,12 @@ function AdminScreen() {
     { key: 'businesses', label: 'Businesses', Icon: Building2, show: platform },
     { key: 'stores', label: 'Stores', Icon: Store, show: !!businessId },
     { key: 'people', label: 'People', Icon: Users, show: !!businessId },
+    {
+      key: 'customers',
+      label: 'Store customers',
+      Icon: Contact,
+      show: !!businessId && hasPermission(me, 'customer.read', businessId),
+    },
     {
       key: 'emergency',
       label: 'Emergency',
@@ -147,6 +164,7 @@ function AdminScreen() {
           )}
           {tab === 'stores' && businessId && <StoresTab businessId={businessId} />}
           {tab === 'people' && businessId && <PeopleTab businessId={businessId} />}
+          {tab === 'customers' && businessId && <StoreCustomersTab businessId={businessId} />}
           {tab === 'emergency' && businessId && <EmergencySettingsTab businessId={businessId} />}
           {tab === 'audit' && businessId && <AuditTab businessId={businessId} />}
           {!businessId && tab !== 'businesses' && <EmptyState title="Choose a business first" />}

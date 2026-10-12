@@ -261,7 +261,7 @@ export class AuthService {
     const platform = grants.grants.some((g) => g.scope.type === 'PLATFORM');
     const businesses = platform
       ? await this.prisma.business.findMany({
-          where: { status: { not: 'ARCHIVED' } },
+          where: { status: { not: 'ARCHIVED' }, internal: false },
           select: {
             id: true,
             name: true,

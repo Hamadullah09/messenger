@@ -74,6 +74,11 @@ model User {
   devices               Device[]
   notificationPrefs     NotificationPreference?
   passwordResets        PasswordResetToken[]
+  ownedLeads            Lead[]                       @relation("leadOwner")
+  createdLeads          Lead[]                       @relation("leadCreator")
+  leadActivities        LeadActivity[]
+  addedStoreCustomers   StoreCustomer[]
+  customerCampaigns     CustomerCampaign[]
 }
 
 /// Private contact details. Only read by explicitly authorized, audited flows (ADR-0006).
@@ -175,11 +180,17 @@ model Business {
   logo          Bytes?
   logoUpdatedAt DateTime?      @db.Timestamptz(3)
 
-  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
-  archivedAt DateTime? @db.Timestamptz(3)
+  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime           @updatedAt @db.Timestamptz(3)
+  archivedAt        DateTime?          @db.Timestamptz(3)
+  /// SMA's own internal team (Sales & Marketing chats). Never listed as a customer business.
+  internal          Boolean            @default(false)
+  /// The sales lead this business came from, when it was won by the sales team.
+  sourceLead        Lead?              @relation("leadCustomer")
+  storeCustomers    StoreCustomer[]
+  customerCampaigns CustomerCampaign[]
   /// Set when the platform deletes the business: hidden everywhere, history kept.
-  deletedAt  DateTime? @db.Timestamptz(3)
+  deletedAt         DateTime?          @db.Timestamptz(3)
 
   stores          Store[]
   departments     Department[]
@@ -240,6 +251,7 @@ model Store {
   conversations     Conversation[]
   emergencyContacts EmergencyContact[]
   incidents         EmergencyIncident[]
+  customers         StoreCustomer[]
 
   @@unique([businessId, code])
   /// Lets child tables reference (businessId, storeId) so a store can never be paired with another tenant.
@@ -974,4 +986,219 @@ model AuditLog {
   @@index([businessId, occurredAt])
   @@index([actorUserId, occurredAt])
   @@index([action, occurredAt])
+}
+
+// ───────────────────────────── Sales & Marketing ─────────────────────────────
+// Prospects for SMA itself (businesses that may buy SMA), not customers of a business.
+
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+}
+
+enum LeadSource {
+  WEBSITE
+  COLD_CALL
+  REFERRAL
+  SOCIAL_MEDIA
+  EMAIL_CAMPAIGN
+  EVENT
+  WALK_IN
+  PARTNER
+  ADVERTISEMENT
+  OTHER
+}
+
+enum LeadDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// What the prospect said or did after a call or message.
+enum ActivityOutcome {
+  INTERESTED
+  NOT_INTERESTED
+  NO_ANSWER
+  CALL_BACK_LATER
+  MEETING_BOOKED
+  NEEDS_MORE_INFO
+  WRONG_CONTACT
+}
+
+enum LeadActivityType {
+  CREATED
+  NOTE
+  CALL
+  EMAIL
+  MEETING
+  WHATSAPP
+  STAGE_CHANGED
+  ASSIGNED
+  CONVERTED
+}
+
+model Lead {
+  id                  String           @id @default(uuid()) @db.Uuid
+  companyName         String           @db.VarChar(120)
+  contactName         String           @db.VarChar(80)
+  contactTitle        String?          @db.VarChar(80)
+  email               String?          @db.VarChar(254)
+  phone               String?          @db.VarChar(16)
+  website             String?          @db.VarChar(500)
+  industry            String?          @db.VarChar(80)
+  city                String?          @db.VarChar(100)
+  country             String?          @db.VarChar(2)
+  storeCount          Int?
+  /// Expected monthly value of the deal, whole currency units.
+  estimatedValue      Int?
+  currency            String           @default("PKR") @db.VarChar(3)
+  source              LeadSource
+  /// Inbound: they came to us (website, referral…). Outbound: we reached out (cold call…).
+  direction           LeadDirection    @default(INBOUND)
+  /// When the lead entered its current stage (shows leads that are stuck).
+  stageChangedAt      DateTime         @default(now()) @db.Timestamptz(3)
+  callCount           Int              @default(0)
+  messageCount        Int              @default(0)
+  meetingCount        Int              @default(0)
+  lastOutcome         ActivityOutcome?
+  sourceDetail        String?          @db.VarChar(160)
+  stage               LeadStage        @default(NEW)
+  lostReason          String?          @db.VarChar(300)
+  /// When the lead was marked WON or LOST (cleared if reopened).
+  closedAt            DateTime?        @db.Timestamptz(3)
+  notes               String?          @db.VarChar(2000)
+  ownerId             String?          @db.Uuid
+  createdById         String?          @db.Uuid
+  nextFollowUpAt      DateTime?        @db.Timestamptz(3)
+  lastActivityAt      DateTime         @default(now()) @db.Timestamptz(3)
+  convertedBusinessId String?          @unique @db.Uuid
+  convertedAt         DateTime?        @db.Timestamptz(3)
+  createdAt           DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime         @updatedAt @db.Timestamptz(3)
+  deletedAt           DateTime?        @db.Timestamptz(3)
+
+  owner             User?          @relation("leadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdBy         User?          @relation("leadCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  convertedBusiness Business?      @relation("leadCustomer", fields: [convertedBusinessId], references: [id], onDelete: SetNull)
+  activities        LeadActivity[]
+
+  @@index([stage, deletedAt])
+  @@index([ownerId, stage])
+  @@index([nextFollowUpAt])
+}
+
+model LeadActivity {
+  id        String           @id @default(uuid()) @db.Uuid
+  leadId    String           @db.Uuid
+  type      LeadActivityType
+  body      String?          @db.VarChar(2000)
+  outcome   ActivityOutcome?
+  fromStage LeadStage?
+  toStage   LeadStage?
+  actorId   String?          @db.Uuid
+  createdAt DateTime         @default(now()) @db.Timestamptz(3)
+  lead      Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  actor     User?            @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([leadId, createdAt])
+}
+
+// ───────────────────────────── Store customers ─────────────────────────────
+/// A business's own customers (not SMA's customers), recorded for future marketing.
+model StoreCustomer {
+  id                 String                      @id @default(uuid()) @db.Uuid
+  businessId         String                      @db.Uuid
+  /// The store where they shop most (optional).
+  storeId            String?                     @db.Uuid
+  name               String                      @db.VarChar(120)
+  phone              String?                     @db.VarChar(16)
+  email              String?                     @db.VarChar(254)
+  city               String?                     @db.VarChar(100)
+  notes              String?                     @db.VarChar(1000)
+  tags               String[]
+  /// The customer agreed to receive marketing. Only these are exported for campaigns.
+  marketingOptIn     Boolean                     @default(false)
+  optInAt            DateTime?                   @db.Timestamptz(3)
+  /// When they used an unsubscribe link (marketing then stays off until they agree again).
+  unsubscribedAt     DateTime?                   @db.Timestamptz(3)
+  campaignDeliveries CustomerCampaignRecipient[]
+  createdById        String?                     @db.Uuid
+  createdAt          DateTime                    @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime                    @updatedAt @db.Timestamptz(3)
+  deletedAt          DateTime?                   @db.Timestamptz(3)
+
+  business  Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  store     Store?   @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  createdBy User?    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([businessId, deletedAt])
+  @@index([storeId])
+}
+
+enum MarketingChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum CustomerCampaignStatus {
+  DRAFT
+  SENDING
+  COMPLETED
+  CANCELLED
+}
+
+/// SENT = accepted by the email/SMS/WhatsApp provider (not proof it reached the person).
+enum CustomerRecipientState {
+  PENDING
+  SENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
+/// A marketing message from a business to its opted-in store customers.
+model CustomerCampaign {
+  id          String                 @id @default(uuid()) @db.Uuid
+  businessId  String                 @db.Uuid
+  name        String                 @db.VarChar(120)
+  channel     MarketingChannel
+  subject     String?                @db.VarChar(150)
+  body        String                 @db.VarChar(1500)
+  /// { storeIds: string[], tags: string[] }
+  audience    Json
+  status      CustomerCampaignStatus @default(DRAFT)
+  createdById String?                @db.Uuid
+  createdAt   DateTime               @default(now()) @db.Timestamptz(3)
+  startedAt   DateTime?              @db.Timestamptz(3)
+  completedAt DateTime?              @db.Timestamptz(3)
+
+  business   Business                    @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  createdBy  User?                       @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  recipients CustomerCampaignRecipient[]
+
+  @@index([businessId, createdAt])
+  @@index([status])
+}
+
+model CustomerCampaignRecipient {
+  id                String                 @id @default(uuid()) @db.Uuid
+  campaignId        String                 @db.Uuid
+  customerId        String                 @db.Uuid
+  /// Email address or phone number at the time of sending.
+  destination       String                 @db.VarChar(254)
+  state             CustomerRecipientState @default(PENDING)
+  providerMessageId String?                @db.VarChar(200)
+  error             String?                @db.VarChar(300)
+  sentAt            DateTime?              @db.Timestamptz(3)
+  campaign          CustomerCampaign       @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  customer          StoreCustomer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, customerId])
+  @@index([campaignId, state])
 }

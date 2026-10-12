@@ -14,6 +14,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   Store,
+  Target,
   UserRound,
   Users,
   type LucideIcon,
@@ -187,6 +188,27 @@ export default function DashboardPage() {
             </button>
           </div>
         </section>
+
+        {/* Sales & Marketing people land here: quick way into their pipeline. */}
+        {hasPermission(me, 'sales.access') && !isPlatformAdmin(me) && (
+          <Link
+            href="/sales"
+            className="flex flex-wrap items-center gap-4 rounded-3xl border border-line bg-surface p-5 shadow-card transition-colors hover:border-brand/50"
+          >
+            <span className="inline-flex size-12 items-center justify-center rounded-2xl bg-brand-soft text-brand">
+              <Target className="size-6" aria-hidden />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xl font-bold">Sales & Marketing</span>
+              <span className="text-muted">
+                Your leads, follow-ups and pipeline, from first contact to SMA customer.
+              </span>
+            </span>
+            <span className="inline-flex items-center gap-1 font-semibold text-brand">
+              Open pipeline <ArrowRight className="size-5" aria-hidden />
+            </span>
+          </Link>
+        )}
 
         {/* Role dashboards: business owners/admins/managers, and store managers */}
         {managed?.kind === 'business' && businessId && (

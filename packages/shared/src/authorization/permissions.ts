@@ -12,6 +12,11 @@ export interface PermissionDefinition {
   readonly externalAllowed?: boolean;
   /** Only meaningful at PLATFORM scope; never covered by a BUSINESS/STORE assignment. */
   readonly platformOnly?: boolean;
+  /**
+   * Sales & Marketing module: only the Sales roles (and the Super Admin) ever hold these.
+   * Never part of business roles or custom roles.
+   */
+  readonly salesOnly?: boolean;
 }
 
 /** Keeps literal keys while typing every value as a full PermissionDefinition. */
@@ -87,6 +92,22 @@ export const PERMISSIONS = definePermissions({
   'media.download': { description: 'Download attachments', externalAllowed: true },
   'audit.read': { description: 'Read audit logs', privileged: true },
   'report.export': { description: 'Export administrative reports', privileged: true },
+  'customer.read': { description: "View the business's store customers" },
+  'customer.manage': {
+    description: 'Record store customers and their marketing consent; export for campaigns',
+  },
+  'sales.access': { description: 'Use the Sales & Marketing module', salesOnly: true },
+  'sales.lead.manage': {
+    description: 'Create leads and work on their own and unassigned leads',
+    salesOnly: true,
+  },
+  'sales.lead.read_all': { description: 'See every lead and sales report', salesOnly: true },
+  'sales.lead.assign': { description: 'Assign leads to sales people', salesOnly: true },
+  'sales.lead.convert': {
+    description: 'Turn a won lead into an SMA customer business',
+    salesOnly: true,
+  },
+  'sales.team.manage': { description: 'Add and manage Sales & Marketing users', salesOnly: true },
 });
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -105,6 +126,8 @@ export type ScopeType = 'PLATFORM' | 'BUSINESS' | 'STORE';
 
 export type SystemRoleKey =
   | 'SUPER_ADMIN'
+  | 'SALES_MANAGER'
+  | 'SALES_AGENT'
   | 'BUSINESS_OWNER'
   | 'BUSINESS_ADMIN'
   | 'BUSINESS_MANAGER'
@@ -116,6 +139,8 @@ export type SystemRoleKey =
 /** Most senior first; used to pick the role shown under a name and the dashboard to show. */
 export const SYSTEM_ROLE_ORDER: readonly SystemRoleKey[] = [
   'SUPER_ADMIN',
+  'SALES_MANAGER',
+  'SALES_AGENT',
   'BUSINESS_OWNER',
   'BUSINESS_ADMIN',
   'BUSINESS_MANAGER',
@@ -127,11 +152,16 @@ export const SYSTEM_ROLE_ORDER: readonly SystemRoleKey[] = [
 
 /** Roles held for a whole business (never tied to a store). */
 export const BUSINESS_ROLE_KEYS: readonly SystemRoleKey[] = [
+  'SALES_MANAGER',
+  'SALES_AGENT',
   'BUSINESS_OWNER',
   'BUSINESS_ADMIN',
   'BUSINESS_MANAGER',
   'CUSTOMER',
 ];
+
+/** Sales & Marketing roles: held only inside SMA's internal sales team. */
+export const SALES_ROLE_KEYS: readonly SystemRoleKey[] = ['SALES_MANAGER', 'SALES_AGENT'];
 
 /** Roles a store manager may give to people in their own stores. */
 export const STORE_STAFF_ROLE_KEYS: readonly SystemRoleKey[] = ['EMPLOYEE', 'SECURITY'];
@@ -155,8 +185,10 @@ const STAFF_BASE: readonly Permission[] = [
 ];
 
 const BUSINESS_WIDE: readonly Permission[] = ALL_PERMISSIONS.filter(
-  (p) => !PERMISSIONS[p].platformOnly,
+  (p) => !PERMISSIONS[p].platformOnly && !PERMISSIONS[p].salesOnly,
 );
+
+const SALES_ALL: readonly Permission[] = ALL_PERMISSIONS.filter((p) => PERMISSIONS[p].salesOnly);
 
 export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
   SUPER_ADMIN: {
@@ -165,6 +197,41 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
     description: 'Controls the whole platform. Has no implicit access to message content.',
     allowedScopes: ['PLATFORM'],
     permissions: ALL_PERMISSIONS.filter((p) => p !== 'emergency.trigger'),
+  },
+  SALES_MANAGER: {
+    key: 'SALES_MANAGER',
+    name: 'Sales Manager',
+    description:
+      'Leads the Sales & Marketing team: every lead, assignments, reports, converting won leads into SMA customers, and the team. Chats only in the sales team groups.',
+    allowedScopes: ['BUSINESS'],
+    permissions: [
+      ...SALES_ALL,
+      'user.read',
+      'user.create',
+      'user.update',
+      'user.deactivate',
+      'role.read',
+      'role.assign',
+      'group.create',
+      'group.manage',
+      'message.send',
+      'media.upload',
+      'media.download',
+    ],
+  },
+  SALES_AGENT: {
+    key: 'SALES_AGENT',
+    name: 'Sales Agent',
+    description:
+      'Works on their own and unassigned leads: calls, emails, meetings, notes and stages. Chats only in the sales team groups.',
+    allowedScopes: ['BUSINESS'],
+    permissions: [
+      'sales.access',
+      'sales.lead.manage',
+      'message.send',
+      'media.upload',
+      'media.download',
+    ],
   },
   BUSINESS_OWNER: {
     key: 'BUSINESS_OWNER',
@@ -202,6 +269,8 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'user.create',
       'user.update',
       'user.deactivate',
+      'customer.read',
+      'customer.manage',
       'role.read',
       'role.assign',
       'group.create',
@@ -233,7 +302,7 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
   },
   CUSTOMER: {
     key: 'CUSTOMER',
-    name: 'Customer',
+    name: 'Store Customer',
     description: 'External participant limited to conversations they are invited to.',
     allowedScopes: ['BUSINESS'],
     permissions: ['message.send', 'media.upload', 'media.download'],

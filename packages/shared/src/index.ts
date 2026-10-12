@@ -12,3 +12,6 @@ export * from './emergency-types';
 export * from './schemas/campaigns';
 export * from './campaign-types';
 export * from './schemas/devices';
+export * from './schemas/sales';
+export * from './schemas/customers';
+export * from './sales-types';

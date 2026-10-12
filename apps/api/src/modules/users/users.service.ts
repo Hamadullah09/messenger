@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canAssignRole,
+  SALES_ROLE_KEYS,
   STORE_STAFF_ROLE_KEYS,
   SYSTEM_ROLES,
   type AdminSetPasswordRequest,
@@ -123,6 +124,7 @@ export class UsersService {
   ): Promise<AdminUserDto> {
     const business = await this.requireBusiness(businessId);
     const role = SYSTEM_ROLES[request.roleKey];
+    await this.requireRoleFitsBusiness(businessId, role.key);
     const storeScoped = role.allowedScopes.includes('STORE');
     // Business-wide user.create, or (store managers) user.create at every chosen store.
     const businessWide = await this.authz.can(actor, 'user.create', { businessId });
@@ -298,6 +300,7 @@ export class UsersService {
     await this.authz.require(actor, 'user.update', { businessId });
     if (userId === actor.userId) throw ApiError.conflict('You cannot change your own role.');
     const role = SYSTEM_ROLES[request.roleKey];
+    await this.requireRoleFitsBusiness(businessId, role.key);
     const target = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { kind: true },
@@ -952,6 +955,22 @@ export class UsersService {
       select: { status: true },
     });
     if (!membership || membership.status !== 'ACTIVE') throw ApiError.notFound('User');
+  }
+
+  /** Sales roles exist only in SMA's internal sales team, and that team holds only sales roles. */
+  private async requireRoleFitsBusiness(businessId: string, roleKey: string): Promise<void> {
+    const business = await this.prisma.business.findUnique({
+      where: { id: businessId },
+      select: { internal: true },
+    });
+    const salesRole = (SALES_ROLE_KEYS as readonly string[]).includes(roleKey);
+    if (salesRole && !business?.internal)
+      throw ApiError.validation('Sales roles are only for the SMA sales team.', 'roleKey');
+    if (!salesRole && business?.internal)
+      throw ApiError.validation(
+        'The sales team only has Sales Manager and Sales Agent roles.',
+        'roleKey',
+      );
   }
 
   /** Validates that every id is an active store of this business (never trust client tenant ids). */

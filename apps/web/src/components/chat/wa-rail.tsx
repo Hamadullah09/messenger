@@ -9,6 +9,7 @@ import {
   Settings,
   ShieldAlert,
   Sun,
+  Target,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -105,6 +106,9 @@ export function WaRail({ unreadChats }: { unreadChats: number }) {
         )}
         {hasTenantPermission(me, 'bulk_message.send', businessId) && (
           <RailLink href="/campaigns" label="Campaigns" Icon={Megaphone} active={false} />
+        )}
+        {hasPermission(me, 'sales.access') && (
+          <RailLink href="/sales" label="Sales" Icon={Target} active={false} />
         )}
         <RailLink href="/search" label="Search" Icon={Search} active={false} />
         <RailLink href="/dashboard" label="Dashboard" Icon={LayoutDashboard} active={false} />
