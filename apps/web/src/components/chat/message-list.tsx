@@ -32,7 +32,6 @@ export function MessageList({
   myId,
   nameOf,
   actions,
-  canModerate,
   firstUnreadSeq,
 }: {
   conversation: ConversationDetailDto | undefined;
@@ -43,7 +42,6 @@ export function MessageList({
   myId: string;
   nameOf: (id: string) => string;
   actions: BubbleActions;
-  canModerate: boolean;
   firstUnreadSeq: number | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -209,7 +207,6 @@ export function MessageList({
                     myId={myId}
                     nameOf={nameOf}
                     actions={actions}
-                    canModerate={canModerate}
                   />
                 )}
               </div>

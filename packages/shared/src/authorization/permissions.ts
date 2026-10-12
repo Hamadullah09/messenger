@@ -108,6 +108,10 @@ export const PERMISSIONS = definePermissions({
     salesOnly: true,
   },
   'sales.team.manage': { description: 'Add and manage Sales & Marketing users', salesOnly: true },
+  'task.work': { description: "See your store's tasks and shifts and mark tasks done" },
+  'task.manage': { description: 'Assign store tasks and plan staff shifts' },
+  'report.read': { description: 'View business reports (messages, response times, campaigns)' },
+  'status.post': { description: 'Post 24-hour status updates' },
 });
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -175,6 +179,8 @@ export interface SystemRoleDefinition {
 }
 
 const STAFF_BASE: readonly Permission[] = [
+  'task.work',
+  'status.post',
   'store.read',
   'user.read',
   'conversation.direct.create',
@@ -217,6 +223,7 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'message.send',
       'media.upload',
       'media.download',
+      'status.post',
     ],
   },
   SALES_AGENT: {
@@ -231,6 +238,7 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'message.send',
       'media.upload',
       'media.download',
+      'status.post',
     ],
   },
   BUSINESS_OWNER: {
@@ -271,6 +279,7 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'user.deactivate',
       'customer.read',
       'customer.manage',
+      'task.manage',
       'role.read',
       'role.assign',
       'group.create',

@@ -11,10 +11,23 @@ export interface ChatPrefs {
   /** Enter sends the message; Shift+Enter adds a new line. Off: Enter adds a new line. */
   enterToSend: boolean;
   fontSize: ChatFontSize;
+  /** Play a sound for new messages. */
+  sound: boolean;
+  /** System notifications (pop-ups) for new messages, when allowed by the browser. */
+  desktopAlerts: boolean;
+  /** Show the message text in notifications (off: sender only). */
+  showPreview: boolean;
 }
 
 const KEY = 'sma.chatPrefs';
-const DEFAULTS: ChatPrefs = { wallpaper: 'doodle', enterToSend: true, fontSize: 'medium' };
+const DEFAULTS: ChatPrefs = {
+  wallpaper: 'doodle',
+  enterToSend: true,
+  fontSize: 'medium',
+  sound: true,
+  desktopAlerts: true,
+  showPreview: true,
+};
 
 function load(): ChatPrefs {
   try {
@@ -31,9 +44,12 @@ export const useChatPrefs = create<ChatPrefs & { set: (patch: Partial<ChatPrefs>
     ...DEFAULTS,
     set: (patch) => {
       setState(patch);
-      const { wallpaper, enterToSend, fontSize } = get();
+      const { wallpaper, enterToSend, fontSize, sound, desktopAlerts, showPreview } = get();
       try {
-        window.localStorage.setItem(KEY, JSON.stringify({ wallpaper, enterToSend, fontSize }));
+        window.localStorage.setItem(
+          KEY,
+          JSON.stringify({ wallpaper, enterToSend, fontSize, sound, desktopAlerts, showPreview }),
+        );
       } catch {
         // Storage unavailable (private mode): the choice lasts until the page closes.
       }

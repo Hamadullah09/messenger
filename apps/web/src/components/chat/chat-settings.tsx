@@ -1,6 +1,7 @@
 'use client';
 
-import { Check } from 'lucide-react';
+import { Check, Volume2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import {
   FONT_SIZES,
   useChatPrefs,
@@ -8,8 +9,15 @@ import {
   type ChatFontSize,
   type Wallpaper,
 } from '@/lib/chat-prefs';
+import {
+  askForNotifications,
+  playMessageSound,
+  systemNotificationState,
+  unlockSound,
+  type SystemNotificationState,
+} from '@/lib/notify';
 import { resolvedTheme, useTheme } from '@/lib/theme';
-import { cx } from '../ui';
+import { Button, cx } from '../ui';
 
 /** Settings → Chats: wallpaper, Enter-to-send and text size (saved on this device). */
 export function ChatSettings() {
@@ -100,10 +108,102 @@ export function ChatSettings() {
           </span>
         </span>
       </label>
+      <NotificationSettingsBlock />
       <p className="text-sm text-muted">
         These chat settings are saved on this device. Mute, pin, archive and group settings are in
         each chat’s info panel (tap the chat name).
       </p>
     </div>
+  );
+}
+
+function Toggle({
+  label,
+  hint,
+  checked,
+  onChange,
+}: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-3">
+      <input
+        type="checkbox"
+        className="mt-1 size-5"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <span className="block font-semibold">{label}</span>
+        <span className="text-sm text-muted">{hint}</span>
+      </span>
+    </label>
+  );
+}
+
+/** WhatsApp Web's notification options for this device. */
+function NotificationSettingsBlock() {
+  const prefs = useChatPrefs();
+  const [state, setState] = useState<SystemNotificationState | null>(null);
+  useEffect(() => setState(systemNotificationState()), []);
+  const permissionText =
+    state === 'granted'
+      ? 'Allowed by this browser.'
+      : state === 'denied'
+        ? 'Blocked by this browser. Allow notifications for this site in the browser settings.'
+        : state === 'insecure'
+          ? 'Needs a secure (https) address; this connection only gets the sound.'
+          : state === 'unsupported'
+            ? 'This browser cannot show notifications.'
+            : 'Not allowed yet.';
+  return (
+    <fieldset className="flex flex-col gap-4">
+      <legend className="mb-1 font-semibold">Notifications on this device</legend>
+      <Toggle
+        label="Sound"
+        hint="Play a sound when a new message arrives."
+        checked={prefs.sound}
+        onChange={(sound) => prefs.set({ sound })}
+      />
+      <Toggle
+        label="Desktop alerts"
+        hint={`Pop-up notifications when you are not looking at the chat. ${permissionText}`}
+        checked={prefs.desktopAlerts}
+        onChange={(desktopAlerts) => prefs.set({ desktopAlerts })}
+      />
+      <Toggle
+        label="Show previews"
+        hint="Show the message text in notifications (off: only who sent it)."
+        checked={prefs.showPreview}
+        onChange={(showPreview) => prefs.set({ showPreview })}
+      />
+      <div className="flex flex-wrap gap-2">
+        {state === 'default' && (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() =>
+              void askForNotifications().then(() => setState(systemNotificationState()))
+            }
+          >
+            Allow notifications
+          </Button>
+        )}
+        <Button
+          variant="secondary"
+          size="sm"
+          icon={<Volume2 className="size-4" aria-hidden />}
+          onClick={() => {
+            unlockSound();
+            setTimeout(playMessageSound, 50);
+          }}
+        >
+          Play the sound
+        </Button>
+      </div>
+    </fieldset>
   );
 }

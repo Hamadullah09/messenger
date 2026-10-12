@@ -11,6 +11,8 @@ import type {
   MessageState,
 } from './dto';
 import type { IncidentDto } from './emergency-types';
+import type { CallDto } from './feature-types';
+import type { CallSignal } from './schemas/rich-messages';
 import { idSchema } from './schemas/common';
 
 export const REALTIME_NAMESPACE = '/v1';
@@ -33,6 +35,8 @@ export interface ClientToServerEvents {
   'message.read': (payload: SeqAck, ack: (res: AckResponse) => void) => void;
   'typing.start': (payload: ConversationRef, ack?: (res: AckResponse) => void) => void;
   'typing.stop': (payload: ConversationRef, ack?: (res: AckResponse) => void) => void;
+  /** WebRTC offer/answer/ICE for a call you are part of. */
+  'call.signal': (payload: CallSignal, ack?: (res: AckResponse) => void) => void;
 }
 
 export interface ReceiptUpdatedEvent {
@@ -72,6 +76,8 @@ export interface UnreadCountEvent {
 export interface ServerToClientEvents {
   'message.created': (message: MessageDto) => void;
   'message.updated': (message: MessageDto) => void;
+  /** "Delete for me" on another of your devices: remove it from this one too. */
+  'message.hidden': (event: { conversationId: string; messageId: string }) => void;
   'message.status_changed': (event: MessageStatusChangedEvent) => void;
   'receipt.updated': (event: ReceiptUpdatedEvent) => void;
   'conversation.updated': (conversation: ConversationSummaryDto) => void;
@@ -86,4 +92,14 @@ export interface ServerToClientEvents {
   'emergency.alert_created': (incident: IncidentDto) => void;
   /** To the reporter, alerted responders and incident.read holders for the store. */
   'emergency.incident_updated': (incident: IncidentDto) => void;
+  /** Someone is calling you. */
+  'call.incoming': (call: CallDto) => void;
+  /** A call you are part of was answered, declined or ended (to both people, all devices). */
+  'call.updated': (call: CallDto) => void;
+  /** WebRTC signalling from the other person. */
+  'call.signal': (event: { callId: string; fromUserId: string; data: CallSignal['data'] }) => void;
+  /** A status update was posted or removed in one of your businesses. */
+  'status.changed': (event: { businessId: string }) => void;
+  /** Your store tasks changed (assigned to you, completed, edited). */
+  'task.changed': (event: { businessId: string; storeId: string }) => void;
 }

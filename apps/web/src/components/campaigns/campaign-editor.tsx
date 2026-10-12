@@ -19,6 +19,7 @@ import { api, errorMessage } from '@/lib/api';
 import { useConversations } from '@/lib/chat-hooks';
 import { uploadFile, type UploadProgress } from '@/lib/uploads';
 import { Alert, Button, cx, TextArea, TextField } from '../ui';
+import { uuid } from '@/lib/uuid';
 
 const ROLE_LABEL: Record<(typeof CAMPAIGN_ROLE_FILTERS)[number], string> = {
   BUSINESS_OWNER: 'Business owners',
@@ -72,7 +73,7 @@ export function CampaignEditor({
   onCancel: () => void;
 }) {
   const client = useQueryClient();
-  const key = useRef(crypto.randomUUID());
+  const key = useRef(uuid());
   const [name, setName] = useState(campaign?.name ?? '');
   const [description, setDescription] = useState(campaign?.description ?? '');
   const [body, setBody] = useState(campaign?.body ?? '');

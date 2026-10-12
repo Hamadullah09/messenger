@@ -5,14 +5,17 @@ import {
   REALTIME_PATH,
   type ClientToServerEvents,
   type ConversationDetailDto,
+  type ConversationSummaryDto,
   type ServerToClientEvents,
 } from '@storeline/shared';
 import { useQueryClient } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import { refreshSession } from './api';
 import { useAuth } from './auth-store';
 import {
+  hideMessage,
   keys,
   lastKnownSeq,
   patchConversation,
@@ -30,7 +33,11 @@ import {
   sendReceipt,
   useEmergencyAlerts,
 } from './emergency';
+import { useMessageAlert } from '@/components/chat/message-toast';
+import { useChatPrefs } from './chat-prefs';
+import { messagePreview } from './format';
 import { useLive } from './live-store';
+import { playMessageSound, showSystemNotification, unlockSound } from './notify';
 import { useMediaStatus } from './media-store';
 
 type AppSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -41,7 +48,13 @@ export function useSocket(): AppSocket | null {
   return useContext(SocketContext);
 }
 
-const realtimeUrl = process.env.NEXT_PUBLIC_REALTIME_URL ?? 'http://localhost:4000';
+/**
+ * Where the live connection goes. Unset: the same address and port as the page (the web server
+ * forwards /socket.io/ to the API), so phones on the same Wi-Fi need nothing but port 3000.
+ */
+function realtimeUrl(): string {
+  return process.env.NEXT_PUBLIC_REALTIME_URL || window.location.origin;
+}
 
 /**
  * Owns the Socket.IO connection and applies server events to the query cache. The socket
@@ -52,13 +65,27 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   const token = useAuth((s) => s.accessToken);
   const myId = useAuth((s) => s.me?.user.id);
   const [socket, setSocket] = useState<AppSocket | null>(null);
+  const router = useRouter();
+  const routerRef = useRef(router);
+  routerRef.current = router;
+
+  // Browsers only allow sound after the first tap or key press.
+  useEffect(() => {
+    const unlock = () => unlockSound();
+    window.addEventListener('pointerdown', unlock);
+    window.addEventListener('keydown', unlock);
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
   const tokenRef = useRef(token);
   tokenRef.current = token;
 
   const signedIn = token !== null;
   useEffect(() => {
     if (!signedIn) return;
-    const s: AppSocket = io(`${realtimeUrl}${REALTIME_NAMESPACE}`, {
+    const s: AppSocket = io(`${realtimeUrl()}${REALTIME_NAMESPACE}`, {
       path: REALTIME_PATH,
       transports: ['websocket'],
       // Called on every (re)connect so the latest access token is used.
@@ -127,10 +154,52 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         };
       });
       if (!known) void client.invalidateQueries({ queryKey: keys.conversations });
+
+      // WhatsApp Web-style alert: sound, and a system notification when not looking.
+      if (!mine && message.kind !== 'SYSTEM') {
+        const conversation = client
+          .getQueryData<ConversationSummaryDto[]>(keys.conversations)
+          ?.find((c) => c.id === message.conversationId);
+        const muted =
+          !!conversation?.me.mutedUntil && new Date(conversation.me.mutedUntil) > new Date();
+        const looking = open && document.hasFocus();
+        if (!muted && !looking) {
+          const prefs = useChatPrefs.getState();
+          if (prefs.sound) playMessageSound();
+          if (prefs.desktopAlerts) {
+            const group = !!conversation && conversation.type !== 'DIRECT';
+            const text = messagePreview(message, () => message.sender.displayName, myId);
+            const url = `/chats?c=${message.conversationId}`;
+            const title = (group && conversation.title) || message.sender.displayName;
+            const body = prefs.showPreview
+              ? group
+                ? `${message.sender.displayName}: ${text}`
+                : text
+              : 'New message';
+            if (document.hidden || !document.hasFocus()) {
+              // Away from the window: a system notification (lock screen, other apps).
+              void showSystemNotification({
+                title,
+                body,
+                tag: message.conversationId,
+                url,
+                onClick: () => routerRef.current.push(url),
+              });
+            } else {
+              // Window in front but another chat (or page) open: the in-app banner.
+              useMessageAlert.getState().show({ title, body, url });
+            }
+          }
+        }
+      }
       useLive
         .getState()
         .setTyping(message.conversationId, message.sender.id, message.sender.displayName, false);
     });
+
+    s.on('message.hidden', ({ conversationId, messageId }) =>
+      hideMessage(client, conversationId, messageId),
+    );
 
     s.on('message.updated', (message) => {
       upsertMessages(client, message.conversationId, [message]);

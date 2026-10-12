@@ -258,6 +258,14 @@ export class MessagesController {
     return this.messages.edit(actor, id, body.body);
   }
 
+  /** "Delete for me". */
+  @Post(':id/hide')
+  @HttpCode(204)
+  async hide(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+    await this.messages.hide(actor, id);
+  }
+
+  /** "Delete for everyone" (sender within the time limit, or a moderator). */
   @Delete(':id')
   delete(
     @CurrentActor() actor: Actor,

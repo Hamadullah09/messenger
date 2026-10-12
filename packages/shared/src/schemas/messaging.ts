@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { idSchema } from './common';
+import { audioDetailsSchema, richContentSchema } from './rich-messages';
 
 export const MESSAGE_BODY_MAX_LENGTH = 4096;
 export const GROUP_MAX_MEMBERS = 5000;
@@ -95,12 +96,21 @@ export const sendMessageRequestSchema = z
     body: messageBodySchema.optional(),
     /** A READY media asset uploaded by the sender for this conversation. */
     mediaId: idSchema.optional(),
+    /** Voice note / audio details, with an audio mediaId. */
+    audio: audioDetailsSchema.optional(),
+    /** Location, contact card, poll, event or sticker (instead of text). */
+    content: richContentSchema.optional(),
     replyToId: idSchema.optional(),
   })
-  .refine((v) => v.body !== undefined || v.mediaId !== undefined, {
+  .refine((v) => v.body !== undefined || v.mediaId !== undefined || v.content !== undefined, {
     message: 'Message cannot be empty',
     path: ['body'],
-  });
+  })
+  .refine((v) => !(v.content && v.mediaId), {
+    message: 'Send a file or a structured message, not both',
+    path: ['content'],
+  })
+  .refine((v) => !v.audio || v.mediaId, { message: 'Audio details need a file', path: ['audio'] });
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
 
 export const editMessageRequestSchema = z.object({ body: messageBodySchema });

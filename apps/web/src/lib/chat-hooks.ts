@@ -24,6 +24,7 @@ import {
   type MessageWindow,
 } from './chat-cache';
 import { UploadCancelledError, uploadFile } from './uploads';
+import { uuid } from './uuid';
 
 export function useConversations() {
   const signedIn = useAuth((s) => s.status === 'signed-in');
@@ -109,8 +110,8 @@ export function useSendMessage(conversationId: string) {
     (body: string, replyTo: MessageDto | null) => {
       if (!me) return;
       const local: ClientMessage = {
-        id: `local-${crypto.randomUUID()}`,
-        clientMessageId: crypto.randomUUID(),
+        id: `local-${uuid()}`,
+        clientMessageId: uuid(),
         conversationId,
         seq: Number.MAX_SAFE_INTEGER,
         sender: me.user,
@@ -134,6 +135,9 @@ export function useSendMessage(conversationId: string) {
         reactions: [],
         pinned: false,
         attachment: null,
+        meta: null,
+        pollVotes: [],
+        eventResponses: [],
         local: 'sending',
       };
       void sendExisting(local);
@@ -284,14 +288,14 @@ export function useMediaSend(conversationId: string) {
     (file: File, caption: string) => {
       const declared = isMediaMimeType(file.type) ? file.type : mimeTypeFromFileName(file.name);
       const job: UploadJob = {
-        key: crypto.randomUUID(),
+        key: uuid(),
         file,
         caption,
         stage: 'uploading',
         fraction: 0,
         error: null,
         mimeType: declared,
-        clientMessageId: crypto.randomUUID(),
+        clientMessageId: uuid(),
         mediaId: null,
         controller: new AbortController(),
       };

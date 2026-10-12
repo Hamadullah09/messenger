@@ -25,6 +25,7 @@ import { api, ApiRequestError, errorMessage } from '@/lib/api';
 import { hasPermission, useAuth } from '@/lib/auth-store';
 import { CATEGORY_LABEL, emergencyKeys } from '@/lib/emergency';
 import { Alert, Button, cx, Dialog, Spinner, TextArea } from '../ui';
+import { uuid } from '@/lib/uuid';
 
 const CATEGORY_ICON: Record<EmergencyCategory, typeof Flame> = {
   MEDICAL: HeartPulse,
@@ -84,7 +85,7 @@ export function RaiseAlertDialog({ open, onClose }: { open: boolean; onClose: ()
   const key = useRef<string>('');
   useEffect(() => {
     if (open) {
-      key.current = crypto.randomUUID();
+      key.current = uuid();
       setCategory('OTHER');
       setDescription('');
     }

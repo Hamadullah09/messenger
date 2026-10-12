@@ -57,6 +57,10 @@ export class SearchService {
         JOIN "Business" b ON b."id" = c."businessId" AND b."status" = 'ACTIVE'
        WHERE m."deletedAt" IS NULL
          AND m."kind" <> 'SYSTEM'
+         AND NOT EXISTS (
+           SELECT 1 FROM "HiddenMessage" h
+            WHERE h."messageId" = m."id" AND h."userId" = ${actor.userId}::uuid
+         )
          AND m."seq" > cm."historyFromSeq"
          AND (
            to_tsvector('simple', COALESCE(m."body", '')) @@ to_tsquery('simple', ${tsQuery})

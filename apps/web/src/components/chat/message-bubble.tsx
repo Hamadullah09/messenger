@@ -23,6 +23,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ClientMessage } from '@/lib/chat-cache';
+import { copyText } from '@/lib/clipboard';
 import { describeSystemEvent, formatTime } from '@/lib/format';
 import { Avatar, cx } from '../ui';
 import { AttachmentView } from './attachment-view';
@@ -81,6 +82,60 @@ function Tail({ mine }: { mine: boolean }) {
   );
 }
 
+const SWIPE_MAX = 84;
+const SWIPE_TRIGGER = 56;
+
+/**
+ * WhatsApp's swipe-to-reply on touch screens: drag a message to the right to reply. Vertical
+ * scrolling stays native (touch-action: pan-y); the gesture only locks when it is horizontal.
+ */
+function useSwipeToReply(enabled: boolean, onReply: () => void) {
+  const [dx, setDx] = useState(0);
+  const start = useRef<{ x: number; y: number; horizontal: boolean | null } | null>(null);
+  const dxRef = useRef(0);
+  const set = (value: number) => {
+    dxRef.current = value;
+    setDx(value);
+  };
+  if (!enabled) return { dx: 0, handlers: {} };
+  return {
+    dx,
+    handlers: {
+      onTouchStart: (e: React.TouchEvent) => {
+        const t = e.touches[0];
+        if (t) start.current = { x: t.clientX, y: t.clientY, horizontal: null };
+      },
+      onTouchMove: (e: React.TouchEvent) => {
+        const st = start.current;
+        const t = e.touches[0];
+        if (!st || !t) return;
+        const ddx = t.clientX - st.x;
+        const ddy = t.clientY - st.y;
+        if (st.horizontal === null) {
+          if (Math.abs(ddx) < 8 && Math.abs(ddy) < 8) return;
+          st.horizontal = Math.abs(ddx) > Math.abs(ddy) * 1.2 && ddx > 0;
+        }
+        if (!st.horizontal) return;
+        // Resistance near the end, like WhatsApp.
+        const pulled = ddx < SWIPE_TRIGGER ? ddx : SWIPE_TRIGGER + (ddx - SWIPE_TRIGGER) * 0.35;
+        set(Math.max(0, Math.min(pulled, SWIPE_MAX)));
+      },
+      onTouchEnd: () => {
+        if (dxRef.current >= SWIPE_TRIGGER) {
+          navigator.vibrate?.(12);
+          onReply();
+        }
+        start.current = null;
+        set(0);
+      },
+      onTouchCancel: () => {
+        start.current = null;
+        set(0);
+      },
+    },
+  };
+}
+
 export function MessageBubble({
   message,
   mine,
@@ -90,7 +145,6 @@ export function MessageBubble({
   myId,
   nameOf,
   actions,
-  canModerate,
 }: {
   message: ClientMessage;
   mine: boolean;
@@ -102,8 +156,11 @@ export function MessageBubble({
   myId: string;
   nameOf: (id: string) => string;
   actions: BubbleActions;
-  canModerate: boolean;
 }) {
+  const swipe = useSwipeToReply(
+    message.kind !== 'SYSTEM' && !message.deleted && !message.local,
+    () => actions.onReply(message),
+  );
   if (message.kind === 'SYSTEM' && message.systemEvent) {
     return (
       <div className="flex justify-center px-4 py-1.5">
@@ -135,13 +192,27 @@ export function MessageBubble({
 
   return (
     <div
+      {...swipe.handlers}
+      style={{ touchAction: 'pan-y' }}
       className={cx(
-        'group flex px-[3%] md:px-[6%]',
+        'group relative flex px-[3%] md:px-[6%]',
         showSender ? 'mt-2.5' : 'mt-0.5',
         hasReactions && 'mb-4',
         mine ? 'justify-end' : 'justify-start',
       )}
     >
+      {swipe.dx > 0 && (
+        <span
+          aria-hidden
+          className="absolute top-1/2 left-2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-full bg-wa-chip text-wa-icon shadow"
+          style={{
+            opacity: Math.min(1, swipe.dx / SWIPE_TRIGGER),
+            transform: `translateY(-50%) scale(${0.6 + 0.4 * Math.min(1, swipe.dx / SWIPE_TRIGGER)})`,
+          }}
+        >
+          <Reply className="size-4" />
+        </span>
+      )}
       {showAvatarColumn && (
         <div className="mr-2 w-7 shrink-0 self-start">
           {showSender && <Avatar name={message.sender.displayName} size={28} />}
@@ -149,6 +220,10 @@ export function MessageBubble({
       )}
       <article
         aria-label={`${senderName} at ${formatTime(message.createdAt)}`}
+        style={{
+          transform: swipe.dx ? `translateX(${swipe.dx}px)` : undefined,
+          transition: swipe.dx ? 'none' : 'transform 180ms ease-out',
+        }}
         className={cx(
           'wa-bubble relative max-w-[85%] min-w-[5.5rem] rounded-lg px-1.5 pt-1.5 pb-2 text-[length:var(--chat-font,0.95rem)] sm:max-w-[65%]',
           mine ? 'bg-wa-out' : 'bg-wa-in',
@@ -216,14 +291,8 @@ export function MessageBubble({
           )}
         </span>
 
-        {!message.local && !message.deleted && (
-          <MessageMenu
-            message={message}
-            mine={mine}
-            myReaction={myReaction}
-            actions={actions}
-            canModerate={canModerate}
-          />
+        {!message.local && (
+          <MessageMenu message={message} mine={mine} myReaction={myReaction} actions={actions} />
         )}
 
         {message.local === 'failed' && (
@@ -271,13 +340,11 @@ function MessageMenu({
   mine,
   myReaction,
   actions,
-  canModerate,
 }: {
   message: MessageDto;
   mine: boolean;
   myReaction: string | null;
   actions: BubbleActions;
-  canModerate: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
@@ -369,104 +436,108 @@ function MessageMenu({
             }}
             className="z-50 w-60 rounded-lg bg-surface py-2 text-fg shadow-pop"
           >
-            <div className="mb-1 flex justify-between px-2" aria-label="React">
-              {QUICK_REACTIONS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  role="menuitem"
-                  aria-label={`React with ${emoji}`}
-                  aria-pressed={myReaction === emoji}
-                  onClick={run(() => actions.onReact(message, myReaction === emoji ? null : emoji))}
-                  className={cx(
-                    'size-9 rounded-full text-xl hover:bg-wa-hover',
-                    myReaction === emoji && 'bg-wa-active',
-                  )}
-                >
-                  {emoji}
-                </button>
-              ))}
-            </div>
-            <button
-              type="button"
-              role="menuitem"
-              className={item}
-              onClick={run(() => actions.onReply(message))}
-            >
-              <Reply className="size-5 text-wa-icon" aria-hidden /> Reply
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={item}
-              onClick={run(() => actions.onForward(message))}
-            >
-              <Forward className="size-5 text-wa-icon" aria-hidden /> Forward
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={item}
-              onClick={run(() => void navigator.clipboard?.writeText(message.body ?? ''))}
-            >
-              <Copy className="size-5 text-wa-icon" aria-hidden /> Copy
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={item}
-              onClick={run(() => actions.onStar(message, !message.starred))}
-            >
-              {message.starred ? (
-                <StarOff className="size-5 text-wa-icon" aria-hidden />
-              ) : (
-                <Star className="size-5 text-wa-icon" aria-hidden />
-              )}
-              {message.starred ? 'Unstar' : 'Star'}
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className={item}
-              onClick={run(() => actions.onPin(message, !message.pinned))}
-            >
-              {message.pinned ? (
-                <PinOff className="size-5 text-wa-icon" aria-hidden />
-              ) : (
-                <Pin className="size-5 text-wa-icon" aria-hidden />
-              )}
-              {message.pinned ? 'Unpin' : 'Pin'}
-            </button>
-            {mine && (
+            {!message.deleted && (
               <>
+                <div className="mb-1 flex justify-between px-2" aria-label="React">
+                  {QUICK_REACTIONS.map((emoji) => (
+                    <button
+                      key={emoji}
+                      type="button"
+                      role="menuitem"
+                      aria-label={`React with ${emoji}`}
+                      aria-pressed={myReaction === emoji}
+                      onClick={run(() =>
+                        actions.onReact(message, myReaction === emoji ? null : emoji),
+                      )}
+                      className={cx(
+                        'size-9 rounded-full text-xl hover:bg-wa-hover',
+                        myReaction === emoji && 'bg-wa-active',
+                      )}
+                    >
+                      {emoji}
+                    </button>
+                  ))}
+                </div>
                 <button
                   type="button"
                   role="menuitem"
                   className={item}
-                  onClick={run(() => actions.onInfo(message))}
+                  onClick={run(() => actions.onReply(message))}
                 >
-                  <Info className="size-5 text-wa-icon" aria-hidden /> Message info
+                  <Reply className="size-5 text-wa-icon" aria-hidden /> Reply
                 </button>
                 <button
                   type="button"
                   role="menuitem"
                   className={item}
-                  onClick={run(() => actions.onEdit(message))}
+                  onClick={run(() => actions.onForward(message))}
                 >
-                  <Pencil className="size-5 text-wa-icon" aria-hidden /> Edit
+                  <Forward className="size-5 text-wa-icon" aria-hidden /> Forward
                 </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={item}
+                  onClick={run(() => void copyText(message.body ?? ''))}
+                >
+                  <Copy className="size-5 text-wa-icon" aria-hidden /> Copy
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={item}
+                  onClick={run(() => actions.onStar(message, !message.starred))}
+                >
+                  {message.starred ? (
+                    <StarOff className="size-5 text-wa-icon" aria-hidden />
+                  ) : (
+                    <Star className="size-5 text-wa-icon" aria-hidden />
+                  )}
+                  {message.starred ? 'Unstar' : 'Star'}
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={item}
+                  onClick={run(() => actions.onPin(message, !message.pinned))}
+                >
+                  {message.pinned ? (
+                    <PinOff className="size-5 text-wa-icon" aria-hidden />
+                  ) : (
+                    <Pin className="size-5 text-wa-icon" aria-hidden />
+                  )}
+                  {message.pinned ? 'Unpin' : 'Pin'}
+                </button>
+                {mine && (
+                  <>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={item}
+                      onClick={run(() => actions.onInfo(message))}
+                    >
+                      <Info className="size-5 text-wa-icon" aria-hidden /> Message info
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className={item}
+                      onClick={run(() => actions.onEdit(message))}
+                    >
+                      <Pencil className="size-5 text-wa-icon" aria-hidden /> Edit
+                    </button>
+                  </>
+                )}
               </>
             )}
-            {(mine || canModerate) && (
-              <button
-                type="button"
-                role="menuitem"
-                className={cx(item, 'text-danger')}
-                onClick={run(() => actions.onDelete(message))}
-              >
-                <Trash2 className="size-5" aria-hidden /> Delete for everyone
-              </button>
-            )}
+            <button
+              type="button"
+              role="menuitem"
+              className={cx(item, 'text-danger')}
+              onClick={run(() => actions.onDelete(message))}
+            >
+              <Trash2 className="size-5" aria-hidden /> Delete
+            </button>
           </div>,
           document.body,
         )}

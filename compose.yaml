@@ -47,7 +47,8 @@ services:
         '-master.volumeSizeLimitMB=1024',
       ]
     ports:
-      - '127.0.0.1:18333:8333'
+      # OBJECTSTORE_BIND=0.0.0.0 in a local .env lets phones on the same Wi-Fi load photos.
+      - '${OBJECTSTORE_BIND:-127.0.0.1}:18333:8333'
     volumes:
       - objectstore-data:/data
       - ./infrastructure/docker/seaweedfs/s3.json:/etc/seaweedfs/s3.json:ro

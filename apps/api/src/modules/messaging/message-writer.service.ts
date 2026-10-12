@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type MessageKind } from '@prisma/client';
 import type { SystemEventDto } from '@storeline/shared';
 import type { Tx } from '../../infra/prisma/prisma.service';
 import { OutboxService, type PendingOutboxEvent } from '../outbox/outbox.service';
@@ -10,7 +10,7 @@ export interface NewMessage {
   businessId: string;
   senderId: string;
   clientMessageId: string;
-  kind: 'TEXT' | 'SYSTEM' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+  kind: MessageKind;
   /** A READY media asset, already validated by the caller. */
   mediaId?: string | null;
   body: string | null;

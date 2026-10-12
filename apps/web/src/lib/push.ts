@@ -39,7 +39,10 @@ export function useDeviceRegistration(): void {
     void api<DeviceDto>('/devices', {
       method: 'POST',
       body: { platform: 'WEB', name: describeUserAgent(navigator.userAgent).slice(0, 80) },
-    }).catch(() => undefined);
+    })
+      // Notifications allowed earlier: keep this device's push subscription current.
+      .then(() => subscribeToPush())
+      .catch(() => undefined);
   }, [sessionId]);
 }
 
@@ -65,6 +68,22 @@ function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
 
 async function registration(): Promise<ServiceWorkerRegistration> {
   return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+}
+
+/**
+ * When notifications are allowed, registers the service worker (Android shows notifications only
+ * through it) and, if the server has push keys, subscribes so alerts arrive while the page is
+ * closed. Best effort: pop-ups while the page is open work without push.
+ */
+export async function subscribeToPush(): Promise<void> {
+  if (!pushSupported() || !window.isSecureContext || Notification.permission !== 'granted') return;
+  try {
+    const config = await api<NotificationConfigDto>('/notifications/config');
+    if (config.webPushPublicKey) await enablePush(config);
+    else await registration();
+  } catch {
+    // Keep the in-page notifications.
+  }
 }
 
 /** Is this browser currently subscribed? */

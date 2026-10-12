@@ -3,6 +3,7 @@ import {
   resolveBusinessPolicy,
   type ConversationSummaryDto,
   type MessageDto,
+  type MessageMeta,
   type PublicUserDto,
   type SystemEventDto,
 } from '@storeline/shared';
@@ -64,6 +65,9 @@ export function toMessageDto(row: MessageRow): MessageDto {
     reactions: deleted ? [] : row.reactions,
     pinned: !deleted && row.pins.length > 0,
     attachment: !deleted && row.attachments[0] ? toAttachmentDto(row.attachments[0].media) : null,
+    meta: deleted ? null : ((row.meta as MessageMeta | null) ?? null),
+    pollVotes: [],
+    eventResponses: [],
   };
 }
 

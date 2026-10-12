@@ -872,6 +872,9 @@ function Members({
       }),
     onSuccess: (chat) => router.push(`/chats?c=${chat.id}`),
   });
+  // Only the group's own admins make or dismiss admins (others only if no admin is left).
+  const canChangeAdmins =
+    conversation.me.role === 'ADMIN' || !conversation.members.some((m) => m.role === 'ADMIN');
   const q = query.trim().toLowerCase();
   const members = [...conversation.members]
     .filter(
@@ -973,20 +976,22 @@ function Members({
                   </Button>
                   {canManage && conversation.type === 'GROUP' && (
                     <>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        icon={<Shield className="size-4" aria-hidden />}
-                        busy={setRole.isPending}
-                        onClick={() =>
-                          setRole.mutate({
-                            userId: m.user.id,
-                            role: m.role === 'ADMIN' ? 'MEMBER' : 'ADMIN',
-                          })
-                        }
-                      >
-                        {m.role === 'ADMIN' ? 'Dismiss as admin' : 'Make group admin'}
-                      </Button>
+                      {canChangeAdmins && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon={<Shield className="size-4" aria-hidden />}
+                          busy={setRole.isPending}
+                          onClick={() =>
+                            setRole.mutate({
+                              userId: m.user.id,
+                              role: m.role === 'ADMIN' ? 'MEMBER' : 'ADMIN',
+                            })
+                          }
+                        >
+                          {m.role === 'ADMIN' ? 'Dismiss as admin' : 'Make group admin'}
+                        </Button>
+                      )}
                       <Button
                         size="sm"
                         variant="ghost"

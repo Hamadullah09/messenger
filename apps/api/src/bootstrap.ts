@@ -4,8 +4,9 @@ import { DocumentBuilder, SwaggerModule, type OpenAPIObject } from '@nestjs/swag
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
-import { APP_CONFIG, type AppConfig } from './infra/config/config';
+import { APP_CONFIG, isAllowedOrigin, type AppConfig } from './infra/config/config';
 import { AllExceptionsFilter } from './infra/http/exception.filter';
+import { requestContextMiddleware } from './infra/http/request-context';
 import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
 import type { NextFunction, Request, Response } from 'express';
 import { metrics, statusClass } from './infra/metrics/metrics';
@@ -44,6 +45,7 @@ export function configureApp(app: NestExpressApplication): INestApplication {
   app.useBodyParser('json', { limit: '256kb' });
   // Business/store logo uploads send the image bytes as the request body.
   app.useBodyParser('raw', { type: LOGO_CONTENT_TYPES, limit: LOGO_MAX_BYTES });
+  app.use(requestContextMiddleware);
   app.use(cookieParser());
   app.use(httpMetrics);
   app.use(
@@ -54,7 +56,7 @@ export function configureApp(app: NestExpressApplication): INestApplication {
     }),
   );
   app.enableCors({
-    origin: config.CORS_ORIGINS,
+    origin: (origin, done) => done(null, !origin || isAllowedOrigin(config, origin)),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-Storeline-CSRF'],

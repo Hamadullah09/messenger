@@ -24,6 +24,7 @@ import { useConversations } from '@/lib/chat-hooks';
 import { formatRelativeShort, messagePreview } from '@/lib/format';
 import { activeTypers, useLive } from '@/lib/live-store';
 import { EmergencyButton } from '../emergency/raise-alert';
+import { NotificationBanner } from './notification-banner';
 import { Alert, Avatar, Button, cx, EmptyState, Spinner } from '../ui';
 
 type Filter = 'all' | 'unread' | 'groups' | 'archived';
@@ -195,6 +196,8 @@ export function ConversationList({
           )}
         </div>
       </header>
+
+      <NotificationBanner />
 
       <div className="shrink-0 px-3 pb-2">
         <label className="relative block">

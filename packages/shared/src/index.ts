@@ -15,3 +15,5 @@ export * from './schemas/devices';
 export * from './schemas/sales';
 export * from './schemas/customers';
 export * from './sales-types';
+export * from './schemas/rich-messages';
+export * from './feature-types';

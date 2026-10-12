@@ -182,11 +182,56 @@ export interface AuditLogDto {
   requestId: string | null;
 }
 
-export type ConversationType = 'DIRECT' | 'GROUP' | 'EMERGENCY' | 'BROADCAST';
+export type ConversationType = 'DIRECT' | 'GROUP' | 'EMERGENCY' | 'BROADCAST' | 'BROADCAST_LIST';
 export type MemberRole = 'MEMBER' | 'ADMIN';
 /** Sender-side pipeline state. See docs/architecture/messaging.md. */
 export type MessageState = 'ACCEPTED' | 'DISPATCHED' | 'FAILED';
-export type MessageKind = 'TEXT' | 'SYSTEM' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+export type MessageKind =
+  | 'TEXT'
+  | 'SYSTEM'
+  | 'IMAGE'
+  | 'VIDEO'
+  | 'DOCUMENT'
+  | 'AUDIO'
+  | 'LOCATION'
+  | 'CONTACT'
+  | 'POLL'
+  | 'EVENT'
+  | 'CALL'
+  | 'STICKER';
+
+export type CallOutcome = 'answered' | 'missed' | 'declined' | 'cancelled' | 'busy' | 'failed';
+
+/** Kind-specific content of a message (null for text, files and system messages). */
+export type MessageMeta =
+  | { type: 'audio'; voice: boolean; durationMs: number; waveform: number[] | null }
+  | {
+      type: 'location';
+      lat: number;
+      lng: number;
+      accuracy: number | null;
+      name: string | null;
+      address: string | null;
+      /** Live location: position updates until `until` (or until stopped). */
+      live: { until: string; stoppedAt: string | null; updatedAt: string } | null;
+    }
+  | { type: 'contact'; userId: string; displayName: string; username: string }
+  | { type: 'poll'; options: string[]; multiple: boolean }
+  | {
+      type: 'event';
+      startsAt: string;
+      endsAt: string | null;
+      location: string | null;
+      description: string | null;
+    }
+  | {
+      type: 'call';
+      media: 'audio' | 'video';
+      outcome: CallOutcome;
+      durationSec: number;
+      callerId: string;
+    }
+  | { type: 'sticker'; sticker: string };
 
 /**
  * Attachment metadata carried in messages. Never contains storage URLs: clients request a
@@ -295,6 +340,12 @@ export interface MessageDto {
   reactions: Array<{ emoji: string; userId: string }>;
   /** null for text and deleted messages. */
   attachment: AttachmentDto | null;
+  /** Location, contact, poll, event, call, voice-note or sticker details (null otherwise). */
+  meta: MessageMeta | null;
+  /** POLL: every vote (who chose which option). */
+  pollVotes: Array<{ userId: string; option: number }>;
+  /** EVENT: who is going. */
+  eventResponses: Array<{ userId: string; response: 'GOING' | 'MAYBE' | 'NOT_GOING' }>;
   pinned: boolean;
   /** Viewer-specific; only present on per-user reads (history, search, starred list). */
   starred?: boolean;

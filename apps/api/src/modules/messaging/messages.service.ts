@@ -27,6 +27,7 @@ import {
 } from './conversation-access.service';
 import { canPost, canShareFiles, messageInclude, toMessageDto } from './mappers';
 import { MessageWriter } from './message-writer.service';
+import { RealtimeEmitter } from '../realtime/realtime-emitter.service';
 import { metrics } from '../../infra/metrics/metrics';
 
 export interface SendResult {
@@ -48,6 +49,7 @@ export class MessagesService {
     private readonly outbox: OutboxService,
     private readonly rateLimiter: RateLimiterService,
     private readonly audit: AuditService,
+    private readonly realtime: RealtimeEmitter,
   ) {}
 
   async list(
@@ -65,6 +67,7 @@ export class MessagesService {
           gt: Math.max(floor, query.afterSeq ?? 0),
           ...(query.beforeSeq !== undefined ? { lt: query.beforeSeq } : {}),
         },
+        hiddenBy: { none: { userId: actor.userId } },
       },
       orderBy: { seq: ascending ? 'asc' : 'desc' },
       take: query.limit + 1,
@@ -98,6 +101,7 @@ export class MessagesService {
         conversationId,
         seq: { gt: member.historyFromSeq },
         deletedAt: null,
+        hiddenBy: { none: { userId: actor.userId } },
         ...(query.kind === 'media'
           ? { kind: { in: ['IMAGE', 'VIDEO'] } }
           : query.kind === 'docs'
@@ -112,6 +116,29 @@ export class MessagesService {
       },
     });
     return rows.map((row) => ({ ...toMessageDto(row), starred: row.stars.length > 0 }));
+  }
+
+  /**
+   * "Delete for me": the message disappears for this person only (on all their devices). Anyone
+   * who can see a message may hide it, including deleted-for-everyone placeholders.
+   */
+  async hide(actor: Actor, messageId: string): Promise<void> {
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { conversationId: true, seq: true },
+    });
+    if (!message) throw ApiError.notFound('Message');
+    const { member } = await this.access.requireMember(message.conversationId, actor.userId);
+    if (message.seq <= member.historyFromSeq) throw ApiError.notFound('Message');
+    await this.prisma.hiddenMessage.upsert({
+      where: { userId_messageId: { userId: actor.userId, messageId } },
+      create: { userId: actor.userId, messageId },
+      update: {},
+    });
+    this.realtime.toUsers([actor.userId], 'message.hidden', {
+      conversationId: message.conversationId,
+      messageId,
+    });
   }
 
   /** Idempotent send: the same (sender, clientMessageId) always yields the same message. */
@@ -340,6 +367,7 @@ export class MessagesService {
         userId: actor.userId,
         message: {
           deletedAt: null,
+          hiddenBy: { none: { userId: actor.userId } },
           conversation: {
             business: { status: 'ACTIVE' },
             members: { some: { userId: actor.userId, leftAt: null } },
@@ -401,7 +429,14 @@ export class MessagesService {
   async listPinned(actor: Actor, conversationId: string): Promise<MessageDto[]> {
     const { member } = await this.access.requireMember(conversationId, actor.userId);
     const pins = await this.prisma.pinnedMessage.findMany({
-      where: { conversationId, message: { seq: { gt: member.historyFromSeq }, deletedAt: null } },
+      where: {
+        conversationId,
+        message: {
+          seq: { gt: member.historyFromSeq },
+          deletedAt: null,
+          hiddenBy: { none: { userId: actor.userId } },
+        },
+      },
       orderBy: { createdAt: 'desc' },
       include: { message: { include: messageInclude } },
     });
@@ -495,7 +530,7 @@ export class MessagesService {
     conversation: AccessibleConversation,
     member: ActiveMember,
     mediaId: string,
-  ): Promise<{ id: string; kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT' }> {
+  ): Promise<{ id: string; kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'AUDIO' }> {
     if (!canShareFiles(conversation, member)) {
       throw ApiError.forbidden('You cannot share files in this chat.');
     }

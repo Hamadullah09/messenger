@@ -36,7 +36,12 @@ const ACTIVE_STATUSES = ['PENDING_UPLOAD', 'VERIFYING', 'READY'] as const;
 /** Conversations where every download is written to the audit log. */
 const SENSITIVE_CATEGORIES = new Set(['SECURITY', 'EMERGENCY_RESPONSE']);
 
-const KIND_LABEL = { IMAGE: 'Photos', VIDEO: 'Videos', DOCUMENT: 'Documents' } as const;
+const KIND_LABEL = {
+  IMAGE: 'Photos',
+  VIDEO: 'Videos',
+  DOCUMENT: 'Documents',
+  AUDIO: 'Audio files',
+} as const;
 
 /**
  * Secure upload sessions and authorized downloads (docs/architecture/media.md). Bytes go
@@ -69,6 +74,7 @@ export class MediaService {
       IMAGE: policy.maxImageMb,
       VIDEO: policy.maxVideoMb,
       DOCUMENT: policy.maxDocumentMb,
+      AUDIO: policy.maxVideoMb,
     }[kind];
     const maxMb = Math.min(policyMb, this.config.MEDIA_PLATFORM_MAX_MB);
     if (request.sizeBytes > maxMb * MB) {

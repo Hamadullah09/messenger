@@ -98,13 +98,29 @@ export function lastKnownSeq(window: MessageWindow | undefined): number {
   return window?.items.reduce((max, m) => (m.local ? max : Math.max(max, m.seq)), 0) ?? 0;
 }
 
+/** Messages this user deleted "for me" in this session (later updates must not bring them back). */
+const hiddenIds = new Set<string>();
+
 export function upsertMessages(
   client: QueryClient,
   conversationId: string,
   messages: ClientMessage[],
 ): void {
+  const visible = messages.filter((m) => !hiddenIds.has(m.id));
+  if (visible.length === 0) return;
   client.setQueryData<MessageWindow>(keys.messages(conversationId), (current) =>
-    current ? { ...current, items: mergeMessages(current.items, messages) } : current,
+    current ? { ...current, items: mergeMessages(current.items, visible) } : current,
+  );
+}
+
+/** "Delete for me": drop the message from this device's view. */
+export function hideMessage(client: QueryClient, conversationId: string, messageId: string): void {
+  hiddenIds.add(messageId);
+  client.setQueryData<MessageWindow>(keys.messages(conversationId), (current) =>
+    current ? { ...current, items: current.items.filter((m) => m.id !== messageId) } : current,
+  );
+  patchConversation(client, conversationId, (c) =>
+    c.lastMessage?.id === messageId ? { ...c, lastMessage: null, lastMessageStatus: null } : c,
   );
 }
 

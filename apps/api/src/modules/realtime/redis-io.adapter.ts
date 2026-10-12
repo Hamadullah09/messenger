@@ -2,7 +2,7 @@ import type { INestApplicationContext } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import type { Server, ServerOptions } from 'socket.io';
-import { APP_CONFIG, type AppConfig } from '../../infra/config/config';
+import { APP_CONFIG, isAllowedOrigin, type AppConfig } from '../../infra/config/config';
 import { RedisService } from '../../infra/redis/redis.service';
 
 /**
@@ -24,7 +24,10 @@ export class RedisIoAdapter extends IoAdapter {
       ...options,
       path: '/socket.io',
       transports: ['websocket'],
-      cors: { origin: this.config.CORS_ORIGINS, credentials: false },
+      cors: {
+        origin: (origin, done) => done(null, !origin || isAllowedOrigin(this.config, origin)),
+        credentials: false,
+      },
       maxHttpBufferSize: 64 * 1024,
       pingInterval: 25_000,
       pingTimeout: 20_000,

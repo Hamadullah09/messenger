@@ -7,6 +7,8 @@
     "dev": "next dev --port 3000",
     "build": "next build",
     "start": "next start --port 3000",
+    "start:lan": "node lan-server.mjs",
+    "lan:cert": "node scripts/lan-cert.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

@@ -17,6 +17,11 @@ const envSchema = z.object({
         .map((o) => o.trim())
         .filter(Boolean),
     ),
+  /**
+   * Development: also accept web origins on private network addresses (192.168.x.x, 10.x…),
+   * so phones and other computers on the same Wi-Fi can use the app. Refused in production.
+   */
+  CORS_ALLOW_LAN: booleanFromString.default(false),
   TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(10).default(0),
   DATABASE_URL: z.string().url(),
   REDIS_URL: z.string().url(),
@@ -141,6 +146,19 @@ export type AppConfig = z.infer<typeof envSchema>;
 
 export const APP_CONFIG = Symbol('APP_CONFIG');
 
+const LAN_ORIGIN =
+  /^https?:\/\/(localhost|127\.0\.0\.1|10(\.\d{1,3}){3}|192\.168(\.\d{1,3}){2}|172\.(1[6-9]|2\d|3[01])(\.\d{1,3}){2})(:\d{1,5})?$/;
+
+/** A private-network or local host name (192.168.x.x, 10.x, 172.16–31.x, localhost). */
+export function isLanHostname(hostname: string): boolean {
+  return LAN_ORIGIN.test(`http://${hostname}`);
+}
+
+/** Whether a browser Origin may call the API (CORS, Socket.IO and the refresh CSRF check). */
+export function isAllowedOrigin(config: AppConfig, origin: string): boolean {
+  return config.CORS_ORIGINS.includes(origin) || (config.CORS_ALLOW_LAN && LAN_ORIGIN.test(origin));
+}
+
 /** Parse and validate the environment once at boot. Fails fast with readable errors. */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const parsed = envSchema.safeParse(env);
@@ -153,6 +171,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const config = parsed.data;
   if (config.NODE_ENV === 'production' && !config.COOKIE_SECURE) {
     throw new Error('Invalid configuration: COOKIE_SECURE must be true in production');
+  }
+  if (config.NODE_ENV === 'production' && config.CORS_ALLOW_LAN) {
+    throw new Error('Invalid configuration: CORS_ALLOW_LAN is for development only');
   }
   if (config.NODE_ENV === 'production' && !config.MFA_REQUIRED_FOR_PRIVILEGED) {
     throw new Error(

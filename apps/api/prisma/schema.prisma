@@ -79,6 +79,17 @@ model User {
   leadActivities        LeadActivity[]
   addedStoreCustomers   StoreCustomer[]
   customerCampaigns     CustomerCampaign[]
+  hiddenMessages        HiddenMessage[]
+  pollVotes             PollVote[]
+  eventResponses        EventResponse[]
+  broadcastRecipientOf  BroadcastRecipient[]
+  statusPosts           StatusPost[]
+  statusViews           StatusView[]
+  assignedTasks         StoreTask[]                  @relation("taskAssignee")
+  createdTasks          StoreTask[]                  @relation("taskCreator")
+  completedTasks        StoreTask[]                  @relation("taskCompleter")
+  shifts                Shift[]                      @relation("shiftUser")
+  createdShifts         Shift[]                      @relation("shiftCreator")
 }
 
 /// Private contact details. Only read by explicitly authorized, audited flows (ADR-0006).
@@ -203,6 +214,7 @@ model Business {
   campaigns       BulkCampaign[]
   suppressions    CampaignSuppression[]
   quota           TenantQuota?
+  statusPosts     StatusPost[]
 }
 
 model TenantQuota {
@@ -252,6 +264,9 @@ model Store {
   emergencyContacts EmergencyContact[]
   incidents         EmergencyIncident[]
   customers         StoreCustomer[]
+  tasks             StoreTask[]
+  shifts            Shift[]
+  statusPosts       StatusPost[]
 
   @@unique([businessId, code])
   /// Lets child tables reference (businessId, storeId) so a store can never be paired with another tenant.
@@ -364,6 +379,9 @@ enum ConversationType {
   EMERGENCY
   /// One read-only announcements channel per recipient and business (bulk campaigns, phase 6).
   BROADCAST
+  /// A person's broadcast list (WhatsApp): only the owner is a member; each message is also
+  /// sent to every recipient as a direct message.
+  BROADCAST_LIST
 }
 
 enum PostingPolicy {
@@ -419,15 +437,17 @@ model Conversation {
   updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
   archivedAt        DateTime?         @db.Timestamptz(3)
 
-  business       Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  store          Store?               @relation(fields: [storeId], references: [id], onDelete: Restrict)
-  createdBy      User?                @relation("creator", fields: [createdById], references: [id], onDelete: SetNull)
-  lastMessage    Message?             @relation("lastMessage", fields: [lastMessageId], references: [id], onDelete: SetNull)
-  members        ConversationMember[]
-  messages       Message[]            @relation("messages")
-  pinnedMessages PinnedMessage[]
-  mediaAssets    MediaAsset[]
-  incident       EmergencyIncident?
+  business            Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  store               Store?               @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  createdBy           User?                @relation("creator", fields: [createdById], references: [id], onDelete: SetNull)
+  lastMessage         Message?             @relation("lastMessage", fields: [lastMessageId], references: [id], onDelete: SetNull)
+  members             ConversationMember[]
+  messages            Message[]            @relation("messages")
+  pinnedMessages      PinnedMessage[]
+  mediaAssets         MediaAsset[]
+  incident            EmergencyIncident?
+  /// BROADCAST_LIST only: who receives the list's messages.
+  broadcastRecipients BroadcastRecipient[]
 
   @@index([businessId])
 }
@@ -463,6 +483,16 @@ enum MessageKind {
   IMAGE
   VIDEO
   DOCUMENT
+  /// Voice note or audio file (the attachment); details in meta.
+  AUDIO
+  LOCATION
+  /// A shared contact card (a person in the business).
+  CONTACT
+  POLL
+  EVENT
+  /// Voice or video call record (missed, answered, duration).
+  CALL
+  STICKER
 }
 
 /// Sender-side pipeline state (docs/architecture/messaging.md).
@@ -481,6 +511,9 @@ model Message {
   kind            MessageKind  @default(TEXT)
   body            String?
   systemEvent     Json?
+  /// Kind-specific content (location, contact, poll, event, call, voice note, sticker). Shape per
+  /// kind is validated by @storeline/shared (messageMetaSchema).
+  meta            Json?
   replyToId       String?      @db.Uuid
   forwardedFromId String?      @db.Uuid
   state           MessageState @default(ACCEPTED)
@@ -490,21 +523,79 @@ model Message {
   deletedById     String?      @db.Uuid
   createdAt       DateTime     @default(now()) @db.Timestamptz(3)
 
-  conversation  Conversation        @relation("messages", fields: [conversationId], references: [id], onDelete: Restrict)
-  sender        User                @relation(fields: [senderId], references: [id], onDelete: Restrict)
-  replyTo       Message?            @relation("replies", fields: [replyToId], references: [id], onDelete: SetNull)
-  replies       Message[]           @relation("replies")
-  forwardedFrom Message?            @relation("forwards", fields: [forwardedFromId], references: [id], onDelete: SetNull)
-  forwards      Message[]           @relation("forwards")
-  revisions     MessageRevision[]
-  reactions     MessageReaction[]
-  stars         StarredMessage[]
-  pins          PinnedMessage[]
-  attachments   MessageAttachment[]
-  lastMessageOf Conversation?       @relation("lastMessage")
+  conversation   Conversation        @relation("messages", fields: [conversationId], references: [id], onDelete: Restrict)
+  sender         User                @relation(fields: [senderId], references: [id], onDelete: Restrict)
+  replyTo        Message?            @relation("replies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies        Message[]           @relation("replies")
+  forwardedFrom  Message?            @relation("forwards", fields: [forwardedFromId], references: [id], onDelete: SetNull)
+  forwards       Message[]           @relation("forwards")
+  revisions      MessageRevision[]
+  reactions      MessageReaction[]
+  stars          StarredMessage[]
+  pins           PinnedMessage[]
+  attachments    MessageAttachment[]
+  hiddenBy       HiddenMessage[]
+  pollVotes      PollVote[]
+  eventResponses EventResponse[]
+  lastMessageOf  Conversation?       @relation("lastMessage")
 
   @@unique([conversationId, seq])
   @@unique([senderId, clientMessageId])
+}
+
+/// "Delete for me": the message disappears for this person only.
+model HiddenMessage {
+  userId    String   @db.Uuid
+  messageId String   @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@id([userId, messageId])
+  @@index([messageId])
+}
+
+/// A vote in a poll message (one row per chosen option).
+model PollVote {
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  option    Int
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId, option])
+  @@index([messageId])
+}
+
+enum EventResponseKind {
+  GOING
+  MAYBE
+  NOT_GOING
+}
+
+/// Who is coming to an event message.
+model EventResponse {
+  messageId String            @db.Uuid
+  userId    String            @db.Uuid
+  response  EventResponseKind
+  updatedAt DateTime          @updatedAt @db.Timestamptz(3)
+  message   Message           @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId])
+}
+
+/// Recipients of a broadcast list (a BROADCAST_LIST conversation).
+model BroadcastRecipient {
+  conversationId String       @db.Uuid
+  userId         String       @db.Uuid
+  addedAt        DateTime     @default(now()) @db.Timestamptz(3)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId])
 }
 
 model MessageRevision {
@@ -560,6 +651,7 @@ enum MediaKind {
   IMAGE
   VIDEO
   DOCUMENT
+  AUDIO
 }
 
 /// Lifecycle: PENDING_UPLOAD → VERIFYING → READY | QUARANTINED | REJECTED; FAILED for
@@ -577,9 +669,11 @@ enum MediaStatus {
 model MediaAsset {
   id                String      @id @default(uuid()) @db.Uuid
   businessId        String      @db.Uuid
-  /// Upload context: a conversation, or a draft bulk campaign (exactly one; CHECK constraint).
+  /// Upload context: a conversation, a draft bulk campaign, or a status update (exactly one;
+  /// CHECK constraint).
   conversationId    String?     @db.Uuid
   campaignId        String?     @db.Uuid
+  forStatus         Boolean     @default(false)
   uploaderId        String      @db.Uuid
   kind              MediaKind
   status            MediaStatus @default(PENDING_UPLOAD)
@@ -612,6 +706,7 @@ model MediaAsset {
   uploader     User                @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
   attachments  MessageAttachment[]
   campaigns    BulkCampaign[]      @relation("campaignAttachment")
+  statusPosts  StatusPost[]
 
   @@index([businessId, status])
   @@index([status, uploadExpiresAt])
@@ -986,6 +1081,117 @@ model AuditLog {
   @@index([businessId, occurredAt])
   @@index([actorUserId, occurredAt])
   @@index([action, occurredAt])
+}
+
+// ───────────────────────────── Status updates ─────────────────────────────
+
+/// A 24-hour post (WhatsApp Status), seen by the people of its business (or of one store).
+model StatusPost {
+  id         String       @id @default(uuid()) @db.Uuid
+  businessId String       @db.Uuid
+  /// Only this store's people see it (store announcements); null = the whole business.
+  storeId    String?      @db.Uuid
+  authorId   String       @db.Uuid
+  /// Text post: the text; photo/video post: the caption.
+  text       String?      @db.VarChar(700)
+  /// Background colour of a text post (#rrggbb).
+  background String?      @db.VarChar(7)
+  mediaId    String?      @db.Uuid
+  createdAt  DateTime     @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime     @db.Timestamptz(3)
+  deletedAt  DateTime?    @db.Timestamptz(3)
+  business   Business     @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  store      Store?       @relation(fields: [storeId], references: [id], onDelete: Restrict)
+  author     User         @relation(fields: [authorId], references: [id], onDelete: Restrict)
+  media      MediaAsset?  @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+  views      StatusView[]
+
+  @@index([businessId, expiresAt])
+  @@index([authorId, createdAt])
+}
+
+model StatusView {
+  statusId String     @db.Uuid
+  userId   String     @db.Uuid
+  viewedAt DateTime   @default(now()) @db.Timestamptz(3)
+  status   StatusPost @relation(fields: [statusId], references: [id], onDelete: Cascade)
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([statusId, userId])
+}
+
+// ───────────────────────────── Store tasks and shifts ─────────────────────────────
+
+enum TaskStatus {
+  OPEN
+  DONE
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+/// A to-do for a store. Managers assign; the assignee (or anyone in the store, when
+/// unassigned) marks it done.
+model StoreTask {
+  id            String       @id @default(uuid()) @db.Uuid
+  businessId    String       @db.Uuid
+  storeId       String       @db.Uuid
+  title         String       @db.VarChar(160)
+  notes         String?      @db.VarChar(2000)
+  priority      TaskPriority @default(NORMAL)
+  status        TaskStatus   @default(OPEN)
+  dueAt         DateTime?    @db.Timestamptz(3)
+  assigneeId    String?      @db.Uuid
+  createdById   String?      @db.Uuid
+  completedById String?      @db.Uuid
+  completedAt   DateTime?    @db.Timestamptz(3)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  deletedAt     DateTime?    @db.Timestamptz(3)
+  store         Store        @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
+  assignee      User?        @relation("taskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy     User?        @relation("taskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  completedBy   User?        @relation("taskCompleter", fields: [completedById], references: [id], onDelete: SetNull)
+
+  @@index([storeId, status])
+  @@index([assigneeId, status])
+}
+
+/// A planned work shift of one person in one store.
+model Shift {
+  id          String   @id @default(uuid()) @db.Uuid
+  businessId  String   @db.Uuid
+  storeId     String   @db.Uuid
+  userId      String   @db.Uuid
+  startsAt    DateTime @db.Timestamptz(3)
+  endsAt      DateTime @db.Timestamptz(3)
+  /// e.g. "Morning", "Cashier", "Stock room"
+  title       String?  @db.VarChar(60)
+  notes       String?  @db.VarChar(300)
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  store       Store    @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
+  user        User     @relation("shiftUser", fields: [userId], references: [id], onDelete: Restrict)
+  createdBy   User?    @relation("shiftCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([storeId, startsAt])
+  @@index([userId, startsAt])
+}
+
+// ───────────────────────────── Platform settings ─────────────────────────────
+
+/// Settings the Super Admin changes in the app (e.g. email/SMS/WhatsApp provider keys).
+/// Values are AES-256-GCM encrypted; they override the matching environment variables.
+model PlatformSetting {
+  key         String   @id @db.VarChar(64)
+  valueEnc    String
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
 }
 
 // ───────────────────────────── Sales & Marketing ─────────────────────────────

@@ -39,7 +39,7 @@ import {
   nativeRefreshRequestSchema,
 } from '@storeline/shared';
 import type { CookieOptions, Request, Response } from 'express';
-import { APP_CONFIG, type AppConfig } from '../../infra/config/config';
+import { APP_CONFIG, isAllowedOrigin, type AppConfig } from '../../infra/config/config';
 import { CryptoService } from '../../infra/crypto/crypto.service';
 import { ApiError } from '../../infra/http/api-error';
 import { ApiZodBody, ZodPipe } from '../../infra/http/zod';
@@ -253,7 +253,7 @@ export class AuthController {
   private assertCsrfSafe(req: Request): void {
     if (req.headers[CSRF_HEADER] !== '1') throw ApiError.forbidden('Missing request header');
     const origin = req.headers.origin;
-    if (origin && !this.config.CORS_ORIGINS.includes(origin))
+    if (origin && !isAllowedOrigin(this.config, origin))
       throw ApiError.forbidden('Origin not allowed');
   }
 

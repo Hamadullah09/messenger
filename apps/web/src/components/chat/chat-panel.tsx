@@ -30,10 +30,11 @@ import {
   useSendMessage,
   useUpdateMyState,
 } from '@/lib/chat-hooks';
+import { hideMessage } from '@/lib/chat-cache';
 import { formatRelativeShort, formatTime } from '@/lib/format';
 import { activeTypers, useLive } from '@/lib/live-store';
 import { useSocket } from '@/lib/realtime';
-import { Alert, Avatar, Button, ConfirmDialog, cx, Dialog, Spinner } from '../ui';
+import { Alert, Avatar, Button, cx, Dialog, Spinner } from '../ui';
 import { Composer } from './composer';
 import { UploadTray } from './upload-tray';
 import { ChatInfoPanel } from './chat-info';
@@ -298,7 +299,6 @@ export function ChatPanel({
           myId={me.user.id}
           nameOf={nameOf}
           actions={actions}
-          canModerate={canModerate}
           firstUnreadSeq={unreadMarker.current?.seq ?? null}
         />
 
@@ -330,22 +330,23 @@ export function ChatPanel({
           }}
         />
 
-        <ConfirmDialog
-          open={!!deleting}
-          title="Delete message?"
-          message="This message will be deleted for everyone in the chat."
-          confirmLabel="Delete for everyone"
-          danger
-          busy={action.isPending}
-          onClose={() => setDeleting(null)}
-          onConfirm={() => {
-            if (deleting)
+        {deleting && (
+          <DeleteMessageDialog
+            message={deleting}
+            conversationId={conversationId}
+            canDeleteForEveryone={
+              !deleting.deleted && (deleting.sender.id === me.user.id || canModerate)
+            }
+            deletingForEveryone={action.isPending}
+            onDeleteForEveryone={() =>
               action.mutate(
                 { message: deleting, kind: 'delete' },
                 { onSettled: () => setDeleting(null) },
-              );
-          }}
-        />
+              )
+            }
+            onClose={() => setDeleting(null)}
+          />
+        )}
         <ForwardDialog message={forwarding} onClose={() => setForwarding(null)} />
         <MessageInfoDialog message={infoFor} onClose={() => setInfoFor(null)} />
         <ChatSearchDialog
@@ -365,6 +366,61 @@ export function ChatPanel({
         </div>
       )}
     </div>
+  );
+}
+
+/** WhatsApp's choices: delete for everyone (your own, in time; or as a moderator) or for me. */
+function DeleteMessageDialog({
+  message,
+  conversationId,
+  canDeleteForEveryone,
+  deletingForEveryone,
+  onDeleteForEveryone,
+  onClose,
+}: {
+  message: MessageDto;
+  conversationId: string;
+  canDeleteForEveryone: boolean;
+  deletingForEveryone: boolean;
+  onDeleteForEveryone: () => void;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const hide = useMutation({
+    mutationFn: () => api(`/messages/${message.id}/hide`, { method: 'POST' }),
+    onSuccess: () => {
+      hideMessage(client, conversationId, message.id);
+      onClose();
+    },
+  });
+  return (
+    <Dialog open onClose={onClose} title="Delete message?">
+      <div className="flex flex-col gap-3">
+        {hide.isError && <Alert tone="error">{errorMessage(hide.error)}</Alert>}
+        <p className="text-muted">
+          {canDeleteForEveryone
+            ? '“Delete for everyone” removes it from the chat for all members. “Delete for me” only removes it from your devices.'
+            : 'It will be removed from your devices only. Others in the chat still see it.'}
+        </p>
+        <div className="flex flex-col gap-2 sm:flex-row-reverse">
+          {canDeleteForEveryone && (
+            <Button variant="danger" busy={deletingForEveryone} onClick={onDeleteForEveryone}>
+              Delete for everyone
+            </Button>
+          )}
+          <Button
+            variant={canDeleteForEveryone ? 'secondary' : 'danger'}
+            busy={hide.isPending}
+            onClick={() => hide.mutate()}
+          >
+            Delete for me
+          </Button>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

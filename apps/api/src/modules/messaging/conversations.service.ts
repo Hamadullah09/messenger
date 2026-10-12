@@ -369,7 +369,18 @@ export class ConversationsService {
     userId: string,
     request: UpdateMemberRequest,
   ): Promise<ConversationDetailDto> {
-    const { conversation } = await this.access.requireGroupManager(actor, conversationId);
+    const { conversation, member: me } = await this.access.requireGroupManager(
+      actor,
+      conversationId,
+    );
+    // WhatsApp rule: only the group's own admins make or dismiss admins. Business-level
+    // managers may appoint one only when the group has no admin left.
+    if (me?.role !== 'ADMIN') {
+      const admins = await this.prisma.conversationMember.count({
+        where: { conversationId, leftAt: null, role: 'ADMIN' },
+      });
+      if (admins > 0) throw ApiError.forbidden('Only group admins can change who is an admin.');
+    }
     const events = await this.prisma.$transaction(async (tx) => {
       const member = await tx.conversationMember.findFirst({
         where: { conversationId, userId, leftAt: null },

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { idSchema } from './common';
 
-export type MediaKind = 'IMAGE' | 'VIDEO' | 'DOCUMENT';
+export type MediaKind = 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'AUDIO';
 
 /**
  * Allow-listed upload types. The declared type must be one of these, and the worker
@@ -17,6 +17,13 @@ export const MEDIA_TYPES = {
   'video/mp4': { kind: 'VIDEO', label: 'MP4 video', extensions: ['mp4', 'm4v'] },
   'video/quicktime': { kind: 'VIDEO', label: 'QuickTime video', extensions: ['mov'] },
   'video/webm': { kind: 'VIDEO', label: 'WebM video', extensions: ['webm'] },
+  // Voice notes are recorded as WebM/Opus (Chrome, Edge, Firefox) or MP4/AAC (Safari).
+  'audio/webm': { kind: 'AUDIO', label: 'Voice note', extensions: ['weba'] },
+  'audio/ogg': { kind: 'AUDIO', label: 'OGG audio', extensions: ['ogg', 'oga', 'opus'] },
+  'audio/mp4': { kind: 'AUDIO', label: 'M4A audio', extensions: ['m4a'] },
+  'audio/mpeg': { kind: 'AUDIO', label: 'MP3 audio', extensions: ['mp3'] },
+  'audio/aac': { kind: 'AUDIO', label: 'AAC audio', extensions: ['aac'] },
+  'audio/wav': { kind: 'AUDIO', label: 'WAV audio', extensions: ['wav'] },
   'application/pdf': { kind: 'DOCUMENT', label: 'PDF document', extensions: ['pdf'] },
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': {
     kind: 'DOCUMENT',
@@ -59,16 +66,21 @@ export const MEDIA_ACCEPT_ATTRIBUTE = Object.keys(MEDIA_TYPES).join(',');
 
 export const createUploadRequestSchema = z
   .object({
-    /** Upload context: a conversation you belong to, or a draft campaign you manage. */
+    /** Upload context: a conversation you belong to, a draft campaign you manage, or a status
+     * update in a business you belong to. */
     conversationId: idSchema.optional(),
     campaignId: idSchema.optional(),
+    statusBusinessId: idSchema.optional(),
     fileName: z.string().trim().min(1).max(255),
     mimeType: z
       .string()
       .refine((v): v is MediaMimeType => isMediaMimeType(v), 'This file type is not allowed'),
     sizeBytes: z.number().int().positive(),
   })
-  .refine((r) => !!r.conversationId !== !!r.campaignId, 'Upload to a conversation or a campaign');
+  .refine(
+    (r) => [r.conversationId, r.campaignId, r.statusBusinessId].filter(Boolean).length === 1,
+    'Upload to a conversation, a campaign or a status update',
+  );
 export type CreateUploadRequest = z.infer<typeof createUploadRequestSchema>;
 
 export const requestPartsSchema = z.object({

@@ -31,6 +31,7 @@ import {
   TextArea,
   TextField,
 } from '../ui';
+import { uuid } from '@/lib/uuid';
 
 /** Start a direct chat with someone from the directory (server decides who is reachable). */
 export function NewChatDialog({
@@ -369,7 +370,7 @@ export function ForwardDialog({
         body: {
           targets: [...targets].map((conversationId) => ({
             conversationId,
-            clientMessageId: crypto.randomUUID(),
+            clientMessageId: uuid(),
           })),
         },
       }),

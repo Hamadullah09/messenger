@@ -271,6 +271,10 @@ export function Composer({
         </label>
         <button
           type="submit"
+          // Keep the text box focused: otherwise the phone keyboard starts closing, the layout
+          // jumps and the tap misses the button (WhatsApp keeps the keyboard open too).
+          onPointerDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
           aria-label={editing ? 'Save' : 'Send'}
           title={editing ? 'Save' : 'Send'}
           disabled={(!trimmed && !file) || tooLong}

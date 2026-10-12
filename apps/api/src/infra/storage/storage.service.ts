@@ -18,7 +18,8 @@ import {
   type Part,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { APP_CONFIG, type AppConfig } from '../config/config';
+import { APP_CONFIG, isLanHostname, type AppConfig } from '../config/config';
+import { requestContext } from '../http/request-context';
 
 export interface ObjectHeaders {
   contentType: string;
@@ -58,6 +59,40 @@ export class StorageService implements OnModuleInit {
     this.bucket = config.S3_BUCKET;
   }
 
+  /** One signer per storage address (development: one per LAN host browsers use). */
+  private readonly lanSigners = new Map<string, S3Client>();
+
+  /**
+   * Presigned links point at an address the browser can reach. In development with
+   * CORS_ALLOW_LAN, a phone that opened the app at http://192.168.x.x:3000 gets links to that
+   * same origin (apps/web/lan-server.mjs forwards them to storage), not 127.0.0.1.
+   */
+  private signerForRequest(): S3Client {
+    const configured = this.config.S3_PUBLIC_ENDPOINT ?? this.config.S3_ENDPOINT;
+    const page = requestContext.getStore();
+    if (!this.config.CORS_ALLOW_LAN || !configured || !page?.hostname || !page.origin)
+      return this.signer;
+    const base = new URL(configured);
+    if (!isLanHostname(page.hostname) || page.hostname === base.hostname) return this.signer;
+    if (page.hostname === 'localhost' || page.hostname === '127.0.0.1') return this.signer;
+    // Links go to the page's own origin; the LAN web server forwards /<bucket>/… to storage.
+    const endpoint = page.origin;
+    let signer = this.lanSigners.get(endpoint);
+    if (!signer) {
+      signer = new S3Client({
+        region: this.config.S3_REGION,
+        forcePathStyle: this.config.S3_FORCE_PATH_STYLE,
+        credentials: {
+          accessKeyId: this.config.S3_ACCESS_KEY_ID,
+          secretAccessKey: this.config.S3_SECRET_ACCESS_KEY,
+        },
+        endpoint,
+      });
+      this.lanSigners.set(endpoint, signer);
+    }
+    return signer;
+  }
+
   async onModuleInit(): Promise<void> {
     if (!this.config.S3_AUTO_CREATE_BUCKET) return;
     try {
@@ -76,7 +111,10 @@ export class StorageService implements OnModuleInit {
         CORSConfiguration: {
           CORSRules: [
             {
-              AllowedOrigins: this.config.CORS_ORIGINS,
+              // Development on the LAN: phones upload from http://192.168.x.x:3000.
+              AllowedOrigins: this.config.CORS_ALLOW_LAN
+                ? [...this.config.CORS_ORIGINS, '*']
+                : this.config.CORS_ORIGINS,
               AllowedMethods: ['PUT', 'GET', 'HEAD'],
               AllowedHeaders: ['content-type', 'content-disposition', 'content-length', 'range'],
               ExposeHeaders: ['ETag', 'Content-Length', 'Content-Range'],
@@ -96,7 +134,7 @@ export class StorageService implements OnModuleInit {
     expiresIn: number,
   ): Promise<string> {
     return getSignedUrl(
-      this.signer,
+      this.signerForRequest(),
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
@@ -133,7 +171,7 @@ export class StorageService implements OnModuleInit {
     expiresIn: number,
   ): Promise<string> {
     return getSignedUrl(
-      this.signer,
+      this.signerForRequest(),
       new UploadPartCommand({
         Bucket: this.bucket,
         Key: key,
@@ -237,7 +275,7 @@ export class StorageService implements OnModuleInit {
    */
   presignGet(key: string, headers: ObjectHeaders, expiresIn: number): Promise<string> {
     return getSignedUrl(
-      this.signer,
+      this.signerForRequest(),
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,

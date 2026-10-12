@@ -13,6 +13,8 @@ import { Alert, Badge, cx, IconButton, Spinner } from '@/components/ui';
 import { useAuth } from '@/lib/auth-store';
 import { useConversations } from '@/lib/chat-hooks';
 import { useLive } from '@/lib/live-store';
+import { setTitleCount } from '@/lib/notify';
+import { MessageToast } from '@/components/chat/message-toast';
 import { useDeviceRegistration } from '@/lib/push';
 
 /** Accessible slide-in navigation for phones, built on <dialog> (focus trap + Esc). */
@@ -77,6 +79,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
       ),
     [conversations.data, activeBusinessId],
   );
+  // "(3) SMA" in the tab title. Re-applied after navigation, which resets the title.
+  useEffect(() => setTitleCount(unread.length), [unread.length, pathname]);
 
   if (status !== 'signed-in' || !me) return <Spinner label="Signing you in" />;
 
@@ -104,6 +108,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-dvh bg-bg">
+      <MessageToast />
       {messenger ? (
         <WaRail unreadChats={unread.length} />
       ) : (

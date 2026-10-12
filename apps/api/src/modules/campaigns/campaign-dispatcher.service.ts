@@ -397,7 +397,7 @@ export class CampaignDispatcher {
     campaign: LockedCampaign,
     userIds: string[],
     byUser: Map<string, string>,
-    media: { id: string; kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT' } | null,
+    media: { id: string; kind: 'IMAGE' | 'VIDEO' | 'DOCUMENT' | 'AUDIO' } | null,
     now: Date,
   ): Promise<PendingOutboxEvent[]> {
     const channelIds = userIds.map((u) => byUser.get(u)!);
