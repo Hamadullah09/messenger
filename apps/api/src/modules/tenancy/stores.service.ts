@@ -6,6 +6,7 @@ import { isUniqueViolation, PrismaService } from '../../infra/prisma/prisma.serv
 import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
+import { placeDetailsData, placeDetailsSelect, processLogo, toPlaceDetails } from './place-details';
 
 const storeSelect = {
   id: true,
@@ -14,23 +15,34 @@ const storeSelect = {
   code: true,
   status: true,
   timeZone: true,
-  address: true,
   createdAt: true,
+  ...placeDetailsSelect,
   _count: { select: { memberships: { where: { status: 'ACTIVE' } } } },
+  roleAssignments: {
+    where: {
+      revokedAt: null,
+      scopeType: 'STORE',
+      role: { key: 'STORE_MANAGER', isSystem: true },
+      user: { status: 'ACTIVE' },
+    },
+    select: { user: { select: { id: true, displayName: true, username: true } } },
+    orderBy: { createdAt: 'asc' },
+  },
 } as const satisfies Prisma.StoreSelect;
 
 type StoreRow = Prisma.StoreGetPayload<{ select: typeof storeSelect }>;
 
 function toDto(row: StoreRow): StoreDto {
   return {
+    ...toPlaceDetails(row, `/api/v1/stores/${row.id}/logo`),
     id: row.id,
     businessId: row.businessId,
     name: row.name,
     code: row.code,
     status: row.status,
     timeZone: row.timeZone,
-    address: (row.address as Record<string, string> | null) ?? null,
     memberCount: row._count.memberships,
+    managers: [...new Map(row.roleAssignments.map((a) => [a.user.id, a.user])).values()],
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -55,6 +67,7 @@ export class StoresService {
     const rows = await this.prisma.store.findMany({
       where: {
         businessId,
+        deletedAt: null,
         ...(wholeBusiness ? {} : { id: { in: storeIds } }),
         ...(includeArchived ? {} : { status: 'ACTIVE' }),
       },
@@ -66,7 +79,10 @@ export class StoresService {
   }
 
   async get(actor: Actor, storeId: string): Promise<StoreDto> {
-    const row = await this.prisma.store.findUnique({ where: { id: storeId }, select: storeSelect });
+    const row = await this.prisma.store.findUnique({
+      where: { id: storeId, deletedAt: null },
+      select: storeSelect,
+    });
     if (!row) throw ApiError.notFound('Store');
     await this.authz.require(actor, 'store.read', { businessId: row.businessId, storeId });
     return toDto(row);
@@ -90,7 +106,7 @@ export class StoresService {
             name: request.name,
             code: request.code,
             timeZone: request.timeZone,
-            address: request.address ?? Prisma.JsonNull,
+            ...placeDetailsData(request),
           },
           select: storeSelect,
         });
@@ -132,7 +148,7 @@ export class StoresService {
             name: request.name,
             code: request.code,
             timeZone: request.timeZone,
-            ...(request.address ? { address: request.address } : {}),
+            ...placeDetailsData(request),
           },
           select: storeSelect,
         });
@@ -156,6 +172,92 @@ export class StoresService {
         throw ApiError.conflict('A store with this code already exists in the business.');
       throw error;
     }
+  }
+
+  /** Replaces (or with null removes) the store logo. */
+  async setLogo(actor: Actor, storeId: string, body: unknown | null): Promise<StoreDto> {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { businessId: true, status: true },
+    });
+    if (!store) throw ApiError.notFound('Store');
+    await this.authz.require(actor, 'store.update', { businessId: store.businessId, storeId });
+    if (store.status === 'ARCHIVED') throw ApiError.conflict('Archived stores cannot be changed.');
+    const logo = body === null ? null : await processLogo(body);
+    const row = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.store.update({
+        where: { id: storeId },
+        data: { logo: logo ? new Uint8Array(logo) : null, logoUpdatedAt: logo ? new Date() : null },
+        select: storeSelect,
+      });
+      await this.audit.record(
+        actor,
+        {
+          action: logo ? 'store.logo_updated' : 'store.logo_removed',
+          businessId: store.businessId,
+          storeId,
+          targetType: 'Store',
+          targetId: storeId,
+        },
+        tx,
+      );
+      return updated;
+    });
+    return toDto(row);
+  }
+
+  async logo(storeId: string): Promise<Buffer | null> {
+    const row = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { logo: true },
+    });
+    return row?.logo ? Buffer.from(row.logo) : null;
+  }
+
+  /**
+   * Deletes a store: it disappears from every list, its people leave it (their accounts stay),
+   * its group chats become read-only history, and its code can be used again.
+   */
+  async delete(actor: Actor, storeId: string): Promise<void> {
+    const store = await this.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { businessId: true, deletedAt: true, code: true },
+    });
+    if (!store || store.deletedAt) throw ApiError.notFound('Store');
+    await this.authz.require(actor, 'store.archive', { businessId: store.businessId, storeId });
+    await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      await tx.store.update({
+        where: { id: storeId },
+        data: {
+          status: 'ARCHIVED',
+          archivedAt: now,
+          deletedAt: now,
+          code: `DEL-${storeId.replace(/-/g, '').slice(0, 12)}`.toUpperCase(),
+        },
+      });
+      await tx.conversation.updateMany({
+        where: { storeId, archivedAt: null },
+        data: { archivedAt: now },
+      });
+      await tx.storeMembership.updateMany({ where: { storeId }, data: { status: 'REVOKED' } });
+      await tx.roleAssignment.updateMany({
+        where: { storeId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      await this.audit.record(
+        actor,
+        {
+          action: 'store.deleted',
+          businessId: store.businessId,
+          storeId,
+          targetType: 'Store',
+          targetId: storeId,
+          metadata: { code: store.code },
+        },
+        tx,
+      );
+    });
   }
 
   async archive(actor: Actor, storeId: string): Promise<StoreDto> {

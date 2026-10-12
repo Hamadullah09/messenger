@@ -1,6 +1,11 @@
 'use client';
 
-import type { MeDto, MfaSetupDto, SessionDto } from '@storeline/shared';
+import {
+  PASSWORD_MIN_LENGTH,
+  type MeDto,
+  type MfaSetupDto,
+  type SessionDto,
+} from '@storeline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Laptop, LogOut, ShieldCheck } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
@@ -34,8 +39,10 @@ export function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
     event.preventDefault();
     setError(null);
     setDone(false);
-    if (newPassword.length < 12)
-      return setError('Use at least 12 characters. A short sentence is easy to remember.');
+    if (newPassword.length < PASSWORD_MIN_LENGTH)
+      return setError(
+        `Use at least ${PASSWORD_MIN_LENGTH} characters. A short sentence is easy to remember.`,
+      );
     if (newPassword !== confirm) return setError('The two new passwords do not match.');
     mutation.mutate();
   }
@@ -56,7 +63,7 @@ export function ChangePasswordForm({ onDone }: { onDone?: () => void }) {
       />
       <TextField
         label="New password"
-        hint="At least 12 characters. A short sentence works well."
+        hint={`At least ${PASSWORD_MIN_LENGTH} characters. A short sentence works well.`}
         type="password"
         autoComplete="new-password"
         value={newPassword}
@@ -98,20 +105,14 @@ export function MfaSettings() {
     onError: (e) => setError(errorMessage(e)),
   });
 
-  if (me?.mfaEnabled) {
-    return (
-      <Alert tone="success" title="Two-step verification is on">
-        You will be asked for a code from your authenticator app when you sign in.
-      </Alert>
-    );
-  }
+  if (me?.mfaEnabled) return <MfaOff />;
   return (
     <div className="flex max-w-xl flex-col gap-4">
       {error && <Alert tone="error">{error}</Alert>}
       <p>
         Two-step verification protects your account with a code from an authenticator app (for
-        example Microsoft Authenticator or Google Authenticator). It is required for administrator
-        features.
+        example Microsoft Authenticator or Google Authenticator).
+        {me?.security.mfaRequiredForAdmins ? ' It is required for administrator features.' : ''}
       </p>
       {!setup ? (
         <Button
@@ -159,6 +160,59 @@ export function MfaSettings() {
           <Button type="submit" busy={enable.isPending}>
             Turn on
           </Button>
+        </form>
+      )}
+    </div>
+  );
+}
+
+/** Two-step verification is on: offers to turn it off (current password required). */
+function MfaOff() {
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const disable = useMutation({
+    mutationFn: () => api('/auth/mfa/disable', { method: 'POST', body: { password } }),
+    onSuccess: async () => {
+      setOpen(false);
+      setPassword('');
+      useAuth.getState().setMe(await api<MeDto>('/me'));
+    },
+  });
+  return (
+    <div className="flex max-w-xl flex-col gap-4">
+      <Alert tone="success" title="Two-step verification is on">
+        You will be asked for a code from your authenticator app when you sign in.
+      </Alert>
+      {!open ? (
+        <Button variant="secondary" className="self-start" onClick={() => setOpen(true)}>
+          Turn off two-step verification
+        </Button>
+      ) : (
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            disable.mutate();
+          }}
+        >
+          {disable.isError && <Alert tone="error">{errorMessage(disable.error)}</Alert>}
+          <TextField
+            label="Your password"
+            hint="Confirm it’s you to turn two-step verification off."
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <div className="flex gap-3">
+            <Button type="submit" variant="danger" busy={disable.isPending}>
+              Turn off
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+          </div>
         </form>
       )}
     </div>

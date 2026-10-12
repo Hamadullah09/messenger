@@ -6,6 +6,7 @@ import { AuthController, MeController } from './auth.controller';
 import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
 import { MfaService } from './mfa.service';
+import { PasswordResetService } from './password-reset.service';
 import { PasswordService } from './password.service';
 import { SessionService } from './session.service';
 
@@ -26,6 +27,7 @@ import { SessionService } from './session.service';
     MfaService,
     SessionService,
     AuthService,
+    PasswordResetService,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
   exports: [SessionService, PasswordService, MfaService],

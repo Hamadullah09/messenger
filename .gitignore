@@ -19,3 +19,6 @@ backups/
 # Alpha test output
 e2e/results/
 e2e/report/
+
+# Local demo account passwords (never commit)
+*.local.json

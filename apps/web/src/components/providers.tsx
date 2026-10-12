@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ApiRequestError, refreshSession } from '@/lib/api';
 import { useAuth } from '@/lib/auth-store';
+import { hydrateChatPrefs } from '@/lib/chat-prefs';
 import { RealtimeProvider } from '@/lib/realtime';
 
 /**
@@ -11,6 +12,7 @@ import { RealtimeProvider } from '@/lib/realtime';
  * If the server is temporarily unreachable it keeps retrying instead of signing the user out.
  */
 function SessionBootstrap() {
+  useEffect(() => hydrateChatPrefs(), []);
   useEffect(() => {
     if (useAuth.getState().status !== 'loading') return;
     let cancelled = false;

@@ -112,6 +112,17 @@ export function canShareFiles(
   return conversation.fileSharingPolicy === 'ALL_MEMBERS' || member.role === 'ADMIN';
 }
 
+/** Group-info and add-member rights from the group's settings (WhatsApp group settings). */
+export function canByPolicy(
+  conversation: Parameters<typeof canPost>[0],
+  policy: 'ALL_MEMBERS' | 'ADMINS_ONLY',
+  member: Pick<MemberStateRow, 'role'>,
+): boolean {
+  if (conversation.type !== 'GROUP') return false;
+  if (conversation.archivedAt || conversation.business.status !== 'ACTIVE') return false;
+  return policy === 'ALL_MEMBERS' || member.role === 'ADMIN';
+}
+
 export function unreadCount(
   lastSeq: number,
   member: Pick<MemberStateRow, 'historyFromSeq' | 'lastReadSeq' | 'markedUnread'>,
@@ -167,6 +178,8 @@ export function toConversationSummary(
     category: conversation.category,
     postingPolicy: conversation.postingPolicy,
     fileSharingPolicy: conversation.fileSharingPolicy,
+    editInfoPolicy: conversation.editInfoPolicy,
+    addMembersPolicy: conversation.addMembersPolicy,
     counterpart: conversation.type === 'DIRECT' ? counterpart : null,
     lastSeq: conversation.lastSeq,
     lastMessage,
@@ -185,6 +198,8 @@ export function toConversationSummary(
       markedUnread: member.markedUnread,
       canPost: canPost(conversation, member),
       canShareFiles: canShareFiles(conversation, member),
+      canEditInfo: canByPolicy(conversation, conversation.editInfoPolicy, member),
+      canAddMembers: canByPolicy(conversation, conversation.addMembersPolicy, member),
     },
   };
 }

@@ -10,7 +10,6 @@ import {
   MessageSquarePlus,
   MessagesSquare,
   Pin,
-  Plus,
   Search,
   Megaphone,
   Siren,
@@ -24,14 +23,15 @@ import { sortConversations } from '@/lib/chat-cache';
 import { useConversations } from '@/lib/chat-hooks';
 import { formatRelativeShort, messagePreview } from '@/lib/format';
 import { activeTypers, useLive } from '@/lib/live-store';
-import { Alert, Avatar, Button, cx, EmptyState, IconButton, Spinner } from '../ui';
+import { EmergencyButton } from '../emergency/raise-alert';
+import { Alert, Avatar, Button, cx, EmptyState, Spinner } from '../ui';
 
 type Filter = 'all' | 'unread' | 'groups' | 'archived';
 
 const STATUS_ICON = {
   SENT: { Icon: Check, label: 'Sent', cls: 'text-muted' },
   DELIVERED: { Icon: CheckCheck, label: 'Delivered', cls: 'text-muted' },
-  READ: { Icon: CheckCheck, label: 'Read', cls: 'text-brand' },
+  READ: { Icon: CheckCheck, label: 'Read', cls: 'text-wa-read' },
 } as const;
 
 export function ConversationList({
@@ -54,14 +54,9 @@ export function ConversationList({
   const presence = useLive((s) => s.presence);
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
-  const [searching, setSearching] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (searching) searchRef.current?.focus();
-  }, [searching]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -127,116 +122,115 @@ export function ConversationList({
   }, [inWorkspace, filter, query]);
 
   const tabs: Array<{ key: Filter; label: string }> = [
-    { key: 'all', label: `All (${counts.all})` },
-    { key: 'unread', label: `Unread (${counts.unread})` },
+    { key: 'all', label: 'All' },
+    { key: 'unread', label: counts.unread ? `Unread ${counts.unread}` : 'Unread' },
     { key: 'groups', label: 'Groups' },
     { key: 'archived', label: 'Archived' },
   ];
 
   return (
-    <section aria-label="Conversations" className="flex min-h-0 flex-1 flex-col">
-      <div className="flex items-start justify-between gap-3 px-5 pt-5 pb-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Messages</h1>
-          <p className="text-muted">Check out your conversations</p>
-        </div>
-        <div className="flex gap-2">
-          <IconButton
-            label="Search chats"
-            bordered
-            onClick={() => setSearching((v) => !v)}
-            aria-pressed={searching}
+    <section aria-label="Conversations" className="flex min-h-0 flex-1 flex-col bg-wa-list">
+      <header className="flex h-16 shrink-0 items-center gap-1 px-4">
+        <h1 className="flex-1 text-[1.4rem] font-bold tracking-tight">
+          <span className="text-brand md:hidden">SMA</span>
+          <span className="hidden md:inline">Chats</span>
+        </h1>
+        <span className="md:hidden">
+          <EmergencyButton round />
+        </span>
+        <div ref={menuRef} className="relative">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-label="Start a new conversation"
+            title="New chat"
+            className="inline-flex size-10 items-center justify-center rounded-full text-wa-icon hover:bg-wa-hover"
           >
-            <Search className="size-5" aria-hidden />
-          </IconButton>
-          <div ref={menuRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setMenuOpen((v) => !v)}
-              aria-expanded={menuOpen}
-              aria-haspopup="menu"
-              aria-label="Start a new conversation"
-              title="Start a new conversation"
-              className="inline-flex size-11 items-center justify-center rounded-xl bg-brand text-brand-contrast shadow-card hover:bg-brand-strong"
+            <MessageSquarePlus className="size-6" aria-hidden />
+          </button>
+          {menuOpen && (
+            <div
+              role="menu"
+              className="absolute top-full right-0 z-30 mt-1 w-56 rounded-lg bg-surface py-2 shadow-pop"
             >
-              <Plus className="size-6" aria-hidden />
-            </button>
-            {menuOpen && (
-              <div
-                role="menu"
-                className="absolute top-full right-0 z-30 mt-2 w-60 rounded-2xl border border-line bg-surface p-2 shadow-pop"
+              <button
+                type="button"
+                role="menuitem"
+                autoFocus
+                onClick={() => {
+                  setMenuOpen(false);
+                  onNewChat();
+                }}
+                className="flex min-h-11 w-full items-center gap-3 px-5 text-left hover:bg-wa-hover"
               >
+                <MessageSquarePlus className="size-5 text-wa-icon" aria-hidden /> New chat
+              </button>
+              {canCreateGroup && (
                 <button
                   type="button"
                   role="menuitem"
-                  autoFocus
                   onClick={() => {
                     setMenuOpen(false);
-                    onNewChat();
+                    onNewGroup();
                   }}
-                  className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left font-semibold hover:bg-surface-2"
+                  className="flex min-h-11 w-full items-center gap-3 px-5 text-left hover:bg-wa-hover"
                 >
-                  <MessageSquarePlus className="size-5 text-brand" aria-hidden /> New chat
+                  <Users className="size-5 text-wa-icon" aria-hidden /> New group
                 </button>
-                {canCreateGroup && (
-                  <button
-                    type="button"
-                    role="menuitem"
-                    onClick={() => {
-                      setMenuOpen(false);
-                      onNewGroup();
-                    }}
-                    className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left font-semibold hover:bg-surface-2"
-                  >
-                    <Users className="size-5 text-brand" aria-hidden /> New group
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {searching && (
-        <div className="px-5 pb-3">
-          <label className="relative block">
-            <span className="sr-only">Search chats by name</span>
-            <Search
-              className="pointer-events-none absolute top-1/2 left-3.5 size-5 -translate-y-1/2 text-muted"
-              aria-hidden
-            />
-            <input
-              ref={searchRef}
-              type="search"
-              placeholder="Search by name"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Escape') {
-                  setQuery('');
-                  setSearching(false);
-                }
-              }}
-              className="min-h-12 w-full rounded-xl border border-line-strong/60 bg-surface pr-11 pl-11 focus:border-brand focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/20"
-            />
-            {query && (
+              )}
               <button
                 type="button"
-                aria-label="Clear search"
-                onClick={() => setQuery('')}
-                className="absolute top-1/2 right-2 inline-flex size-9 -translate-y-1/2 items-center justify-center rounded-lg hover:bg-surface-2"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setFilter('archived');
+                }}
+                className="flex min-h-11 w-full items-center gap-3 px-5 text-left hover:bg-wa-hover"
               >
-                <X className="size-5" aria-hidden />
+                <Archive className="size-5 text-wa-icon" aria-hidden /> Archived chats
               </button>
-            )}
-          </label>
+            </div>
+          )}
         </div>
-      )}
+      </header>
+
+      <div className="shrink-0 px-3 pb-2">
+        <label className="relative block">
+          <span className="sr-only">Search chats by name</span>
+          <Search
+            className="pointer-events-none absolute top-1/2 left-4 size-[18px] -translate-y-1/2 text-wa-icon"
+            aria-hidden
+          />
+          <input
+            ref={searchRef}
+            type="search"
+            placeholder="Search or start a new chat"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setQuery('');
+            }}
+            className="h-10 w-full rounded-lg bg-wa-panel pr-10 pl-12 text-[0.95rem] placeholder:text-wa-icon wa-field"
+          />
+          {query && (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => setQuery('')}
+              className="absolute top-1/2 right-2 inline-flex size-7 -translate-y-1/2 items-center justify-center rounded-full text-wa-icon hover:bg-wa-hover"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          )}
+        </label>
+      </div>
 
       <div
         role="tablist"
         aria-label="Filter chats"
-        className="scroll-thin flex shrink-0 overflow-x-auto border-b border-line px-2"
+        className="scroll-thin flex shrink-0 gap-2 overflow-x-auto px-3 pb-2"
       >
         {tabs.map((t) => (
           <button
@@ -245,17 +239,13 @@ export function ConversationList({
             aria-selected={filter === t.key}
             onClick={() => setFilter(t.key)}
             className={cx(
-              'relative min-h-12 flex-1 px-3 text-sm font-semibold whitespace-nowrap transition-colors',
-              filter === t.key ? 'text-brand' : 'text-muted hover:text-fg',
+              'h-8 shrink-0 rounded-full px-3 text-sm whitespace-nowrap transition-colors',
+              filter === t.key
+                ? 'bg-brand-soft font-semibold text-brand-strong'
+                : 'bg-wa-panel text-wa-chip-text hover:bg-wa-active',
             )}
           >
             {t.label}
-            {filter === t.key && (
-              <span
-                className="absolute right-2 bottom-0 left-2 h-0.5 rounded-full bg-brand"
-                aria-hidden
-              />
-            )}
           </button>
         ))}
       </div>
@@ -277,8 +267,8 @@ export function ConversationList({
             title={filter === 'all' && !query ? 'No chats yet' : 'Nothing here'}
           >
             {filter === 'all' && !query
-              ? 'Press the + button to message a colleague.'
-              : 'Try another tab or search.'}
+              ? 'Start a new chat with the button above.'
+              : 'Try another filter or search.'}
           </EmptyState>
         )}
         <ul>
@@ -319,70 +309,73 @@ function ConversationRow({
     typers.length > 0
       ? `${typers[0]} is typing…`
       : messagePreview(c.lastMessage, () => 'Someone', myId);
-  const status = c.lastMessageStatus ? STATUS_ICON[c.lastMessageStatus] : null;
+  const status =
+    c.lastMessageStatus && typers.length === 0 ? STATUS_ICON[c.lastMessageStatus] : null;
+  const unread = c.unreadCount > 0 || c.me.markedUnread;
   return (
-    <li className="border-b border-line last:border-b-0">
+    <li>
       <button
         type="button"
         onClick={() => onSelect(c.id)}
         aria-current={selected ? 'true' : undefined}
         className={cx(
-          'relative flex w-full items-center gap-3 px-5 py-3.5 text-left transition-colors',
-          selected ? 'bg-brand-soft' : 'hover:bg-surface-2',
+          'flex h-[72px] w-full items-center gap-3 pl-3 text-left transition-colors',
+          selected ? 'bg-wa-active' : 'hover:bg-wa-hover',
         )}
       >
-        {selected && <span className="absolute top-0 bottom-0 left-0 w-1 bg-brand" aria-hidden />}
         {c.type === 'BROADCAST' ? (
           <span
-            className="inline-flex size-[52px] shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand"
+            className="inline-flex size-[49px] shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand"
             aria-hidden
           >
             <Megaphone className="size-6" />
           </span>
         ) : c.type === 'EMERGENCY' ? (
           <span
-            className="inline-flex size-[52px] shrink-0 items-center justify-center rounded-full bg-danger text-danger-contrast"
+            className="inline-flex size-[49px] shrink-0 items-center justify-center rounded-full bg-danger text-danger-contrast"
             aria-hidden
           >
             <Siren className="size-6" />
           </span>
         ) : (
-          <Avatar name={c.title} size={52} online={online} />
+          <Avatar name={c.title} size={49} online={online} />
         )}
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex h-full min-w-0 flex-1 flex-col justify-center gap-0.5 border-b border-wa-divider pr-4">
           <span className="flex items-baseline gap-2">
-            <span className="truncate font-semibold">{c.title}</span>
+            <span className="truncate text-[1.03rem]">{c.title}</span>
             <span
               className={cx(
                 'ml-auto shrink-0 text-xs',
-                c.unreadCount > 0 ? 'font-bold text-brand' : 'text-muted',
+                unread ? 'font-semibold text-brand' : 'text-wa-meta-in',
               )}
             >
               {formatRelativeShort(c.lastActivityAt)}
             </span>
           </span>
-          <span className="flex items-center gap-2">
+          <span className="flex items-center gap-1">
+            {status && (
+              <status.Icon
+                className={cx('size-[18px] shrink-0', status.cls)}
+                aria-label={status.label}
+              />
+            )}
             <span
               className={cx(
-                'truncate text-[0.95rem]',
-                typers.length > 0 ? 'font-semibold text-brand' : 'text-muted',
+                'truncate text-sm',
+                typers.length > 0 ? 'font-semibold text-brand' : 'text-wa-meta-in',
               )}
             >
               {preview}
             </span>
-            <span className="ml-auto flex shrink-0 items-center gap-1.5 text-muted">
-              {c.me.pinnedAt && <Pin className="size-4" aria-label="Pinned" />}
+            <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-1 text-wa-meta-in">
               {muted && <BellOff className="size-4" aria-label="Muted" />}
+              {c.me.pinnedAt && <Pin className="size-4" aria-label="Pinned" />}
               {c.me.archivedAt && <Archive className="size-4" aria-label="Archived" />}
-              {c.unreadCount > 0 ? (
-                <span className="inline-flex min-w-7 items-center justify-center rounded-lg bg-brand px-1.5 py-0.5 text-xs font-bold text-brand-contrast">
-                  {c.unreadCount > 99 ? '99+' : c.unreadCount}
+              {unread && (
+                <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-xs font-bold text-brand-contrast">
+                  {c.unreadCount > 0 ? (c.unreadCount > 99 ? '99+' : c.unreadCount) : ''}
                   <span className="sr-only"> unread</span>
                 </span>
-              ) : (
-                status && (
-                  <status.Icon className={cx('size-5', status.cls)} aria-label={status.label} />
-                )
               )}
             </span>
           </span>

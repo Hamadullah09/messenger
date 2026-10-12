@@ -2,7 +2,7 @@
  * Response shapes shared by the API and every client. These never contain private
  * contact data, password hashes, tokens, or storage credentials.
  */
-import type { BusinessPolicy } from './schemas/admin';
+import type { Address, BusinessPolicy, SocialLinks } from './schemas/admin';
 import type { Permission, ScopeType } from './authorization/permissions';
 import type { MediaKind } from './schemas/media';
 import type { FileSharingPolicy, GroupCategory, PostingPolicy } from './schemas/messaging';
@@ -50,6 +50,8 @@ export interface MeDto {
     stores: Array<{ id: string; name: string; code: string }>;
   }>;
   grants: GrantDto[];
+  /** Platform security settings the UI needs to explain itself. */
+  security: { mfaRequiredForAdmins: boolean };
 }
 
 export interface AuthTokensDto {
@@ -83,7 +85,20 @@ export interface SessionDto {
   current: boolean;
 }
 
-export interface BusinessDto {
+/** Public profile of a business or store (country, state, links, logo…). */
+export interface PlaceDetailsDto {
+  description: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  mapUrl: string | null;
+  address: Address | null;
+  socialLinks: SocialLinks;
+  /** Relative API path of the logo image, or null when none was uploaded. */
+  logoUrl: string | null;
+}
+
+export interface BusinessDto extends PlaceDetailsDto {
   id: string;
   name: string;
   slug: string;
@@ -93,19 +108,37 @@ export interface BusinessDto {
   policy: BusinessPolicy;
   storeCount: number;
   memberCount: number;
+  /** Active stores (names only). */
+  stores: Array<{ id: string; name: string; code: string }>;
+  /** People holding a business-wide role: owners, admins, business managers (names only). */
+  admins: Array<{ id: string; displayName: string; username: string; roleName: string }>;
   createdAt: string;
 }
 
-export interface StoreDto {
+export interface StoreDto extends PlaceDetailsDto {
   id: string;
   businessId: string;
   name: string;
   code: string;
   status: StoreStatus;
   timeZone: string | null;
-  address: Record<string, string> | null;
   memberCount: number;
+  /** Active store managers (names only; never contact details). */
+  managers: Array<{ id: string; displayName: string; username: string }>;
   createdAt: string;
+}
+
+/** A group in a business, as listed for people who manage groups (no message content). */
+export interface BusinessGroupDto {
+  id: string;
+  title: string;
+  type: 'GROUP' | 'BROADCAST' | 'EMERGENCY';
+  storeId: string | null;
+  storeName: string | null;
+  memberCount: number;
+  lastActivityAt: string;
+  /** Whether the caller is a member (and can open it). */
+  isMember: boolean;
 }
 
 export interface AdminUserDto extends PublicUserDto {
@@ -299,6 +332,10 @@ export interface ConversationSummaryDto {
   category: GroupCategory | null;
   postingPolicy: PostingPolicy;
   fileSharingPolicy: FileSharingPolicy;
+  /** Who can change the group name and description. */
+  editInfoPolicy: PostingPolicy;
+  /** Who can add people to the group. */
+  addMembersPolicy: PostingPolicy;
   /** For DIRECT conversations: the other participant. */
   counterpart: PublicUserDto | null;
   lastSeq: number;
@@ -323,7 +360,16 @@ export interface ConversationSummaryDto {
     markedUnread: boolean;
     canPost: boolean;
     canShareFiles: boolean;
+    canEditInfo: boolean;
+    canAddMembers: boolean;
   };
+}
+
+/** A group both people of a direct chat belong to ("Groups in common"). */
+export interface CommonGroupDto {
+  id: string;
+  title: string;
+  memberCount: number;
 }
 
 export interface ConversationDetailDto extends ConversationSummaryDto {

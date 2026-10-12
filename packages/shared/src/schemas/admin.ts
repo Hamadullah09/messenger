@@ -3,6 +3,7 @@ import { isPermission, type Permission } from '../authorization/permissions';
 import {
   displayNameSchema,
   emailSchema,
+  httpUrlSchema,
   idSchema,
   localeSchema,
   passwordSchema,
@@ -12,7 +13,46 @@ import {
   usernameSchema,
 } from './common';
 
-export const createBusinessRequestSchema = z.object({
+export const addressSchema = z.object({
+  line1: z.string().trim().max(200).optional(),
+  line2: z.string().trim().max(200).optional(),
+  city: z.string().trim().max(100).optional(),
+  /** State, province or region. */
+  region: z.string().trim().max(100).optional(),
+  postalCode: z.string().trim().max(20).optional(),
+  /** ISO 3166-1 alpha-2 country code, e.g. PK, US, GB. */
+  country: z.string().trim().length(2).toUpperCase().optional(),
+});
+export type Address = z.infer<typeof addressSchema>;
+
+export const SOCIAL_NETWORKS = [
+  'facebook',
+  'instagram',
+  'x',
+  'linkedin',
+  'tiktok',
+  'youtube',
+  'whatsapp',
+] as const;
+export type SocialNetwork = (typeof SOCIAL_NETWORKS)[number];
+
+export const socialLinksSchema = z.partialRecord(z.enum(SOCIAL_NETWORKS), httpUrlSchema);
+export type SocialLinks = z.infer<typeof socialLinksSchema>;
+
+/** Public details of a business or store. Send null to clear a field. */
+export const placeDetailsSchema = z.object({
+  description: z.string().trim().max(500).nullable().optional(),
+  phone: phoneSchema.nullable().optional(),
+  email: emailSchema.nullable().optional(),
+  website: httpUrlSchema.nullable().optional(),
+  /** Link to the location on a map (Google Maps, OpenStreetMap, Apple Maps…). */
+  mapUrl: httpUrlSchema.nullable().optional(),
+  address: addressSchema.nullable().optional(),
+  socialLinks: socialLinksSchema.optional(),
+});
+export type PlaceDetails = z.infer<typeof placeDetailsSchema>;
+
+export const createBusinessRequestSchema = placeDetailsSchema.extend({
   name: z.string().trim().min(2).max(120),
   slug: slugSchema,
   timeZone: timeZoneSchema.default('UTC'),
@@ -53,7 +93,7 @@ export function resolveBusinessPolicy(stored: unknown): BusinessPolicy {
   return { ...DEFAULT_BUSINESS_POLICY, ...(parsed.success ? parsed.data : {}) };
 }
 
-export const updateBusinessRequestSchema = z.object({
+export const updateBusinessRequestSchema = placeDetailsSchema.extend({
   name: z.string().trim().min(2).max(120).optional(),
   timeZone: timeZoneSchema.optional(),
   locale: localeSchema.optional(),
@@ -61,17 +101,7 @@ export const updateBusinessRequestSchema = z.object({
 });
 export type UpdateBusinessRequest = z.infer<typeof updateBusinessRequestSchema>;
 
-export const addressSchema = z.object({
-  line1: z.string().trim().max(200).optional(),
-  line2: z.string().trim().max(200).optional(),
-  city: z.string().trim().max(100).optional(),
-  region: z.string().trim().max(100).optional(),
-  postalCode: z.string().trim().max(20).optional(),
-  country: z.string().trim().length(2).toUpperCase().optional(),
-});
-export type Address = z.infer<typeof addressSchema>;
-
-export const createStoreRequestSchema = z.object({
+export const createStoreRequestSchema = placeDetailsSchema.extend({
   name: z.string().trim().min(2).max(120),
   code: z
     .string()
@@ -81,7 +111,6 @@ export const createStoreRequestSchema = z.object({
     .max(16)
     .regex(/^[A-Z0-9-]+$/, 'Use letters, numbers and dashes'),
   timeZone: timeZoneSchema.optional(),
-  address: addressSchema.optional(),
 });
 export type CreateStoreRequest = z.infer<typeof createStoreRequestSchema>;
 
@@ -90,7 +119,9 @@ export type UpdateStoreRequest = z.infer<typeof updateStoreRequestSchema>;
 
 export const systemRoleKeySchema = z.enum([
   'SUPER_ADMIN',
+  'BUSINESS_OWNER',
   'BUSINESS_ADMIN',
+  'BUSINESS_MANAGER',
   'STORE_MANAGER',
   'SECURITY',
   'EMPLOYEE',
@@ -106,14 +137,32 @@ export const createUserRequestSchema = z.object({
   storeIds: z.array(idSchema).max(200).default([]),
   /** System role granted at each listed store (store roles) or at the business (business roles). */
   roleKey: systemRoleKeySchema.exclude(['SUPER_ADMIN']).default('EMPLOYEE'),
-  email: emailSchema.optional(),
+  /** Every account is bound to an email address (used for password resets). */
+  email: emailSchema,
   phone: phoneSchema.optional(),
+  /** Off: the person signs in with this password as is (no forced change). */
+  mustChangePassword: z.boolean().default(true),
 });
 export type CreateUserRequest = z.infer<typeof createUserRequestSchema>;
 
 export const updateUserRequestSchema = z.object({
   displayName: displayNameSchema.optional(),
+  username: usernameSchema.optional(),
 });
+
+/** Replaces a person's system role in one business (and, for store roles, their stores). */
+export const setUserRoleRequestSchema = z.object({
+  roleKey: systemRoleKeySchema.exclude(['SUPER_ADMIN']),
+  storeIds: z.array(idSchema).max(200).default([]),
+});
+export type SetUserRoleRequest = z.infer<typeof setUserRoleRequestSchema>;
+
+/** An administrator (or the person's store manager) sets a new password. */
+export const adminSetPasswordRequestSchema = z.object({
+  newPassword: passwordSchema,
+  mustChangePassword: z.boolean().default(false),
+});
+export type AdminSetPasswordRequest = z.infer<typeof adminSetPasswordRequestSchema>;
 export type UpdateUserRequest = z.infer<typeof updateUserRequestSchema>;
 
 export const setUserStoresRequestSchema = z.object({

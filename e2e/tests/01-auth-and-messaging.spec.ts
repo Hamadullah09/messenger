@@ -7,7 +7,7 @@ test.describe('Sign-in and app shell', () => {
     await page.goto('/login');
     await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
     await page.getByLabel('Username').fill(users.employee.username);
-    await page.getByLabel('Password').fill('definitely-not-the-password');
+    await page.getByLabel('Password', { exact: true }).fill('definitely-not-the-password');
     await page.getByRole('button', { name: 'Sign in', exact: true }).click();
     await expect(page.getByText('Incorrect username or password')).toBeVisible();
   });
@@ -35,16 +35,14 @@ test.describe('Sign-in and app shell', () => {
 });
 
 test.describe('Messaging', () => {
-  test('a platform admin without a business gets an explanation, not an endless spinner', async ({
-    page,
-  }) => {
+  test('a platform admin can message people in any business', async ({ page }) => {
     await signIn(page, 'platform');
     await page.goto('/chats');
     await page.getByRole('button', { name: 'Start a new conversation' }).click();
     await page.getByRole('menuitem', { name: 'New chat' }).click();
     const dialog = page.getByRole('dialog', { name: 'New chat' });
-    await expect(dialog.getByText('No one to message from this account')).toBeVisible();
-    await expect(dialog.getByRole('status')).toHaveCount(0); // no spinner
+    await expect(dialog.getByLabel('Search people')).toBeVisible();
+    await expect(dialog.getByText('No one to message from this account')).toHaveCount(0);
   });
 
   test('two colleagues chat in real time, with a photo', async ({ browser }) => {

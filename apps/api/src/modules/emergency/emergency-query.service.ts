@@ -98,7 +98,10 @@ export class EmergencyQueryService {
         revokedAt: null,
         scopeType: 'BUSINESS',
         businessId,
-        role: { key: 'BUSINESS_ADMIN', isSystem: true },
+        role: {
+          key: { in: ['BUSINESS_OWNER', 'BUSINESS_ADMIN', 'BUSINESS_MANAGER'] },
+          isSystem: true,
+        },
         user: {
           status: 'ACTIVE',
           kind: 'INTERNAL',

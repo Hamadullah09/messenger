@@ -6,7 +6,9 @@ export const LARGE_CAMPAIGN_THRESHOLD = 1000;
 export const CAMPAIGN_BODY_MAX = 4000;
 
 export const CAMPAIGN_ROLE_FILTERS = [
+  'BUSINESS_OWNER',
   'BUSINESS_ADMIN',
+  'BUSINESS_MANAGER',
   'STORE_MANAGER',
   'SECURITY',
   'EMPLOYEE',
@@ -22,7 +24,7 @@ export const campaignAudienceSchema = z
     everyone: z.boolean().default(false),
     storeIds: z.array(idSchema).max(500).default([]),
     groupIds: z.array(idSchema).max(200).default([]),
-    roleKeys: z.array(z.enum(CAMPAIGN_ROLE_FILTERS)).max(4).default([]),
+    roleKeys: z.array(z.enum(CAMPAIGN_ROLE_FILTERS)).max(6).default([]),
     /** External customers in the segments (they can opt out). */
     includeCustomers: z.boolean().default(false),
   })

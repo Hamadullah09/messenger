@@ -2,7 +2,7 @@
  * Local smoke test of the emergency flow against a running API + worker (seeded demo data).
  * Reads SEED_PASSWORD from apps/api/.env inside the process; never prints credentials.
  *
- *   node scripts/emergency-smoke.cjs            # raise as alice, acknowledge + resolve as manager.a
+ *   node scripts/emergency-smoke.cjs            # raise as alice, acknowledge + resolve as manager
  *   node scripts/emergency-smoke.cjs --raise    # only raise (leave it active for UI checks)
  *   node scripts/emergency-smoke.cjs --cancel <incidentId>   # alice withdraws her alert
  */
@@ -58,7 +58,7 @@ async function main() {
   if (process.argv.includes('--raise')) return;
 
   await new Promise((r) => setTimeout(r, 1000));
-  const manager = await login('manager.a');
+  const manager = await login('manager');
   const before = await call(manager, 'GET', `/emergency/incidents/${incident.id}`);
   console.log(`manager sees: ${before.me.alertState}, canRespond=${before.me.canRespond}`);
   const acked = await call(manager, 'POST', `/emergency/incidents/${incident.id}/acknowledge`);

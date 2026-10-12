@@ -62,9 +62,9 @@ async function main(): Promise<void> {
         { code: 'C', name: 'Store C — Airport' },
       ],
       users: [
-        { username: 'bizadmin', displayName: 'Grace Admin', role: 'BUSINESS_ADMIN' },
+        { username: 'admin', displayName: 'Grace Admin', role: 'BUSINESS_ADMIN' },
         {
-          username: 'manager.a',
+          username: 'manager',
           displayName: 'Maria Manager',
           role: 'STORE_MANAGER',
           stores: ['A'],
@@ -90,15 +90,15 @@ async function main(): Promise<void> {
           title: 'Store A Operations',
           store: 'A',
           category: 'OPERATIONS',
-          members: ['manager.a', 'alice', 'bob', 'security.a'],
-          admins: ['manager.a'],
+          members: ['manager', 'alice', 'bob', 'security.a'],
+          admins: ['manager'],
         },
         {
           title: 'Store A Security',
           store: 'A',
           category: 'SECURITY',
-          members: ['manager.a', 'security.a'],
-          admins: ['manager.a'],
+          members: ['manager', 'security.a'],
+          admins: ['manager'],
         },
         {
           title: 'Store B Operations',
@@ -110,29 +110,20 @@ async function main(): Promise<void> {
         {
           title: 'Regional Managers',
           category: 'MANAGEMENT',
-          members: ['bizadmin', 'manager.a', 'manager.b'],
-          admins: ['bizadmin'],
+          members: ['admin', 'manager', 'manager.b'],
+          admins: ['admin'],
         },
         {
           title: 'Business Announcements',
           category: 'ANNOUNCEMENTS',
-          members: [
-            'bizadmin',
-            'manager.a',
-            'manager.b',
-            'security.a',
-            'alice',
-            'bob',
-            'carol',
-            'dave',
-          ],
-          admins: ['bizadmin'],
+          members: ['admin', 'manager', 'manager.b', 'security.a', 'alice', 'bob', 'carol', 'dave'],
+          admins: ['admin'],
           adminsOnly: true,
         },
       ],
       directs: [
         {
-          between: ['alice', 'manager.a'],
+          between: ['alice', 'manager'],
           messages: [
             'Hi Maria, the delivery for today arrived early.',
             'Thanks Alice! Please check the cold storage first.',
@@ -171,7 +162,7 @@ async function main(): Promise<void> {
 
   // Store A: Maria is the primary emergency contact, Sam (security) the backup. Other stores
   // use the fallback (store managers, then business admins).
-  await seedEmergencyContacts('abc-retail', 'A', ['manager.a', 'security.a']);
+  await seedEmergencyContacts('abc-retail', 'A', ['manager', 'security.a']);
 }
 
 /** Idempotent: only sets contacts for a store that has none (safe to re-run on existing data). */

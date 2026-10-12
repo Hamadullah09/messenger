@@ -52,7 +52,16 @@ export const updateGroupRequestSchema = z.object({
   category: groupCategorySchema.optional(),
   postingPolicy: postingPolicySchema.optional(),
   fileSharingPolicy: fileSharingPolicySchema.optional(),
+  editInfoPolicy: postingPolicySchema.optional(),
+  addMembersPolicy: postingPolicySchema.optional(),
 });
+
+/** Shared items of a chat, as in WhatsApp's "Media, links and docs". */
+export const sharedItemsQuerySchema = z.object({
+  kind: z.enum(['media', 'docs', 'links']),
+  limit: z.coerce.number().int().min(1).max(100).default(60),
+});
+export type SharedItemsQuery = z.infer<typeof sharedItemsQuerySchema>;
 export type UpdateGroupRequest = z.infer<typeof updateGroupRequestSchema>;
 
 export const addMembersRequestSchema = z.object({
@@ -71,6 +80,8 @@ export const updateMyConversationStateRequestSchema = z.object({
   pinned: z.boolean().optional(),
   archived: z.boolean().optional(),
   markedUnread: z.boolean().optional(),
+  /** "Clear chat": hide every message so far, for you only. */
+  clearHistory: z.literal(true).optional(),
 });
 export type UpdateMyConversationStateRequest = z.infer<
   typeof updateMyConversationStateRequestSchema

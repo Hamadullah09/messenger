@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { EmergencyAlertHost, EmergencyBanner } from '@/components/emergency/alert-host';
 import { ChangePasswordForm } from '@/components/security';
+import { WaRail } from '@/components/chat/wa-rail';
 import { Sidebar } from '@/components/shell/sidebar';
 import { Topbar } from '@/components/shell/topbar';
 import { Alert, Badge, cx, IconButton, Spinner } from '@/components/ui';
@@ -94,23 +95,32 @@ export default function AppLayout({ children }: { children: ReactNode }) {
     );
   }
 
+  // Messages use a WhatsApp Web-style full-screen layout: slim rail, no top bar.
+  const messenger = pathname.startsWith('/chats');
   const needsMfa =
+    me.security.mfaRequiredForAdmins &&
     !me.mfaEnabled &&
-    me.grants.some((g) => g.roleKey === 'SUPER_ADMIN' || g.roleKey === 'BUSINESS_ADMIN');
+    me.grants.some((g) => g.scope.type !== 'STORE' && g.roleKey !== 'CUSTOMER');
 
   return (
     <div className="flex h-dvh bg-bg">
-      {/* Tablet and small laptops: icon rail · Large screens: full sidebar */}
-      <aside className="hidden shrink-0 border-r border-line md:block md:w-24 xl:hidden">
-        <Suspense>
-          <Sidebar compact unreadChats={unread.length} />
-        </Suspense>
-      </aside>
-      <aside className="hidden w-72 shrink-0 border-r border-line xl:block">
-        <Suspense>
-          <Sidebar unreadChats={unread.length} />
-        </Suspense>
-      </aside>
+      {messenger ? (
+        <WaRail unreadChats={unread.length} />
+      ) : (
+        <>
+          {/* Tablet and small laptops: icon rail · Large screens: full sidebar */}
+          <aside className="hidden shrink-0 border-r border-line md:block md:w-24 xl:hidden">
+            <Suspense>
+              <Sidebar compact unreadChats={unread.length} />
+            </Suspense>
+          </aside>
+          <aside className="hidden w-72 shrink-0 border-r border-line xl:block">
+            <Suspense>
+              <Sidebar unreadChats={unread.length} />
+            </Suspense>
+          </aside>
+        </>
+      )}
       <MobileDrawer open={menuOpen} onClose={() => setMenuOpen(false)}>
         <Suspense>
           <Sidebar unreadChats={unread.length} onNavigate={() => setMenuOpen(false)} />
@@ -119,11 +129,17 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* On phones the chat header replaces the top bar while a chat is open. */}
-        <div className={cx(chatOpen && 'hidden md:block')}>
-          <Topbar onOpenMenu={() => setMenuOpen(true)} unreadConversations={unread} />
-          <EmergencyBanner />
-        </div>
-        {needsMfa && pathname !== '/settings' && (
+        {messenger ? (
+          <div className={cx(chatOpen && 'hidden md:block')}>
+            <EmergencyBanner />
+          </div>
+        ) : (
+          <div className={cx(chatOpen && 'hidden md:block')}>
+            <Topbar onOpenMenu={() => setMenuOpen(true)} unreadConversations={unread} />
+            <EmergencyBanner />
+          </div>
+        )}
+        {needsMfa && !messenger && pathname !== '/settings' && (
           <div className="px-3 pt-3 sm:px-5">
             <Alert tone="warning" title="Turn on two-step verification">
               Administrator features stay locked until you{' '}

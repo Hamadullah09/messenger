@@ -35,6 +35,14 @@ const envSchema = z.object({
   MFA_REQUIRED_FOR_PRIVILEGED: booleanFromString.default(true),
   OPENAPI_ENABLED: booleanFromString.default(false),
 
+  // ── Email (password reset links) ──
+  /** smtp(s)://user:pass@host:port. Unset: no email is sent and "forgot password" says so. */
+  SMTP_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+  MAIL_FROM: z.string().min(3).max(200).default('SMA Technology <no-reply@sma.local>'),
+  /** Public address of the web app, used in links inside emails. */
+  WEB_APP_URL: z.string().url().default('http://localhost:3000'),
+  PASSWORD_RESET_TTL_MINUTES: z.coerce.number().int().min(5).max(1440).default(30),
+
   // ── Object storage (S3-compatible). Credentials stay server-side. ──
   /** Endpoint the API/worker use. Omit for AWS S3. */
   S3_ENDPOINT: z.string().url().optional(),

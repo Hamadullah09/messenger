@@ -5,6 +5,7 @@ import {
   type ConversationDetailDto,
   type ConversationSummaryDto,
   type CreateDirectConversationRequest,
+  type CommonGroupDto,
   type CreateGroupRequest,
   type UpdateGroupRequest,
   type UpdateMemberRequest,
@@ -190,7 +191,11 @@ export class ConversationsService {
     conversationId: string,
     request: UpdateGroupRequest,
   ): Promise<ConversationDetailDto> {
-    const { conversation } = await this.access.requireGroupManager(actor, conversationId);
+    // Name and description follow "Edit group info"; every other setting is for admins.
+    const infoOnly = Object.keys(request).every((k) => k === 'title' || k === 'description');
+    const { conversation } = infoOnly
+      ? await this.access.requireGroupMemberAllowedBy(actor, conversationId, 'editInfoPolicy')
+      : await this.access.requireGroupManager(actor, conversationId);
     const events = await this.prisma.$transaction(async (tx) => {
       await tx.conversation.update({
         where: { id: conversationId },
@@ -200,6 +205,8 @@ export class ConversationsService {
           category: request.category,
           postingPolicy: request.postingPolicy,
           fileSharingPolicy: request.fileSharingPolicy,
+          editInfoPolicy: request.editInfoPolicy,
+          addMembersPolicy: request.addMembersPolicy,
         },
       });
       const pending: PendingOutboxEvent[] = [];
@@ -245,7 +252,11 @@ export class ConversationsService {
     conversationId: string,
     request: AddMembersRequest,
   ): Promise<ConversationDetailDto> {
-    const { conversation } = await this.access.requireGroupManager(actor, conversationId);
+    const { conversation } = await this.access.requireGroupMemberAllowedBy(
+      actor,
+      conversationId,
+      'addMembersPolicy',
+    );
     const userIds = [...new Set(request.userIds)];
     await this.requireEligible(conversation.businessId, conversation.storeId, userIds);
 
@@ -427,10 +438,51 @@ export class ConversationsService {
         ...(request.markedUnread !== undefined ? { markedUnread: request.markedUnread } : {}),
       },
     });
+    if (request.clearHistory) {
+      // "Clear chat" (for me only): everything up to now disappears from this member's view.
+      const { lastSeq } = await this.prisma.conversation.findUniqueOrThrow({
+        where: { id: conversationId },
+        select: { lastSeq: true },
+      });
+      await this.prisma.conversationMember.update({
+        where: { id: member.id },
+        data: {
+          historyFromSeq: Math.max(member.historyFromSeq, lastSeq),
+          lastReadSeq: Math.max(member.lastReadSeq, lastSeq),
+          lastDeliveredSeq: Math.max(member.lastDeliveredSeq, lastSeq),
+          markedUnread: false,
+        },
+      });
+    }
     const summary = await this.queries.summaryForUser(conversationId, actor.userId);
     if (!summary) throw ApiError.notFound('Conversation');
     this.realtime.toUsers([actor.userId], 'conversation.updated', summary);
     return summary;
+  }
+
+  /** "Groups in common" for a direct chat: groups both people are active members of. */
+  async commonGroups(actor: Actor, conversationId: string): Promise<CommonGroupDto[]> {
+    const { conversation } = await this.access.requireMember(conversationId, actor.userId);
+    if (conversation.type !== 'DIRECT') return [];
+    const other = await this.prisma.conversationMember.findFirst({
+      where: { conversationId, userId: { not: actor.userId } },
+      select: { userId: true },
+    });
+    if (!other) return [];
+    const rows = await this.prisma.conversation.findMany({
+      where: {
+        type: 'GROUP',
+        businessId: conversation.businessId,
+        AND: [
+          { members: { some: { userId: actor.userId, leftAt: null } } },
+          { members: { some: { userId: other.userId, leftAt: null } } },
+        ],
+      },
+      select: { id: true, title: true, memberCount: true },
+      orderBy: { lastActivityAt: 'desc' },
+      take: 50,
+    });
+    return rows.map((r) => ({ id: r.id, title: r.title ?? 'Group', memberCount: r.memberCount }));
   }
 
   /** Managers who are not members get the detail without personal state. */

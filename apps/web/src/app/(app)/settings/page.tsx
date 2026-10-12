@@ -6,6 +6,7 @@ import {
   Bell,
   KeyRound,
   Laptop,
+  MessageCircle,
   Monitor,
   Moon,
   Palette,
@@ -15,6 +16,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
+import { ChatSettings } from '@/components/chat/chat-settings';
 import { NotificationSettings } from '@/components/notifications';
 import { ChangePasswordForm, MfaSettings, SessionsList } from '@/components/security';
 import { Alert, Avatar, Button, cx, PageHeader, TextField } from '@/components/ui';
@@ -144,6 +146,14 @@ export default function SettingsPage() {
                   </button>
                 ))}
               </div>
+            </Section>
+
+            <Section
+              title="Chats"
+              description="Wallpaper, text size and how the Enter key works."
+              Icon={MessageCircle}
+            >
+              <ChatSettings />
             </Section>
 
             <Section

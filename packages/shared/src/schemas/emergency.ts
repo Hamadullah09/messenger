@@ -1,7 +1,18 @@
 import { z } from 'zod';
 import { idSchema } from './common';
 
-export const EMERGENCY_CATEGORIES = ['MEDICAL', 'SECURITY', 'FIRE', 'OTHER'] as const;
+export const EMERGENCY_CATEGORIES = [
+  'MEDICAL',
+  'FIRE',
+  'SECURITY',
+  'THEFT',
+  'VIOLENCE',
+  'ACCIDENT',
+  'GAS_LEAK',
+  'POWER_FAILURE',
+  'NATURAL_DISASTER',
+  'OTHER',
+] as const;
 export const INCIDENT_STATUSES = [
   'OPEN',
   'ESCALATED',

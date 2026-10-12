@@ -245,14 +245,44 @@ describe('canAssignRole', () => {
     ).toEqual({ allowed: false, reason: 'PRIVILEGE_ESCALATION' });
   });
 
-  it('store managers cannot assign roles', () => {
+  it('store managers give staff roles in their own store only', () => {
     expect(
       canAssignRole(managerA1, SYSTEM_ROLES.EMPLOYEE, {
         type: 'STORE',
         businessId: BIZ_A,
         storeId: STORE_A1,
       }).allowed,
+    ).toBe(true);
+    expect(
+      canAssignRole(managerA1, SYSTEM_ROLES.EMPLOYEE, {
+        type: 'STORE',
+        businessId: BIZ_A,
+        storeId: STORE_A2,
+      }).allowed,
     ).toBe(false);
+    expect(
+      canAssignRole(managerA1, SYSTEM_ROLES.BUSINESS_ADMIN, { type: 'BUSINESS', businessId: BIZ_A })
+        .allowed,
+    ).toBe(false);
+  });
+
+  it('business managers cannot make someone an owner (no escalation)', () => {
+    const businessManager = ctx([
+      grant('BUSINESS_MANAGER', { type: 'BUSINESS', businessId: BIZ_A }),
+    ]);
+    expect(
+      canAssignRole(businessManager, SYSTEM_ROLES.BUSINESS_OWNER, {
+        type: 'BUSINESS',
+        businessId: BIZ_A,
+      }),
+    ).toEqual({ allowed: false, reason: 'PRIVILEGE_ESCALATION' });
+    expect(
+      canAssignRole(businessManager, SYSTEM_ROLES.STORE_MANAGER, {
+        type: 'STORE',
+        businessId: BIZ_A,
+        storeId: STORE_A2,
+      }).allowed,
+    ).toBe(true);
   });
 
   it('business admin can assign another business admin in the same business', () => {

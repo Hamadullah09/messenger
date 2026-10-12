@@ -91,8 +91,21 @@ export class RealtimeGateway
         });
     });
     this.timers.push(
-      setInterval(() => void this.heartbeat(), HEARTBEAT_INTERVAL_MS).unref(),
-      setInterval(() => void this.revalidate(), REVALIDATE_INTERVAL_MS).unref(),
+      // Background checks must never crash the API (e.g. while the database restarts).
+      setInterval(
+        () =>
+          void this.heartbeat().catch((error: unknown) =>
+            this.logger.warn({ err: error }, 'Presence heartbeat failed'),
+          ),
+        HEARTBEAT_INTERVAL_MS,
+      ).unref(),
+      setInterval(
+        () =>
+          void this.revalidate().catch((error: unknown) =>
+            this.logger.warn({ err: error }, 'Session revalidation failed; will retry'),
+          ),
+        REVALIDATE_INTERVAL_MS,
+      ).unref(),
     );
   }
 

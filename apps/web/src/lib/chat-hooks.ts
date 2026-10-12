@@ -192,9 +192,17 @@ export function useUpdateMyState(conversationId: string) {
       pinned?: boolean;
       archived?: boolean;
       markedUnread?: boolean;
+      clearHistory?: true;
     }) =>
       api<ConversationSummaryDto>(`/conversations/${conversationId}/me`, { method: 'PATCH', body }),
-    onSuccess: (summary) => patchConversation(client, conversationId, () => summary),
+    onSuccess: (summary, body) => {
+      patchConversation(client, conversationId, () => summary);
+      if (body.clearHistory) {
+        // The cleared messages are no longer visible to this member: reload the history.
+        void client.invalidateQueries({ queryKey: keys.messages(conversationId) });
+        void client.invalidateQueries({ queryKey: keys.conversation(conversationId) });
+      }
+    },
   });
 }
 

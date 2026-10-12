@@ -50,7 +50,7 @@ export default tseslint.config(
   },
   {
     // Command-line tools report progress on stdout.
-    files: ['apps/api/prisma/seed.ts', 'apps/api/prisma/demo-data.ts', 'apps/api/src/cli/**/*.ts'],
+    files: ['apps/api/prisma/*.ts', 'apps/api/src/cli/**/*.ts'],
     rules: { 'no-console': 'off' },
   },
   {

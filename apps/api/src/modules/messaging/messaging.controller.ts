@@ -27,10 +27,12 @@ import {
   searchMessagesQuerySchema,
   sendMessageRequestSchema,
   seqAckSchema,
+  sharedItemsQuerySchema,
   updateGroupRequestSchema,
   updateMemberRequestSchema,
   updateMyConversationStateRequestSchema,
   type AddMembersRequest,
+  type CommonGroupDto,
   type ConversationDetailDto,
   type ConversationSummaryDto,
   type CreateDirectConversationRequest,
@@ -50,6 +52,7 @@ import {
   type SearchMessagesQuery,
   type SearchResultDto,
   type SendMessageRequest,
+  type SharedItemsQuery,
   type UpdateGroupRequest,
   type UpdateMemberRequest,
   type UpdateMyConversationStateRequest,
@@ -187,6 +190,26 @@ export class ConversationsController {
     const result = await this.messages.send(actor, id, body);
     res.status(result.duplicate ? 200 : 201);
     return result.message;
+  }
+
+  /** WhatsApp "Media, links and docs" for a chat. */
+  @Get(':id/shared')
+  @ApiZodQuery(sharedItemsQuerySchema)
+  shared(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query(new ZodPipe(sharedItemsQuerySchema)) query: SharedItemsQuery,
+  ): Promise<MessageDto[]> {
+    return this.messages.shared(actor, id, query);
+  }
+
+  /** "Groups in common" with the other person of a direct chat. */
+  @Get(':id/common-groups')
+  commonGroups(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<CommonGroupDto[]> {
+    return this.conversations.commonGroups(actor, id);
   }
 
   @Get(':id/pins')

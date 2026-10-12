@@ -1,0 +1,12 @@
+{
+  "renames": { "bizadmin": "admin", "manager.a": "manager" },
+  "accounts": [
+    {
+      "username": "superadmin",
+      "email": "superadmin@example.com",
+      "password": "choose-a-password"
+    },
+    { "username": "admin", "email": "admin@example.com", "password": "choose-a-password" }
+  ],
+  "resetAllTwoStep": true
+}

@@ -5,11 +5,12 @@ import {
   MESSAGE_BODY_MAX_LENGTH,
   type MessageDto,
 } from '@storeline/shared';
-import { FileText, Paperclip, Pencil, Reply, SendHorizontal, Smile, X } from 'lucide-react';
+import { FileText, Pencil, Plus, Reply, SendHorizontal, Smile, X } from 'lucide-react';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useChatPrefs } from '@/lib/chat-prefs';
 import { formatBytes } from '@/lib/media-store';
 import { useSocket } from '@/lib/realtime';
-import { Button, IconButton } from '../ui';
+import { cx } from '../ui';
 
 const EMOJI = [
   '😀',
@@ -57,6 +58,7 @@ export function Composer({
   onSendFile: (file: File, caption: string) => void;
 }) {
   const socket = useSocket();
+  const enterToSend = useChatPrefs((p) => p.enterToSend);
   const [text, setText] = useState('');
   const [emojiOpen, setEmojiOpen] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -78,7 +80,7 @@ export function Composer({
   if (disabledReason) {
     return (
       <div
-        className="m-3 rounded-2xl border border-line bg-surface-2 p-4 text-center font-semibold text-muted sm:m-5"
+        className="bg-wa-panel px-4 py-4 text-center text-[0.9rem] text-wa-chip-text"
         role="status"
       >
         {disabledReason}
@@ -106,7 +108,9 @@ export function Composer({
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+    // Settings → Chats → "Enter is send". Off: Enter adds a line, Ctrl/⌘+Enter sends.
+    const sendKey = enterToSend ? !e.shiftKey : e.ctrlKey || e.metaKey;
+    if (e.key === 'Enter' && sendKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
       submit();
     }
@@ -125,55 +129,73 @@ export function Composer({
     }
   }
 
+  const round =
+    'inline-flex size-10 shrink-0 items-center justify-center rounded-full text-wa-icon transition-colors hover:bg-wa-hover';
+  const card = 'flex items-center gap-3 rounded-lg bg-wa-in px-3 py-2';
   return (
-    <div className="bg-surface px-3 pt-2 pb-3 sm:px-5 sm:pb-4">
-      {(replyTo || editing) && (
-        <div className="mb-2 flex items-center gap-3 rounded-2xl border-l-4 border-brand bg-brand-soft px-3 py-2">
-          {editing ? (
-            <Pencil className="size-5 text-brand" aria-hidden />
-          ) : (
-            <Reply className="size-5 text-brand" aria-hidden />
+    <div className="shrink-0 bg-wa-panel">
+      {(replyTo || editing || file) && (
+        <div className="space-y-2 px-4 pt-2 sm:px-16">
+          {(replyTo || editing) && (
+            <div className={card}>
+              <div className="min-w-0 flex-1 border-l-4 border-brand pl-3">
+                <p className="flex items-center gap-1.5 text-sm font-semibold text-brand">
+                  {editing ? (
+                    <Pencil className="size-4" aria-hidden />
+                  ) : (
+                    <Reply className="size-4" aria-hidden />
+                  )}
+                  {editing ? 'Editing message' : `Replying to ${replyTo!.sender.displayName}`}
+                </p>
+                <p className="truncate text-sm text-wa-meta-in">{(editing ?? replyTo)!.body}</p>
+              </div>
+              <button
+                type="button"
+                className={round}
+                aria-label={editing ? 'Cancel editing' : 'Cancel reply'}
+                title={editing ? 'Cancel editing' : 'Cancel reply'}
+                onClick={editing ? onCancelEdit : onCancelReply}
+              >
+                <X className="size-5" aria-hidden />
+              </button>
+            </div>
           )}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-bold text-brand">
-              {editing ? 'Editing message' : `Replying to ${replyTo!.sender.displayName}`}
-            </p>
-            {!editing && <p className="truncate text-sm text-muted">{replyTo!.body}</p>}
-          </div>
-          <IconButton
-            label={editing ? 'Cancel editing' : 'Cancel reply'}
-            onClick={editing ? onCancelEdit : onCancelReply}
-          >
-            <X className="size-5" aria-hidden />
-          </IconButton>
-        </div>
-      )}
-      {file && (
-        <div className="mb-2 flex items-center gap-3 rounded-2xl border border-brand/50 bg-brand-soft px-3 py-2">
-          <FileText className="size-6 text-brand" aria-hidden />
-          <div className="min-w-0 flex-1">
-            <p className="truncate font-semibold">{file.name}</p>
-            <p className="text-sm text-muted">
-              {formatBytes(file.size)} · Add a caption below (optional), then press Send
-            </p>
-          </div>
-          <IconButton label="Remove file" onClick={() => setFile(null)}>
-            <X className="size-5" aria-hidden />
-          </IconButton>
+          {file && (
+            <div className={card}>
+              <span className="inline-flex size-10 items-center justify-center rounded-lg bg-brand-soft text-brand">
+                <FileText className="size-6" aria-hidden />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-semibold">{file.name}</p>
+                <p className="text-sm text-wa-meta-in">
+                  {formatBytes(file.size)} · Add a caption (optional), then press Send
+                </p>
+              </div>
+              <button
+                type="button"
+                className={round}
+                aria-label="Remove file"
+                title="Remove file"
+                onClick={() => setFile(null)}
+              >
+                <X className="size-5" aria-hidden />
+              </button>
+            </div>
+          )}
         </div>
       )}
       {emojiOpen && (
         <div
           role="group"
           aria-label="Emoji"
-          className="mb-2 grid grid-cols-6 gap-1 rounded-2xl border border-line bg-surface p-2 shadow-card sm:grid-cols-9"
+          className="grid grid-cols-6 gap-1 border-b border-wa-divider px-3 py-2 sm:grid-cols-9 sm:px-14"
         >
           {EMOJI.map((emoji) => (
             <button
               key={emoji}
               type="button"
               aria-label={`Insert ${emoji}`}
-              className="size-11 rounded-lg text-2xl hover:bg-surface-2"
+              className="size-11 rounded-lg text-2xl hover:bg-wa-hover"
               onClick={() => {
                 setText((t) => t + emoji);
                 textRef.current?.focus();
@@ -185,70 +207,80 @@ export function Composer({
         </div>
       )}
       <form
-        className="rounded-2xl border border-line-strong/50 bg-surface transition-shadow focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/15"
+        className="flex items-end gap-1 px-2 py-2 sm:px-4"
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
-        <label className="block">
+        <button
+          type="button"
+          className={cx(round, emojiOpen && 'text-brand')}
+          aria-label={emojiOpen ? 'Close emoji' : 'Add emoji'}
+          title={emojiOpen ? 'Close emoji' : 'Add emoji'}
+          aria-expanded={emojiOpen}
+          onClick={() => setEmojiOpen((v) => !v)}
+        >
+          {emojiOpen ? (
+            <X className="size-6" aria-hidden />
+          ) : (
+            <Smile className="size-6" aria-hidden />
+          )}
+        </button>
+        {canShareFiles && !editing && (
+          <>
+            <button
+              type="button"
+              className={round}
+              aria-label="Attach a photo, video or document"
+              title="Attach"
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Plus className="size-6" aria-hidden />
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept={MEDIA_ACCEPT_ATTRIBUTE}
+              onChange={(e) => {
+                const picked = e.target.files?.[0];
+                if (picked) setFile(picked);
+                e.target.value = '';
+                textRef.current?.focus();
+              }}
+            />
+          </>
+        )}
+        <label className="mx-1 min-w-0 flex-1">
           <span className="sr-only">Message</span>
           <textarea
             ref={textRef}
-            rows={2}
+            rows={1}
             value={text}
             placeholder={file ? 'Add a caption (optional)' : 'Type a message…'}
             onChange={(e) => onChange(e.target.value)}
             onKeyDown={onKeyDown}
-            className="block max-h-48 min-h-16 w-full resize-none rounded-t-2xl bg-transparent px-4 pt-3 pb-1 text-[1.05rem] [field-sizing:content] placeholder:text-muted focus:outline-none"
+            title={
+              enterToSend
+                ? 'Enter to send · Shift + Enter for a new line'
+                : 'Ctrl + Enter to send · Enter for a new line'
+            }
+            className="block max-h-36 min-h-10 w-full resize-none rounded-lg bg-wa-input px-3 py-2 text-[0.95rem] leading-6 [field-sizing:content] placeholder:text-wa-icon wa-field"
           />
         </label>
-        <div className="flex items-center gap-1 px-2 pb-2">
-          <p className="hidden flex-1 pl-2 text-xs text-muted md:block">
-            Enter to send · Shift + Enter for a new line
-          </p>
-          <div className="flex-1 md:hidden" />
-          <IconButton
-            label={emojiOpen ? 'Close emoji' : 'Add emoji'}
-            aria-expanded={emojiOpen}
-            onClick={() => setEmojiOpen((v) => !v)}
-          >
-            <Smile className="size-6" aria-hidden />
-          </IconButton>
-          {canShareFiles && !editing && (
-            <>
-              <IconButton
-                label="Attach a photo, video or document"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Paperclip className="size-6" aria-hidden />
-              </IconButton>
-              <input
-                ref={fileInputRef}
-                type="file"
-                className="hidden"
-                accept={MEDIA_ACCEPT_ATTRIBUTE}
-                onChange={(e) => {
-                  const picked = e.target.files?.[0];
-                  if (picked) setFile(picked);
-                  e.target.value = '';
-                  textRef.current?.focus();
-                }}
-              />
-            </>
-          )}
-          <Button
-            type="submit"
-            className="ml-1"
-            disabled={(!trimmed && !file) || tooLong}
-            icon={<SendHorizontal className="size-5" aria-hidden />}
-          >
-            {editing ? 'Save' : 'Send'}
-          </Button>
-        </div>
+        <button
+          type="submit"
+          aria-label={editing ? 'Save' : 'Send'}
+          title={editing ? 'Save' : 'Send'}
+          disabled={(!trimmed && !file) || tooLong}
+          className="inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-brand text-brand-contrast transition-opacity hover:bg-brand-strong disabled:bg-transparent disabled:text-wa-icon"
+        >
+          <SendHorizontal className="size-5" aria-hidden />
+        </button>
       </form>
       {tooLong && (
-        <p className="mt-1 text-sm font-semibold text-danger" role="alert">
+        <p className="px-4 pb-2 text-sm font-semibold text-danger sm:px-16" role="alert">
           Messages can be at most {MESSAGE_BODY_MAX_LENGTH} characters.
         </p>
       )}

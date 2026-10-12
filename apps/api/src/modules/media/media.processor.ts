@@ -62,7 +62,15 @@ export class MediaProcessor implements OnApplicationBootstrap, OnModuleDestroy {
     });
     this.worker.on('failed', (job, error) => void this.onFailed(job, error));
     this.worker.on('error', (error) => this.logger.error({ err: error }, 'Media worker error'));
-    this.sweepTimer = setInterval(() => void this.sweepExpiredUploads(), SWEEP_INTERVAL_MS).unref();
+    // A failed sweep (e.g. database briefly unavailable) is logged and retried next round;
+    // it must never take the worker down.
+    this.sweepTimer = setInterval(
+      () =>
+        void this.sweepExpiredUploads().catch((error: unknown) =>
+          this.logger.warn({ err: error }, 'Expired-upload sweep failed; will retry'),
+        ),
+      SWEEP_INTERVAL_MS,
+    ).unref();
   }
 
   async onModuleDestroy(): Promise<void> {

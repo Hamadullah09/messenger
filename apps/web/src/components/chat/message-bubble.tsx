@@ -3,13 +3,14 @@
 import type { MessageDto } from '@storeline/shared';
 import {
   AlertCircle,
+  Ban,
   Check,
   CheckCheck,
+  ChevronDown,
   Clock,
   Copy,
   Forward,
   Info,
-  MoreVertical,
   Pencil,
   Pin,
   PinOff,
@@ -42,19 +43,49 @@ export interface BubbleActions {
   onRetry: (m: ClientMessage) => void;
 }
 
+/** WhatsApp-style ticks: one grey tick = sent, two grey = delivered, two blue = read. */
 const STATUS: Record<DeliveryStatus, { label: string; Icon: typeof Check; cls: string }> = {
-  sending: { label: 'Sending', Icon: Clock, cls: 'text-muted' },
-  queued: { label: 'Queued', Icon: Clock, cls: 'text-muted' },
+  sending: { label: 'Sending', Icon: Clock, cls: '' },
+  queued: { label: 'Queued', Icon: Clock, cls: '' },
   failed: { label: 'Not sent', Icon: AlertCircle, cls: 'text-danger' },
-  sent: { label: 'Sent', Icon: Check, cls: 'text-muted' },
-  delivered: { label: 'Delivered', Icon: CheckCheck, cls: 'text-muted' },
-  read: { label: 'Read', Icon: CheckCheck, cls: 'text-brand' },
+  sent: { label: 'Sent', Icon: Check, cls: '' },
+  delivered: { label: 'Delivered', Icon: CheckCheck, cls: '' },
+  read: { label: 'Read', Icon: CheckCheck, cls: 'text-wa-read' },
 };
+
+/** Stable colour per sender in groups, as in WhatsApp. */
+function nameColor(id: string): string {
+  const n = [...id].reduce((sum, ch) => sum + ch.charCodeAt(0), 0) % 8;
+  return `var(--wa-name-${n})`;
+}
+
+/** The little speech-bubble tail on the first message of a run. */
+function Tail({ mine }: { mine: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 8 13"
+      width="8"
+      height="13"
+      aria-hidden
+      className={cx('absolute top-0', mine ? '-right-2 text-wa-out' : '-left-2 text-wa-in')}
+    >
+      <path
+        fill="currentColor"
+        d={
+          mine
+            ? 'M5.188 1H0v11.193l6.467-8.625C7.526 2.156 6.958 1 5.188 1z'
+            : 'M2.812 1H8v11.193L1.533 3.568C.474 2.156 1.042 1 2.812 1z'
+        }
+      />
+    </svg>
+  );
+}
 
 export function MessageBubble({
   message,
   mine,
   showSender,
+  group,
   status,
   myId,
   nameOf,
@@ -63,7 +94,10 @@ export function MessageBubble({
 }: {
   message: ClientMessage;
   mine: boolean;
+  /** First message of a run (new sender, after a gap or a system note): shows the tail. */
   showSender: boolean;
+  /** Group-like chat: incoming runs show the sender's avatar and coloured name. */
+  group: boolean;
   status: DeliveryStatus | null;
   myId: string;
   nameOf: (id: string) => string;
@@ -72,8 +106,8 @@ export function MessageBubble({
 }) {
   if (message.kind === 'SYSTEM' && message.systemEvent) {
     return (
-      <div className="flex justify-center px-4 py-2">
-        <p className="rounded-full bg-surface-2 px-4 py-1.5 text-center text-sm text-muted">
+      <div className="flex justify-center px-4 py-1.5">
+        <p className="wa-bubble max-w-[85%] rounded-lg bg-wa-chip px-3 py-1.5 text-center text-[0.8rem] text-wa-chip-text">
           {describeSystemEvent(message.systemEvent, nameOf)}
         </p>
       </div>
@@ -85,132 +119,149 @@ export function MessageBubble({
     acc[r.emoji] = (acc[r.emoji] ?? 0) + 1;
     return acc;
   }, {});
-  const statusInfo = status ? STATUS[status] : null;
+  const hasReactions = Object.keys(reactionCounts).length > 0;
+  const statusInfo = mine && status ? STATUS[status] : null;
   const senderName = mine ? 'You' : message.sender.displayName;
+  const showAvatarColumn = group && !mine;
+  const edited = !!message.editedAt && !message.deleted;
+  // Room on the last text line for the time and ticks, like WhatsApp.
+  const metaWidth =
+    58 +
+    (statusInfo ? 22 : 0) +
+    (edited ? 44 : 0) +
+    (message.pinned ? 16 : 0) +
+    (message.starred ? 16 : 0);
+  const metaColor = mine ? 'text-wa-meta-out' : 'text-wa-meta-in';
 
   return (
     <div
       className={cx(
-        'group flex gap-2.5 px-3 sm:px-6',
-        showSender ? 'pt-4' : 'pt-1',
-        mine && 'flex-row-reverse',
+        'group flex px-[3%] md:px-[6%]',
+        showSender ? 'mt-2.5' : 'mt-0.5',
+        hasReactions && 'mb-4',
+        mine ? 'justify-end' : 'justify-start',
       )}
     >
-      {/* Avatar column keeps every bubble of a group aligned */}
-      <div className={cx('w-9 shrink-0', mine && 'hidden sm:block')}>
-        {showSender && !mine && <Avatar name={message.sender.displayName} size={36} />}
-      </div>
-      <div
+      {showAvatarColumn && (
+        <div className="mr-2 w-7 shrink-0 self-start">
+          {showSender && <Avatar name={message.sender.displayName} size={28} />}
+        </div>
+      )}
+      <article
+        aria-label={`${senderName} at ${formatTime(message.createdAt)}`}
         className={cx(
-          'flex max-w-[85%] min-w-0 flex-col sm:max-w-[70%]',
-          mine ? 'items-end' : 'items-start',
+          'wa-bubble relative max-w-[85%] min-w-[5.5rem] rounded-lg px-1.5 pt-1.5 pb-2 text-[length:var(--chat-font,0.95rem)] sm:max-w-[65%]',
+          mine ? 'bg-wa-out' : 'bg-wa-in',
+          showSender && (mine ? 'rounded-tr-none' : 'rounded-tl-none'),
+          message.local === 'failed' && 'ring-2 ring-danger',
         )}
       >
-        {showSender && (
+        {showSender && <Tail mine={mine} />}
+        {showSender && group && !mine && (
           <p
-            className={cx(
-              'mb-1.5 flex items-baseline gap-2 px-1 text-sm',
-              mine && 'flex-row-reverse',
-            )}
+            className="truncate px-1 pb-0.5 text-[0.82rem] font-semibold"
+            style={{ color: nameColor(message.sender.id) }}
           >
-            <span className="font-semibold">{senderName}</span>
-            <time dateTime={message.createdAt} className="text-xs text-muted">
-              {formatTime(message.createdAt)}
-            </time>
+            {message.sender.displayName}
           </p>
         )}
-        <div className={cx('flex max-w-full items-start gap-1', mine && 'flex-row-reverse')}>
-          <article
-            aria-label={`${senderName} at ${formatTime(message.createdAt)}`}
+        {message.forwarded && (
+          <p className={cx('flex items-center gap-1 px-1 text-xs italic', metaColor)}>
+            <Forward className="size-3.5" aria-hidden /> Forwarded
+          </p>
+        )}
+        {message.replyTo && (
+          <div className="mb-1 overflow-hidden rounded-md border-l-4 border-brand bg-black/5 px-2.5 py-1.5 text-[0.85rem] dark:bg-black/20">
+            <p className="font-semibold text-brand">{message.replyTo.senderDisplayName}</p>
+            <p className={cx('line-clamp-2', metaColor)}>
+              {message.replyTo.deleted ? 'This message was deleted' : message.replyTo.bodyPreview}
+            </p>
+          </div>
+        )}
+        {!message.deleted && message.attachment && (
+          <div className="-mx-0.5 mb-0.5">
+            <AttachmentView attachment={message.attachment} />
+          </div>
+        )}
+        {message.deleted ? (
+          <p className={cx('flex items-center gap-1.5 px-1 italic', metaColor)}>
+            <Ban className="size-4" aria-hidden />
+            This message was deleted
+            <span aria-hidden className="inline-block" style={{ width: metaWidth }} />
+          </p>
+        ) : message.body ? (
+          <p className="px-1 leading-[1.35] break-words whitespace-pre-wrap">
+            {message.body}
+            <span aria-hidden className="inline-block" style={{ width: metaWidth }} />
+          </p>
+        ) : (
+          <div className="h-3.5" aria-hidden />
+        )}
+
+        <span
+          className={cx(
+            'absolute right-2 bottom-1 flex items-center gap-1 text-[0.7rem] leading-none',
+            metaColor,
+          )}
+        >
+          {message.pinned && <Pin className="size-3" aria-label="Pinned" />}
+          {message.starred && <Star className="size-3" aria-label="Starred" />}
+          {edited && <span>Edited</span>}
+          <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
+          {statusInfo && (
+            <span className={cx('flex items-center', statusInfo.cls)}>
+              <statusInfo.Icon className="size-4" aria-hidden />
+              <span className="sr-only">{statusInfo.label}</span>
+            </span>
+          )}
+        </span>
+
+        {!message.local && !message.deleted && (
+          <MessageMenu
+            message={message}
+            mine={mine}
+            myReaction={myReaction}
+            actions={actions}
+            canModerate={canModerate}
+          />
+        )}
+
+        {message.local === 'failed' && (
+          <button
+            type="button"
+            onClick={() => actions.onRetry(message)}
+            className="mt-1 flex min-h-9 items-center gap-1 px-1 text-sm font-semibold text-danger underline"
+          >
+            <RotateCcw className="size-4" aria-hidden /> Not sent — tap to retry
+          </button>
+        )}
+
+        {hasReactions && (
+          <div
             className={cx(
-              'relative max-w-full min-w-24 rounded-2xl px-4 py-2.5',
-              mine ? 'rounded-tr-md bg-bubble-out' : 'rounded-tl-md bg-bubble-in',
-              message.local === 'failed' && 'border-2 border-danger',
+              'wa-bubble absolute -bottom-4 flex items-center gap-0.5 rounded-full border border-wa-divider bg-wa-chip px-1 py-0.5',
+              mine ? 'right-3' : 'left-3',
             )}
           >
-            {message.forwarded && (
-              <p className="flex items-center gap-1 text-sm text-muted italic">
-                <Forward className="size-4" aria-hidden /> Forwarded
-              </p>
-            )}
-            {message.replyTo && (
-              <div className="mb-1.5 rounded-xl border-l-4 border-brand bg-surface px-3 py-1.5 text-sm">
-                <p className="font-bold text-brand">{message.replyTo.senderDisplayName}</p>
-                <p className="line-clamp-2 text-muted">
-                  {message.replyTo.deleted
-                    ? 'This message was deleted'
-                    : message.replyTo.bodyPreview}
-                </p>
-              </div>
-            )}
-            {!message.deleted && message.attachment && (
-              <AttachmentView attachment={message.attachment} />
-            )}
-            {message.deleted ? (
-              <p className="text-muted italic">This message was deleted</p>
-            ) : (
-              message.body && (
-                <p className="text-[1.02rem] leading-relaxed break-words whitespace-pre-wrap">
-                  {message.body}
-                </p>
-              )
-            )}
-            <p className="mt-1 flex items-center justify-end gap-1 text-xs text-muted">
-              {message.pinned && <Pin className="size-3.5" aria-label="Pinned" />}
-              {message.starred && <Star className="size-3.5" aria-label="Starred" />}
-              {message.editedAt && !message.deleted && <span>Edited ·</span>}
-              {!showSender && (
-                <time dateTime={message.createdAt}>{formatTime(message.createdAt)}</time>
-              )}
-              {mine && statusInfo && (
-                <span className={cx('flex items-center gap-0.5', statusInfo.cls)}>
-                  <statusInfo.Icon className="size-4" aria-hidden />
-                  <span className="sr-only">{statusInfo.label}</span>
-                </span>
-              )}
-            </p>
-            {message.local === 'failed' && (
+            {Object.entries(reactionCounts).map(([emoji, count]) => (
               <button
+                key={emoji}
                 type="button"
-                onClick={() => actions.onRetry(message)}
-                className="mt-1 flex min-h-10 items-center gap-1 font-semibold text-danger underline"
+                onClick={() => actions.onReact(message, myReaction === emoji ? null : emoji)}
+                aria-pressed={myReaction === emoji}
+                aria-label={`${emoji} ${count}${myReaction === emoji ? ', your reaction' : ''}`}
+                className={cx(
+                  'flex h-6 items-center gap-0.5 rounded-full px-1 text-sm leading-none',
+                  myReaction === emoji && 'bg-brand-soft',
+                )}
               >
-                <RotateCcw className="size-4" aria-hidden /> Not sent — tap to retry
+                {emoji}
+                {count > 1 && <span className="text-xs text-wa-chip-text">{count}</span>}
               </button>
-            )}
-            {Object.keys(reactionCounts).length > 0 && (
-              <div className="mt-1.5 flex flex-wrap gap-1">
-                {Object.entries(reactionCounts).map(([emoji, count]) => (
-                  <button
-                    key={emoji}
-                    type="button"
-                    onClick={() => actions.onReact(message, myReaction === emoji ? null : emoji)}
-                    aria-pressed={myReaction === emoji}
-                    aria-label={`${emoji} ${count}${myReaction === emoji ? ', your reaction' : ''}`}
-                    className={cx(
-                      'min-h-8 rounded-full border px-2.5 text-sm',
-                      myReaction === emoji
-                        ? 'border-brand bg-brand-soft'
-                        : 'border-line bg-surface',
-                    )}
-                  >
-                    {emoji} {count}
-                  </button>
-                ))}
-              </div>
-            )}
-          </article>
-          {!message.local && !message.deleted && (
-            <MessageMenu
-              message={message}
-              mine={mine}
-              myReaction={myReaction}
-              actions={actions}
-              canModerate={canModerate}
-            />
-          )}
-        </div>
-      </div>
+            ))}
+          </div>
+        )}
+      </article>
     </div>
   );
 }
@@ -282,10 +333,10 @@ function MessageMenu({
     fn();
   };
 
-  const item =
-    'flex min-h-12 w-full items-center gap-3 rounded-lg px-3 text-left font-semibold hover:bg-surface-2';
+  const item = 'flex min-h-11 w-full items-center gap-3 px-4 text-left hover:bg-wa-hover';
   return (
-    <div ref={ref} className="relative self-center">
+    <div ref={ref} className="absolute top-0.5 right-0.5">
+      {/* Hover chevron (always visible on touch screens), as in WhatsApp Web. */}
       <button
         ref={buttonRef}
         type="button"
@@ -294,9 +345,16 @@ function MessageMenu({
         aria-label="Message options"
         title="Message options"
         onClick={() => setOpen((v) => !v)}
-        className="inline-flex size-11 items-center justify-center rounded-full text-muted opacity-70 group-hover:opacity-100 hover:bg-surface-2 focus:opacity-100"
+        style={{ background: `var(${mine ? '--wa-out' : '--wa-in'})` }}
+        className={cx(
+          'inline-flex size-7 items-center justify-center rounded-full transition-opacity',
+          mine ? 'text-wa-meta-out' : 'text-wa-meta-in',
+          open
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-80',
+        )}
       >
-        <MoreVertical className="size-5" aria-hidden />
+        <ChevronDown className="size-5" aria-hidden />
       </button>
       {open &&
         createPortal(
@@ -309,9 +367,9 @@ function MessageMenu({
               top: position?.top ?? -9999,
               left: position?.left ?? -9999,
             }}
-            className="z-50 w-64 rounded-xl border border-line bg-surface p-2 text-fg shadow-lg"
+            className="z-50 w-60 rounded-lg bg-surface py-2 text-fg shadow-pop"
           >
-            <div className="mb-2 flex flex-wrap gap-1" aria-label="React">
+            <div className="mb-1 flex justify-between px-2" aria-label="React">
               {QUICK_REACTIONS.map((emoji) => (
                 <button
                   key={emoji}
@@ -321,8 +379,8 @@ function MessageMenu({
                   aria-pressed={myReaction === emoji}
                   onClick={run(() => actions.onReact(message, myReaction === emoji ? null : emoji))}
                   className={cx(
-                    'size-11 rounded-full text-xl hover:bg-surface-2',
-                    myReaction === emoji && 'bg-surface-3',
+                    'size-9 rounded-full text-xl hover:bg-wa-hover',
+                    myReaction === emoji && 'bg-wa-active',
                   )}
                 >
                   {emoji}
@@ -335,7 +393,7 @@ function MessageMenu({
               className={item}
               onClick={run(() => actions.onReply(message))}
             >
-              <Reply className="size-5" aria-hidden /> Reply
+              <Reply className="size-5 text-wa-icon" aria-hidden /> Reply
             </button>
             <button
               type="button"
@@ -343,7 +401,7 @@ function MessageMenu({
               className={item}
               onClick={run(() => actions.onForward(message))}
             >
-              <Forward className="size-5" aria-hidden /> Forward
+              <Forward className="size-5 text-wa-icon" aria-hidden /> Forward
             </button>
             <button
               type="button"
@@ -351,7 +409,7 @@ function MessageMenu({
               className={item}
               onClick={run(() => void navigator.clipboard?.writeText(message.body ?? ''))}
             >
-              <Copy className="size-5" aria-hidden /> Copy text
+              <Copy className="size-5 text-wa-icon" aria-hidden /> Copy
             </button>
             <button
               type="button"
@@ -360,11 +418,11 @@ function MessageMenu({
               onClick={run(() => actions.onStar(message, !message.starred))}
             >
               {message.starred ? (
-                <StarOff className="size-5" aria-hidden />
+                <StarOff className="size-5 text-wa-icon" aria-hidden />
               ) : (
-                <Star className="size-5" aria-hidden />
+                <Star className="size-5 text-wa-icon" aria-hidden />
               )}
-              {message.starred ? 'Remove star' : 'Star'}
+              {message.starred ? 'Unstar' : 'Star'}
             </button>
             <button
               type="button"
@@ -373,9 +431,9 @@ function MessageMenu({
               onClick={run(() => actions.onPin(message, !message.pinned))}
             >
               {message.pinned ? (
-                <PinOff className="size-5" aria-hidden />
+                <PinOff className="size-5 text-wa-icon" aria-hidden />
               ) : (
-                <Pin className="size-5" aria-hidden />
+                <Pin className="size-5 text-wa-icon" aria-hidden />
               )}
               {message.pinned ? 'Unpin' : 'Pin'}
             </button>
@@ -387,7 +445,7 @@ function MessageMenu({
                   className={item}
                   onClick={run(() => actions.onInfo(message))}
                 >
-                  <Info className="size-5" aria-hidden /> Message info
+                  <Info className="size-5 text-wa-icon" aria-hidden /> Message info
                 </button>
                 <button
                   type="button"
@@ -395,7 +453,7 @@ function MessageMenu({
                   className={item}
                   onClick={run(() => actions.onEdit(message))}
                 >
-                  <Pencil className="size-5" aria-hidden /> Edit
+                  <Pencil className="size-5 text-wa-icon" aria-hidden /> Edit
                 </button>
               </>
             )}

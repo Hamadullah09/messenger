@@ -108,9 +108,15 @@ export const useEmergencyAlerts = create<AlertQueue>((set) => ({
 
 export const CATEGORY_LABEL: Record<EmergencyCategory, string> = {
   MEDICAL: 'Medical',
+  FIRE: 'Fire or smoke',
   SECURITY: 'Security threat',
-  FIRE: 'Fire or hazard',
-  OTHER: 'Other emergency',
+  THEFT: 'Theft or robbery',
+  VIOLENCE: 'Threat or violence',
+  ACCIDENT: 'Accident or injury',
+  GAS_LEAK: 'Gas leak or chemical',
+  POWER_FAILURE: 'Power or building failure',
+  NATURAL_DISASTER: 'Earthquake, flood or storm',
+  OTHER: 'Other',
 };
 
 export const STATUS_LABEL: Record<IncidentStatus, string> = {

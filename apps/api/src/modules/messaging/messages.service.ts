@@ -9,6 +9,7 @@ import {
   type MessagePageDto,
   type Page,
   type SendMessageRequest,
+  type SharedItemsQuery,
 } from '@storeline/shared';
 import { ApiError } from '../../infra/http/api-error';
 import { decodeCursor, encodeCursor } from '../../infra/http/cursor';
@@ -80,6 +81,37 @@ export class MessagesService {
       hasMoreBefore: ascending ? (page[0]?.seq ?? floor + 1) > floor + 1 : more,
       hasMoreAfter: ascending ? more : query.beforeSeq !== undefined,
     };
+  }
+
+  /**
+   * "Media, links and docs": shared items the member can see (never messages from before
+   * they joined or cleared the chat, never deleted ones), newest first.
+   */
+  async shared(
+    actor: Actor,
+    conversationId: string,
+    query: SharedItemsQuery,
+  ): Promise<MessageDto[]> {
+    const { member } = await this.access.requireMember(conversationId, actor.userId);
+    const rows = await this.prisma.message.findMany({
+      where: {
+        conversationId,
+        seq: { gt: member.historyFromSeq },
+        deletedAt: null,
+        ...(query.kind === 'media'
+          ? { kind: { in: ['IMAGE', 'VIDEO'] } }
+          : query.kind === 'docs'
+            ? { kind: 'DOCUMENT' }
+            : { body: { contains: 'http', mode: 'insensitive' } }),
+      },
+      orderBy: { seq: 'desc' },
+      take: query.limit,
+      include: {
+        ...messageInclude,
+        stars: { where: { userId: actor.userId }, select: { userId: true } },
+      },
+    });
+    return rows.map((row) => ({ ...toMessageDto(row), starred: row.stars.length > 0 }));
   }
 
   /** Idempotent send: the same (sender, clientMessageId) always yields the same message. */

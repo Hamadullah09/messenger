@@ -15,6 +15,8 @@ const conversationAccessSelect = {
   title: true,
   postingPolicy: true,
   fileSharingPolicy: true,
+  editInfoPolicy: true,
+  addMembersPolicy: true,
   archivedAt: true,
   lastSeq: true,
   memberCount: true,
@@ -93,6 +95,32 @@ export class ConversationAccessService {
       throw ApiError.forbidden('Only group admins can do this.');
     if (conversation.archivedAt) throw ApiError.conflict('This group is archived.');
     return { conversation, member };
+  }
+
+  /**
+   * Like requireGroupManager, but ordinary members also pass when the group's `policy`
+   * allows everyone (e.g. "Edit group info: all members").
+   */
+  async requireGroupMemberAllowedBy(
+    actor: Actor,
+    conversationId: string,
+    policy: 'editInfoPolicy' | 'addMembersPolicy',
+  ): Promise<{ conversation: AccessibleConversation; member: ActiveMember | null }> {
+    const member = await this.prisma.conversationMember.findFirst({
+      where: { conversationId, userId: actor.userId, leftAt: null },
+      select: { ...memberSelect, conversation: { select: conversationAccessSelect } },
+    });
+    if (
+      member &&
+      member.conversation.type === 'GROUP' &&
+      !member.conversation.archivedAt &&
+      member.conversation.business.status === 'ACTIVE' &&
+      member.conversation[policy] === 'ALL_MEMBERS'
+    ) {
+      const { conversation, ...rest } = member;
+      return { conversation, member: rest };
+    }
+    return this.requireGroupManager(actor, conversationId);
   }
 
   /** message.send must be held somewhere in the conversation's business (membership is the resource rule). */

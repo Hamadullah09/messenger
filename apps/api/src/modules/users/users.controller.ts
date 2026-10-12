@@ -13,13 +13,16 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
+  adminSetPasswordRequestSchema,
   createRoleAssignmentRequestSchema,
   createRoleRequestSchema,
   createUserRequestSchema,
   listUsersQuerySchema,
+  setUserRoleRequestSchema,
   setUserStoresRequestSchema,
   updateUserContactRequestSchema,
   updateUserRequestSchema,
+  type AdminSetPasswordRequest,
   type AdminUserDto,
   type CreateRoleAssignmentRequest,
   type CreateRoleRequest,
@@ -27,6 +30,7 @@ import {
   type ListUsersQuery,
   type Page,
   type RoleDto,
+  type SetUserRoleRequest,
   type SetUserStoresRequest,
   type UpdateUserContactRequest,
   type UpdateUserRequest,
@@ -94,6 +98,39 @@ export class BusinessUsersController {
     return this.users.setStores(actor, businessId, userId, body.storeIds);
   }
 
+  /** Change the person's role (and, for store roles, which stores). */
+  @Put(':userId/role')
+  @ApiZodBody(setUserRoleRequestSchema)
+  setRole(
+    @CurrentActor() actor: Actor,
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body(new ZodPipe(setUserRoleRequestSchema)) body: SetUserRoleRequest,
+  ): Promise<AdminUserDto> {
+    return this.users.setRole(actor, businessId, userId, body);
+  }
+
+  /** Make the person manager of one store (keeps their other stores). */
+  @Put(':userId/managed-stores/:storeId')
+  addManagedStore(
+    @CurrentActor() actor: Actor,
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('storeId', ParseUUIDPipe) storeId: string,
+  ): Promise<AdminUserDto> {
+    return this.users.setStoreManager(actor, businessId, userId, storeId, true);
+  }
+
+  @Delete(':userId/managed-stores/:storeId')
+  removeManagedStore(
+    @CurrentActor() actor: Actor,
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Param('storeId', ParseUUIDPipe) storeId: string,
+  ): Promise<AdminUserDto> {
+    return this.users.setStoreManager(actor, businessId, userId, storeId, false);
+  }
+
   @Delete(':userId')
   @HttpCode(204)
   async remove(
@@ -153,6 +190,16 @@ export class UsersController {
     await this.users.setStatus(actor, userId, 'DEACTIVATED');
   }
 
+  /** Delete the account (anonymised; their past messages stay as "Deleted user"). */
+  @Delete(':userId')
+  @HttpCode(204)
+  async delete(
+    @CurrentActor() actor: Actor,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ): Promise<void> {
+    await this.users.deleteUser(actor, userId);
+  }
+
   @Post(':userId/reactivate')
   @HttpCode(204)
   async reactivate(
@@ -160,6 +207,28 @@ export class UsersController {
     @Param('userId', ParseUUIDPipe) userId: string,
   ): Promise<void> {
     await this.users.setStatus(actor, userId, 'ACTIVE');
+  }
+
+  /** Set a new password for someone (admins, or their store manager). Signs them out everywhere. */
+  @Post(':userId/password')
+  @HttpCode(204)
+  @ApiZodBody(adminSetPasswordRequestSchema)
+  async setPassword(
+    @CurrentActor() actor: Actor,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body(new ZodPipe(adminSetPasswordRequestSchema)) body: AdminSetPasswordRequest,
+  ): Promise<void> {
+    await this.users.setPassword(actor, userId, body);
+  }
+
+  /** Turn someone's two-step verification off (lost phone). */
+  @Post(':userId/mfa/reset')
+  @HttpCode(204)
+  async resetMfa(
+    @CurrentActor() actor: Actor,
+    @Param('userId', ParseUUIDPipe) userId: string,
+  ): Promise<void> {
+    await this.users.resetMfa(actor, userId);
   }
 
   @Post(':userId/role-assignments')

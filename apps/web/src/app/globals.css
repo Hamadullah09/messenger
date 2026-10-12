@@ -37,6 +37,32 @@
   --chat-bg: #ffffff;
   --shadow: 0 1px 2px rgb(16 24 40 / 0.05), 0 1px 3px rgb(16 24 40 / 0.06);
   --shadow-lg: 0 12px 32px rgb(16 24 40 / 0.12);
+
+  /* WhatsApp-style messenger (SMA orange accents) */
+  --wa-panel: #f0f2f5;
+  --wa-list: #ffffff;
+  --wa-hover: #f5f6f6;
+  --wa-active: #f0f2f5;
+  --wa-divider: #e9edef;
+  --wa-wall: #efeae2;
+  --wa-in: #ffffff;
+  --wa-out: #ffe4cc;
+  --wa-meta-in: #5c6b74;
+  --wa-meta-out: #6b5a4d;
+  --wa-read: #0b8ec7;
+  --wa-chip: #ffffff;
+  --wa-chip-text: #54656f;
+  --wa-icon: #54656f;
+  --wa-input: #ffffff;
+  --wa-name-0: #c2410c;
+  --wa-name-1: #0f766e;
+  --wa-name-2: #7c3aed;
+  --wa-name-3: #b42318;
+  --wa-name-4: #1d4ed8;
+  --wa-name-5: #a21caf;
+  --wa-name-6: #4d7c0f;
+  --wa-name-7: #a16207;
+  --wa-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23a89c86' stroke-opacity='.22' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 22h30a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H32l-8 7v-7h-4a6 6 0 0 1-6-6V28a6 6 0 0 1 6-6z'/%3E%3Cpath d='M118 44c-6-5-12-9-12-15a6 6 0 0 1 12-2a6 6 0 0 1 12 2c0 6-6 10-12 15z'/%3E%3Cpath d='M150 70l3 7 7 .6-5.4 4.6 1.7 7-6.3-3.8-6.3 3.8 1.7-7-5.4-4.6 7-.6z'/%3E%3Ccircle cx='60' cy='95' r='9'/%3E%3Cpath d='M18 118h22l-2 22H20zM23 118v-4a6 6 0 0 1 12 0v4'/%3E%3Ccircle cx='105' cy='130' r='10'/%3E%3Cpath d='M105 124v6l4 3'/%3E%3Cpath d='M130 162l26-12-9 24-4-9z'/%3E%3Ccircle cx='60' cy='160' r='8'/%3E%3Cpath d='M56 162a5 5 0 0 0 8 0'/%3E%3Cpath d='M88 60l4-4M96 64l4-4M160 20l6 6M166 20l-6 6'/%3E%3C/g%3E%3C/svg%3E");
   color-scheme: light;
 }
 
@@ -72,6 +98,31 @@
     --chat-bg: #121826;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.5);
+
+    --wa-panel: #202c33;
+    --wa-list: #111b21;
+    --wa-hover: #202c33;
+    --wa-active: #2a3942;
+    --wa-divider: #222d34;
+    --wa-wall: #0b141a;
+    --wa-in: #202c33;
+    --wa-out: #5b2f12;
+    --wa-meta-in: #a3b0b8;
+    --wa-meta-out: #e6c9b3;
+    --wa-read: #53bdeb;
+    --wa-chip: #182229;
+    --wa-chip-text: #a3b0b8;
+    --wa-icon: #aebac1;
+    --wa-input: #2a3942;
+    --wa-name-0: #ff9d5c;
+    --wa-name-1: #4fd1c5;
+    --wa-name-2: #c4a5ff;
+    --wa-name-3: #ff8a7f;
+    --wa-name-4: #8fb4ff;
+    --wa-name-5: #f0a3f5;
+    --wa-name-6: #a7d96b;
+    --wa-name-7: #f5c451;
+    --wa-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.045' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 22h30a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H32l-8 7v-7h-4a6 6 0 0 1-6-6V28a6 6 0 0 1 6-6z'/%3E%3Cpath d='M118 44c-6-5-12-9-12-15a6 6 0 0 1 12-2a6 6 0 0 1 12 2c0 6-6 10-12 15z'/%3E%3Cpath d='M150 70l3 7 7 .6-5.4 4.6 1.7 7-6.3-3.8-6.3 3.8 1.7-7-5.4-4.6 7-.6z'/%3E%3Ccircle cx='60' cy='95' r='9'/%3E%3Cpath d='M18 118h22l-2 22H20zM23 118v-4a6 6 0 0 1 12 0v4'/%3E%3Ccircle cx='105' cy='130' r='10'/%3E%3Cpath d='M105 124v6l4 3'/%3E%3Cpath d='M130 162l26-12-9 24-4-9z'/%3E%3Ccircle cx='60' cy='160' r='8'/%3E%3Cpath d='M56 162a5 5 0 0 0 8 0'/%3E%3Cpath d='M88 60l4-4M96 64l4-4M160 20l6 6M166 20l-6 6'/%3E%3C/g%3E%3C/svg%3E");
     color-scheme: dark;
   }
 }
@@ -107,6 +158,30 @@
   --chat-bg: #121826;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
   --shadow-lg: 0 12px 32px rgb(0 0 0 / 0.5);
+  --wa-panel: #202c33;
+  --wa-list: #111b21;
+  --wa-hover: #202c33;
+  --wa-active: #2a3942;
+  --wa-divider: #222d34;
+  --wa-wall: #0b141a;
+  --wa-in: #202c33;
+  --wa-out: #5b2f12;
+  --wa-meta-in: #a3b0b8;
+  --wa-meta-out: #e6c9b3;
+  --wa-read: #53bdeb;
+  --wa-chip: #182229;
+  --wa-chip-text: #a3b0b8;
+  --wa-icon: #aebac1;
+  --wa-input: #2a3942;
+  --wa-name-0: #ff9d5c;
+  --wa-name-1: #4fd1c5;
+  --wa-name-2: #c4a5ff;
+  --wa-name-3: #ff8a7f;
+  --wa-name-4: #8fb4ff;
+  --wa-name-5: #f0a3f5;
+  --wa-name-6: #a7d96b;
+  --wa-name-7: #f5c451;
+  --wa-pattern: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='.045' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 22h30a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H32l-8 7v-7h-4a6 6 0 0 1-6-6V28a6 6 0 0 1 6-6z'/%3E%3Cpath d='M118 44c-6-5-12-9-12-15a6 6 0 0 1 12-2a6 6 0 0 1 12 2c0 6-6 10-12 15z'/%3E%3Cpath d='M150 70l3 7 7 .6-5.4 4.6 1.7 7-6.3-3.8-6.3 3.8 1.7-7-5.4-4.6 7-.6z'/%3E%3Ccircle cx='60' cy='95' r='9'/%3E%3Cpath d='M18 118h22l-2 22H20zM23 118v-4a6 6 0 0 1 12 0v4'/%3E%3Ccircle cx='105' cy='130' r='10'/%3E%3Cpath d='M105 124v6l4 3'/%3E%3Cpath d='M130 162l26-12-9 24-4-9z'/%3E%3Ccircle cx='60' cy='160' r='8'/%3E%3Cpath d='M56 162a5 5 0 0 0 8 0'/%3E%3Cpath d='M88 60l4-4M96 64l4-4M160 20l6 6M166 20l-6 6'/%3E%3C/g%3E%3C/svg%3E");
   color-scheme: dark;
 }
 
@@ -138,6 +213,20 @@
   --color-success: var(--success);
   --color-success-soft: var(--success-soft);
   --color-chat: var(--chat-bg);
+  --color-wa-panel: var(--wa-panel);
+  --color-wa-list: var(--wa-list);
+  --color-wa-hover: var(--wa-hover);
+  --color-wa-active: var(--wa-active);
+  --color-wa-divider: var(--wa-divider);
+  --color-wa-in: var(--wa-in);
+  --color-wa-out: var(--wa-out);
+  --color-wa-meta-in: var(--wa-meta-in);
+  --color-wa-meta-out: var(--wa-meta-out);
+  --color-wa-read: var(--wa-read);
+  --color-wa-chip: var(--wa-chip);
+  --color-wa-chip-text: var(--wa-chip-text);
+  --color-wa-icon: var(--wa-icon);
+  --color-wa-input: var(--wa-input);
   --shadow-card: var(--shadow);
   --shadow-pop: var(--shadow-lg);
   --font-sans: var(--font-inter), system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
@@ -183,4 +272,22 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+/* Chat wallpaper: WhatsApp-style beige (dark: deep blue-grey) with a faint doodle pattern. */
+.wa-wallpaper {
+  background-color: var(--wa-wall);
+  background-image: var(--wa-pattern);
+  background-size: 180px 180px;
+}
+
+/* Message bubbles cast the same hairline shadow as WhatsApp. */
+.wa-bubble {
+  box-shadow: 0 1px 0.5px rgb(11 20 26 / 0.13);
+}
+
+/* Messenger text fields: a slim focus ring instead of the global 3px outline (still visible). */
+.wa-field:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-brand) 55%, transparent);
 }

@@ -98,6 +98,7 @@ describe('Tenancy, users and roles', () => {
         initialPassword: 'initial-password-123',
         storeIds: [storeA1],
         roleKey: 'STORE_MANAGER',
+        email: 'mike@example.com',
       })
       .expect(201);
     expect(manager.body.roles).toEqual([
@@ -159,6 +160,7 @@ describe('Tenancy, users and roles', () => {
         initialPassword: 'initial-password-123',
         storeIds: [storeB],
         roleKey: 'EMPLOYEE',
+        email: 'sneaky@example.com',
       })
       .expect(400);
   });

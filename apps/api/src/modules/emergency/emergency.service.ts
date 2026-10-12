@@ -61,7 +61,7 @@ export class EmergencyService {
 
   /** Stores where the caller can raise an alert (for the store picker). */
   async myStores(actor: Actor): Promise<Array<{ id: string; code: string; name: string }>> {
-    const stores = await this.activeStores(actor.userId);
+    const stores = await this.activeStores(actor);
     const allowed = [];
     for (const s of stores) {
       if (await this.authz.can(actor, 'emergency.trigger', s))
@@ -599,27 +599,32 @@ export class EmergencyService {
 
   // ───────────────────────────── Helpers ─────────────────────────────
 
-  private async activeStores(userId: string) {
-    const memberships = await this.prisma.storeMembership.findMany({
+  /**
+   * Stores the person can raise an alert for: the stores they work at, plus every store of a
+   * business where they hold a business-wide role with emergency.trigger (owners, admins).
+   */
+  private async activeStores(actor: Actor) {
+    const coverage = await this.authz.coverage(actor, 'emergency.trigger');
+    const businessWide = coverage.all ? [] : [...coverage.businessIds];
+    const stores = await this.prisma.store.findMany({
       where: {
-        userId,
         status: 'ACTIVE',
-        store: { status: 'ACTIVE', business: { status: 'ACTIVE' } },
+        business: { status: 'ACTIVE' },
+        OR: [
+          { memberships: { some: { userId: actor.userId, status: 'ACTIVE' } } },
+          ...(businessWide.length ? [{ businessId: { in: businessWide } }] : []),
+        ],
       },
       select: {
-        store: {
-          select: {
-            id: true,
-            businessId: true,
-            code: true,
-            name: true,
-            emergencyAckTimeoutSeconds: true,
-          },
-        },
+        id: true,
+        businessId: true,
+        code: true,
+        name: true,
+        emergencyAckTimeoutSeconds: true,
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { name: 'asc' },
     });
-    return memberships.map(({ store }) => ({
+    return stores.map((store) => ({
       businessId: store.businessId,
       storeId: store.id,
       code: store.code,
@@ -628,9 +633,9 @@ export class EmergencyService {
     }));
   }
 
-  /** The store comes from the caller's own memberships, never from free client input. */
+  /** The store comes from the caller's own stores and roles, never from free client input. */
   private async resolveStore(actor: Actor, storeId?: string): Promise<ResolvedStore> {
-    const stores = await this.activeStores(actor.userId);
+    const stores = await this.activeStores(actor);
     if (storeId) {
       const store = stores.find((s) => s.storeId === storeId);
       if (!store) throw ApiError.notFound('Store');

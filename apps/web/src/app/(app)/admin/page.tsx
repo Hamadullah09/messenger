@@ -1,22 +1,38 @@
 'use client';
 
-import type { AdminUserDto, AuditLogDto, BusinessDto, Page, StoreDto } from '@storeline/shared';
+import type {
+  AdminUserDto,
+  AuditLogDto,
+  BusinessDto,
+  MeDto,
+  Page,
+  StoreDto,
+} from '@storeline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Archive,
-  Building2,
-  KeyRound,
-  LogOut,
-  Plus,
-  ScrollText,
-  Siren,
-  Store,
-  UserX,
-  Users,
-} from 'lucide-react';
+import { Building2, Plus, ScrollText, Siren, Store, Trash2, UserCog, Users } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { EmergencySettingsTab } from '@/components/emergency/emergency-settings';
+import { BusinessCard, StoreCard } from '@/components/manage/cards';
+import {
+  assignableRoles,
+  CreatePersonDialog,
+  ManagePersonDialog,
+  managesWholeBusiness,
+} from '@/components/manage/people';
+import {
+  emptyPlaceForm,
+  PlaceDetailsFields,
+  PlaceLogo,
+  placeLocation,
+  placeRequest,
+  type PlaceForm,
+} from '@/components/manage/place-details';
+import {
+  AssignManagerDialog,
+  BusinessDetailsDialog,
+  StoreDialog,
+} from '@/components/manage/places';
 import {
   Alert,
   Avatar,
@@ -30,7 +46,7 @@ import {
   Spinner,
   TextField,
 } from '@/components/ui';
-import { api, ApiRequestError, errorMessage } from '@/lib/api';
+import { api, errorMessage } from '@/lib/api';
 import { hasPermission, isPlatformAdmin, useAuth } from '@/lib/auth-store';
 
 type Tab = 'businesses' | 'stores' | 'people' | 'emergency' | 'audit';
@@ -70,17 +86,22 @@ function AdminScreen() {
       show: !!businessId && hasPermission(me, 'audit.read', businessId),
     },
   ];
-  const businessName =
-    me.businesses.find((b) => b.id === businessId)?.name ?? (platform ? 'Platform' : '');
+  const businessName = me.businesses.find((b) => b.id === businessId)?.name ?? '';
+  // Super Admins manage every business: no single business in the title. On the per-business
+  // tabs they still see which business they are looking at.
+  const subtitle = platform
+    ? tab !== 'businesses' && businessName
+      ? `Showing ${businessName}. Choose another business in the Businesses tab.`
+      : undefined
+    : businessName
+      ? `Manage ${businessName}`
+      : undefined;
 
   return (
     <div className="scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 p-4 sm:p-6">
-        <PageHeader
-          title="Administration"
-          subtitle={businessName ? `Manage ${businessName}` : undefined}
-        />
-        {!me.session.mfaVerified && (
+        <PageHeader title="Administration" subtitle={subtitle} />
+        {me.security.mfaRequiredForAdmins && !me.session.mfaVerified && (
           <Alert tone="warning" title="Two-step verification needed">
             Most administrator actions need a session verified with two-step verification. Set it up
             in Settings, then sign in again.
@@ -143,12 +164,6 @@ export default function AdminPage() {
   );
 }
 
-function Card({ children }: { children: ReactNode }) {
-  return (
-    <div className="rounded-3xl border border-line bg-surface p-5 shadow-card">{children}</div>
-  );
-}
-
 function StatusPill({ status }: { status: string }) {
   const tone =
     status === 'ACTIVE' ? 'text-success' : status === 'SUSPENDED' ? 'text-warning' : 'text-muted';
@@ -172,28 +187,76 @@ function BusinessesTab({
     queryFn: () => api<Page<BusinessDto>>('/businesses', { query: { limit: 100 } }),
   });
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<BusinessDto | null>(null);
+  // null: closed · '': ask which business · id: that business preselected.
+  const [addingStore, setAddingStore] = useState<string | null>(null);
+  const [addingAdmin, setAddingAdmin] = useState<BusinessDto | null>(null);
+  const [deleting, setDeleting] = useState<BusinessDto | null>(null);
   const [form, setForm] = useState({
     name: '',
     slug: '',
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   });
+  const [details, setDetails] = useState<PlaceForm>(emptyPlaceForm());
+  const [firstAdmin, setFirstAdmin] = useState({
+    displayName: '',
+    username: '',
+    email: '',
+    initialPassword: '',
+  });
+  const wantsAdmin = Object.values(firstAdmin).some((v) => v.trim());
+  const refresh = async () => {
+    await client.invalidateQueries({ queryKey: ['admin-businesses'] });
+    // The business switcher lists every business for platform admins.
+    useAuth.getState().setMe(await api<MeDto>('/me'));
+  };
   const create = useMutation({
-    mutationFn: () => api<BusinessDto>('/businesses', { method: 'POST', body: form }),
+    mutationFn: async () => {
+      const business = await api<BusinessDto>('/businesses', {
+        method: 'POST',
+        body: { ...form, ...placeRequest(details) },
+      });
+      if (wantsAdmin) {
+        await api(`/businesses/${business.id}/users`, {
+          method: 'POST',
+          body: {
+            ...firstAdmin,
+            username: firstAdmin.username.trim().toLowerCase(),
+            roleKey: 'BUSINESS_ADMIN',
+            storeIds: [],
+            mustChangePassword: false,
+          },
+        });
+      }
+      return business;
+    },
     onSuccess: () => {
       setCreating(false);
       setForm({ ...form, name: '', slug: '' });
-      void client.invalidateQueries({ queryKey: ['admin-businesses'] });
+      setDetails(emptyPlaceForm());
+      setFirstAdmin({ displayName: '', username: '', email: '', initialPassword: '' });
+      void refresh();
     },
+    onError: () => void refresh(),
   });
   const status = useMutation({
     mutationFn: ({ id, action }: { id: string; action: 'suspend' | 'reactivate' }) =>
       api(`/businesses/${id}/${action}`, { method: 'POST' }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['admin-businesses'] }),
+    onSuccess: () => refresh(),
   });
+  const businesses = list.data?.items ?? [];
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button
+          variant="secondary"
+          disabled={businesses.length === 0}
+          onClick={() => setAddingStore('')}
+          icon={<Store className="size-5" aria-hidden />}
+        >
+          Add store
+        </Button>
         <Button onClick={() => setCreating(true)} icon={<Plus className="size-5" aria-hidden />}>
           New business
         </Button>
@@ -204,47 +267,23 @@ function BusinessesTab({
       {list.data?.items.length === 0 && (
         <EmptyState title="No businesses yet">Create the first business to get started.</EmptyState>
       )}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-        {list.data?.items.map((b) => (
-          <Card key={b.id}>
-            <div className="flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-lg font-bold">{b.name}</p>
-                  <p className="text-sm text-muted">
-                    {b.slug} · {b.storeCount} stores · {b.memberCount} people
-                  </p>
-                </div>
-                <StatusPill status={b.status} />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant={selectedId === b.id ? 'primary' : 'secondary'}
-                  onClick={() => onManage(b.id)}
-                >
-                  Manage
-                </Button>
-                {b.status === 'ACTIVE' ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => status.mutate({ id: b.id, action: 'suspend' })}
-                  >
-                    Suspend
-                  </Button>
-                ) : b.status === 'SUSPENDED' ? (
-                  <Button
-                    variant="secondary"
-                    onClick={() => status.mutate({ id: b.id, action: 'reactivate' })}
-                  >
-                    Reactivate
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          </Card>
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        {businesses.map((b) => (
+          <BusinessCard
+            key={b.id}
+            business={b}
+            selected={selectedId === b.id}
+            onManage={() => onManage(b.id)}
+            onAddAdmin={() => setAddingAdmin(b)}
+            onAddStore={() => setAddingStore(b.id)}
+            onEdit={() => setEditing(b)}
+            onSuspend={() => status.mutate({ id: b.id, action: 'suspend' })}
+            onReactivate={() => status.mutate({ id: b.id, action: 'reactivate' })}
+            onDelete={() => setDeleting(b)}
+          />
         ))}
       </div>
-      <Dialog open={creating} onClose={() => setCreating(false)} title="New business">
+      <Dialog open={creating} onClose={() => setCreating(false)} title="New business" wide>
         <form
           className="flex flex-col gap-4"
           onSubmit={(e) => {
@@ -253,165 +292,386 @@ function BusinessesTab({
           }}
         >
           {create.isError && <Alert tone="error">{errorMessage(create.error)}</Alert>}
-          <TextField
-            label="Business name"
-            required
-            value={form.name}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                name: e.target.value,
-                slug: e.target.value
-                  .toLowerCase()
-                  .replace(/[^a-z0-9]+/g, '-')
-                  .replace(/^-|-$/g, '')
-                  .slice(0, 48),
-              })
-            }
-          />
-          <TextField
-            label="Short name"
-            hint="Lowercase letters, numbers and dashes"
-            required
-            value={form.slug}
-            onChange={(e) => setForm({ ...form, slug: e.target.value })}
-          />
-          <TextField
-            label="Time zone"
-            value={form.timeZone}
-            onChange={(e) => setForm({ ...form, timeZone: e.target.value })}
-          />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <TextField
+              label="Business name"
+              required
+              value={form.name}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  name: e.target.value,
+                  slug: e.target.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9]+/g, '-')
+                    .replace(/^-|-$/g, '')
+                    .slice(0, 48),
+                })
+              }
+            />
+            <TextField
+              label="Short name"
+              hint="Lowercase letters, numbers and dashes"
+              required
+              value={form.slug}
+              onChange={(e) => setForm({ ...form, slug: e.target.value })}
+            />
+            <TextField
+              label="Time zone"
+              value={form.timeZone}
+              onChange={(e) => setForm({ ...form, timeZone: e.target.value })}
+            />
+          </div>
+          <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <legend className="mb-1 font-bold">Business admin (recommended)</legend>
+            <p className="text-sm text-muted sm:col-span-2">
+              Every business should have its own admin. Leave these empty to add one later.
+            </p>
+            <TextField
+              label="Full name"
+              value={firstAdmin.displayName}
+              onChange={(e) => setFirstAdmin({ ...firstAdmin, displayName: e.target.value })}
+            />
+            <TextField
+              label="Username"
+              hint="Used to sign in. No spaces."
+              autoCapitalize="none"
+              spellCheck={false}
+              value={firstAdmin.username}
+              onChange={(e) =>
+                setFirstAdmin({ ...firstAdmin, username: e.target.value.replace(/\s/g, '') })
+              }
+            />
+            <TextField
+              label="Email"
+              type="email"
+              value={firstAdmin.email}
+              onChange={(e) => setFirstAdmin({ ...firstAdmin, email: e.target.value })}
+            />
+            <TextField
+              label="Password"
+              type="password"
+              autoComplete="new-password"
+              value={firstAdmin.initialPassword}
+              onChange={(e) => setFirstAdmin({ ...firstAdmin, initialPassword: e.target.value })}
+            />
+          </fieldset>
+          <PlaceDetailsFields value={details} onChange={setDetails} />
+          <p className="text-sm text-muted">
+            You can add a logo and stores after the business is created.
+          </p>
           <Button type="submit" busy={create.isPending}>
             Create business
           </Button>
         </form>
       </Dialog>
+      {addingStore !== null && (
+        <StoreDialog
+          businessId={addingStore || undefined}
+          businesses={businesses.filter((b) => b.status === 'ACTIVE')}
+          onClose={() => setAddingStore(null)}
+          onSaved={() => {
+            setAddingStore(null);
+            void client.invalidateQueries({ queryKey: ['stores'] });
+            void refresh();
+          }}
+        />
+      )}
+      {addingAdmin && (
+        <CreatePersonDialog
+          businessId={addingAdmin.id}
+          stores={[]}
+          roles={['BUSINESS_ADMIN', 'BUSINESS_OWNER', 'BUSINESS_MANAGER']}
+          title={`Add an admin to ${addingAdmin.name}`}
+          onClose={() => setAddingAdmin(null)}
+          onCreated={() => {
+            setAddingAdmin(null);
+            void refresh();
+          }}
+        />
+      )}
+      {deleting && (
+        <DeleteBusinessDialog
+          business={deleting}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            void refresh();
+          }}
+        />
+      )}
+      {editing && (
+        <BusinessDetailsDialog
+          business={editing}
+          onClose={() => {
+            setEditing(null);
+            void refresh();
+          }}
+          onSaved={() => {
+            setEditing(null);
+            void refresh();
+          }}
+        />
+      )}
     </div>
+  );
+}
+
+/** Deleting a business is permanent, so the name must be typed to confirm. */
+function DeleteBusinessDialog({
+  business,
+  onClose,
+  onDeleted,
+}: {
+  business: BusinessDto;
+  onClose: () => void;
+  onDeleted: () => void;
+}) {
+  const [typed, setTyped] = useState('');
+  const remove = useMutation({
+    mutationFn: () => api(`/businesses/${business.id}`, { method: 'DELETE' }),
+    onSuccess: onDeleted,
+  });
+  return (
+    <Dialog open onClose={onClose} title={`Delete ${business.name}?`}>
+      <form
+        className="flex flex-col gap-4"
+        onSubmit={(e) => {
+          e.preventDefault();
+          remove.mutate();
+        }}
+      >
+        {remove.isError && <Alert tone="error">{errorMessage(remove.error)}</Alert>}
+        <Alert tone="warning" title="This cannot be undone">
+          {business.name}, its {business.storeCount} stores and its chats disappear from every list
+          and become read-only history. Its {business.memberCount} people lose access; anyone who
+          belongs to no other business is deactivated.
+        </Alert>
+        <TextField
+          label={`Type “${business.name}” to confirm`}
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          autoComplete="off"
+        />
+        <div className="flex justify-end gap-3">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="danger"
+            busy={remove.isPending}
+            disabled={typed.trim() !== business.name}
+            icon={<Trash2 className="size-5" aria-hidden />}
+          >
+            Delete business
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 
 function StoresTab({ businessId }: { businessId: string }) {
   const client = useQueryClient();
-  const stores = useQuery({
-    queryKey: ['stores', businessId],
-    queryFn: () => api<StoreDto[]>(`/businesses/${businessId}/stores`),
-  });
-  const [creating, setCreating] = useState(false);
-  const [archiving, setArchiving] = useState<StoreDto | null>(null);
-  const [form, setForm] = useState({ name: '', code: '', city: '' });
-  const refresh = () => client.invalidateQueries({ queryKey: ['stores', businessId] });
-  const create = useMutation({
-    mutationFn: () =>
-      api<StoreDto>(`/businesses/${businessId}/stores`, {
-        method: 'POST',
-        body: {
-          name: form.name,
-          code: form.code,
-          address: form.city ? { city: form.city } : undefined,
-        },
-      }),
+  const me = useAuth((s) => s.me)!;
+  const platform = isPlatformAdmin(me);
+  // Super Admins see every business, each in its own section; everyone else their business.
+  const groups = me.businesses.filter((b) =>
+    platform ? b.status !== 'ARCHIVED' : b.id === businessId,
+  );
+  const [dialog, setDialog] = useState<
+    { kind: 'new'; businessId?: string } | { kind: 'edit'; store: StoreDto } | null
+  >(null);
+  const [managersOf, setManagersOf] = useState<StoreDto | null>(null);
+  const [deleting, setDeleting] = useState<StoreDto | null>(null);
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ['stores'] });
+    void client.invalidateQueries({ queryKey: ['admin-businesses'] });
+  };
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/stores/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
-      setCreating(false);
-      setForm({ name: '', code: '', city: '' });
-      void refresh();
+      setDeleting(null);
+      refresh();
     },
   });
-  const archive = useMutation({
-    mutationFn: (id: string) => api(`/stores/${id}/archive`, { method: 'POST' }),
-    onSuccess: () => {
-      setArchiving(null);
-      void refresh();
-    },
-  });
+  const storeBusinesses = groups.filter(
+    (b) => b.status === 'ACTIVE' && hasPermission(me, 'store.create', b.id),
+  );
+  const totalStores = groups.reduce((n, b) => n + b.stores.length, 0);
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex justify-end">
-        <Button onClick={() => setCreating(true)} icon={<Plus className="size-5" aria-hidden />}>
-          New store
-        </Button>
-      </div>
-      {stores.isLoading && <Spinner label="Loading stores" />}
-      {stores.isError && <Alert tone="error">{errorMessage(stores.error)}</Alert>}
-      {stores.data?.length === 0 && (
-        <EmptyState title="No stores yet">Add your first store or branch.</EmptyState>
-      )}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {stores.data?.map((s) => (
-          <Card key={s.id}>
-            <p className="text-lg font-bold">{s.name}</p>
-            <p className="text-sm text-muted">
-              Code {s.code} · {s.memberCount} people{s.address?.city ? ` · ${s.address.city}` : ''}
-            </p>
-            <div className="mt-3">
-              <Button
-                variant="secondary"
-                onClick={() => setArchiving(s)}
-                icon={<Archive className="size-5" aria-hidden />}
-              >
-                Archive
-              </Button>
-            </div>
-          </Card>
-        ))}
-      </div>
-      <Dialog open={creating} onClose={() => setCreating(false)} title="New store">
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault();
-            create.mutate();
-          }}
-        >
-          {create.isError && <Alert tone="error">{errorMessage(create.error)}</Alert>}
-          <TextField
-            label="Store name"
-            required
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-          <TextField
-            label="Store code"
-            hint="Short code, for example A or NYC-01"
-            required
-            value={form.code}
-            onChange={(e) => setForm({ ...form, code: e.target.value })}
-          />
-          <TextField
-            label="City (optional)"
-            value={form.city}
-            onChange={(e) => setForm({ ...form, city: e.target.value })}
-          />
-          <Button type="submit" busy={create.isPending}>
-            Create store
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-muted">
+          {totalStores} {totalStores === 1 ? 'store' : 'stores'}
+          {platform
+            ? ` in ${groups.length} ${groups.length === 1 ? 'business' : 'businesses'}`
+            : ''}
+        </p>
+        {storeBusinesses.length > 0 && (
+          <Button
+            onClick={() =>
+              setDialog({ kind: 'new', businessId: platform ? undefined : businessId })
+            }
+            icon={<Plus className="size-5" aria-hidden />}
+          >
+            New store
           </Button>
-        </form>
-      </Dialog>
+        )}
+      </div>
+
+      {groups.map((b) => (
+        <BusinessStoresSection
+          key={b.id}
+          businessId={b.id}
+          name={b.name}
+          canCreate={b.status === 'ACTIVE' && hasPermission(me, 'store.create', b.id)}
+          canEdit={hasPermission(me, 'store.update', b.id)}
+          canDelete={hasPermission(me, 'store.archive', b.id)}
+          canAssign={managesWholeBusiness(me, b.id)}
+          onAdd={() => setDialog({ kind: 'new', businessId: b.id })}
+          onEdit={(store) => setDialog({ kind: 'edit', store })}
+          onManagers={setManagersOf}
+          onDelete={setDeleting}
+        />
+      ))}
+
+      {dialog && (
+        <StoreDialog
+          businessId={dialog.kind === 'new' ? dialog.businessId : undefined}
+          businesses={dialog.kind === 'new' ? storeBusinesses : undefined}
+          store={dialog.kind === 'edit' ? dialog.store : undefined}
+          onClose={() => {
+            setDialog(null);
+            refresh();
+          }}
+          onSaved={() => {
+            setDialog(null);
+            refresh();
+          }}
+        />
+      )}
+      {managersOf && (
+        <AssignManagerDialog
+          businessId={managersOf.businessId}
+          store={managersOf}
+          onClose={() => setManagersOf(null)}
+          onSaved={refresh}
+        />
+      )}
       <ConfirmDialog
-        open={!!archiving}
-        title={`Archive ${archiving?.name ?? 'store'}?`}
+        open={!!deleting}
+        title={`Delete ${deleting?.name ?? 'store'}?`}
         message={
           <>
-            {archive.isError && <Alert tone="error">{errorMessage(archive.error)}</Alert>}
-            <p>The store and its group chats become read-only. People keep their accounts.</p>
+            {remove.isError && <Alert tone="error">{errorMessage(remove.error)}</Alert>}
+            <p>
+              The store disappears from every list and its people leave it (their accounts stay).
+              Its group chats become read-only history. This cannot be undone.
+            </p>
           </>
         }
-        confirmLabel="Archive store"
+        confirmLabel="Delete store"
         danger
-        busy={archive.isPending}
-        onClose={() => setArchiving(null)}
-        onConfirm={() => archiving && archive.mutate(archiving.id)}
+        busy={remove.isPending}
+        onClose={() => setDeleting(null)}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
       />
     </div>
   );
 }
 
-const ROLE_OPTIONS = [
-  { key: 'EMPLOYEE', label: 'Employee' },
-  { key: 'STORE_MANAGER', label: 'Store Manager' },
-  { key: 'SECURITY', label: 'Security / Surveillance' },
-  { key: 'BUSINESS_ADMIN', label: 'Business Admin' },
-] as const;
+/** One business with all its stores as cards. */
+function BusinessStoresSection({
+  businessId,
+  name,
+  canCreate,
+  canEdit,
+  canDelete,
+  canAssign,
+  onAdd,
+  onEdit,
+  onManagers,
+  onDelete,
+}: {
+  businessId: string;
+  name: string;
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  canAssign: boolean;
+  onAdd: () => void;
+  onEdit: (store: StoreDto) => void;
+  onManagers: (store: StoreDto) => void;
+  onDelete: (store: StoreDto) => void;
+}) {
+  const business = useQuery({
+    queryKey: ['business', businessId],
+    queryFn: () => api<BusinessDto>(`/businesses/${businessId}`),
+  });
+  const stores = useQuery({
+    queryKey: ['stores', businessId],
+    queryFn: () => api<StoreDto[]>(`/businesses/${businessId}/stores`),
+  });
+  const location = business.data ? placeLocation(business.data) : '';
+  return (
+    <section
+      aria-label={`${name} stores`}
+      className="rounded-3xl border border-line bg-surface-2/60 p-4 sm:p-5"
+    >
+      <header className="mb-4 flex flex-wrap items-center gap-3">
+        <PlaceLogo name={name} logoUrl={business.data?.logoUrl ?? null} size={44} />
+        <div className="min-w-0 flex-1">
+          <h3 className="truncate text-lg font-bold">{name}</h3>
+          <p className="truncate text-sm text-muted">
+            {stores.data
+              ? `${stores.data.length} ${stores.data.length === 1 ? 'store' : 'stores'}`
+              : '…'}
+            {location ? ` · ${location}` : ''}
+          </p>
+        </div>
+        {canCreate && (
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Plus className="size-4" aria-hidden />}
+            onClick={onAdd}
+          >
+            Add store
+          </Button>
+        )}
+      </header>
+      {stores.isLoading && <Spinner label={`Loading ${name} stores`} />}
+      {stores.isError && <Alert tone="error">{errorMessage(stores.error)}</Alert>}
+      {stores.data?.length === 0 && (
+        <button
+          type="button"
+          disabled={!canCreate}
+          onClick={onAdd}
+          className="flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed border-line p-8 text-muted enabled:hover:border-brand/50 enabled:hover:text-brand"
+        >
+          <Store className="size-7" aria-hidden />
+          <span className="font-semibold">
+            No stores yet{canCreate ? ' — add the first one' : ''}
+          </span>
+        </button>
+      )}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {stores.data?.map((s) => (
+          <StoreCard
+            key={s.id}
+            store={s}
+            onEdit={canEdit ? () => onEdit(s) : undefined}
+            onManagers={canAssign ? () => onManagers(s) : undefined}
+            onDelete={canDelete ? () => onDelete(s) : undefined}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function PeopleTab({ businessId }: { businessId: string }) {
   const client = useQueryClient();
@@ -419,11 +679,7 @@ function PeopleTab({ businessId }: { businessId: string }) {
   const [query, setQuery] = useState('');
   const [storeFilter, setStoreFilter] = useState('');
   const [creating, setCreating] = useState(false);
-  const [confirm, setConfirm] = useState<{
-    user: AdminUserDto;
-    action: 'remove' | 'deactivate' | 'sessions';
-  } | null>(null);
-  const [editingStores, setEditingStores] = useState<AdminUserDto | null>(null);
+  const [managing, setManaging] = useState<AdminUserDto | null>(null);
   const stores = useQuery({
     queryKey: ['stores', businessId],
     queryFn: () => api<StoreDto[]>(`/businesses/${businessId}/stores`),
@@ -435,27 +691,16 @@ function PeopleTab({ businessId }: { businessId: string }) {
         query: { query, storeId: storeFilter || undefined, limit: 100 },
       }),
   });
-  const canManage = hasPermission(me, 'user.update', businessId);
-  const refresh = () => client.invalidateQueries({ queryKey: ['people', businessId] });
-
-  const act = useMutation({
-    mutationFn: ({
-      user,
-      action,
-    }: {
-      user: AdminUserDto;
-      action: 'remove' | 'deactivate' | 'sessions';
-    }) => {
-      if (action === 'remove')
-        return api(`/businesses/${businessId}/users/${user.id}`, { method: 'DELETE' });
-      if (action === 'deactivate') return api(`/users/${user.id}/deactivate`, { method: 'POST' });
-      return api(`/businesses/${businessId}/users/${user.id}/sessions/revoke`, { method: 'POST' });
-    },
-    onSuccess: () => {
-      setConfirm(null);
-      void refresh();
-    },
-  });
+  const full = managesWholeBusiness(me, businessId);
+  const roles = assignableRoles(me, businessId);
+  const refresh = () => {
+    void client.invalidateQueries({ queryKey: ['people', businessId] });
+    void client.invalidateQueries({ queryKey: ['stores', businessId] });
+  };
+  // Store managers manage employees and security staff of their stores only.
+  const canManage = (u: AdminUserDto) =>
+    u.id !== me?.user.id &&
+    (full || u.roles.every((r) => r.roleKey === 'EMPLOYEE' || r.roleKey === 'SECURITY'));
 
   return (
     <div className="flex flex-col gap-4">
@@ -478,7 +723,7 @@ function PeopleTab({ businessId }: { businessId: string }) {
             </option>
           ))}
         </SelectField>
-        {hasPermission(me, 'user.create', businessId) && (
+        {hasPermission(me, 'user.create', businessId) && roles.length > 0 && (
           <Button onClick={() => setCreating(true)} icon={<Plus className="size-5" aria-hidden />}>
             Add person
           </Button>
@@ -499,10 +744,10 @@ function PeopleTab({ businessId }: { businessId: string }) {
                 {u.displayName} <span className="font-normal text-muted">@{u.username}</span>
               </p>
               <p className="text-sm text-muted">
-                {u.roles.map((r) => r.roleName).join(', ') || 'No role'} ·{' '}
+                {[...new Set(u.roles.map((r) => r.roleName))].join(', ') || 'No role'} ·{' '}
                 {u.stores.map((s) => s.name).join(', ') || 'No store'}
               </p>
-              {canManage && (
+              {u.mfaEnabled !== null && (
                 <p className="text-sm text-muted">
                   {u.mfaEnabled ? 'Two-step on' : 'Two-step off'}
                   {u.mustChangePassword ? ' · Has not chosen a password yet' : ''}
@@ -513,30 +758,14 @@ function PeopleTab({ businessId }: { businessId: string }) {
               )}
             </div>
             <StatusPill status={u.status} />
-            {canManage && u.id !== me?.user.id && (
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  variant="secondary"
-                  onClick={() => setEditingStores(u)}
-                  icon={<Store className="size-5" aria-hidden />}
-                >
-                  Stores
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => setConfirm({ user: u, action: 'sessions' })}
-                  icon={<LogOut className="size-5" aria-hidden />}
-                >
-                  Sign out everywhere
-                </Button>
-                <Button
-                  variant="secondary"
-                  onClick={() => setConfirm({ user: u, action: 'remove' })}
-                  icon={<UserX className="size-5" aria-hidden />}
-                >
-                  Remove
-                </Button>
-              </div>
+            {canManage(u) && (
+              <Button
+                variant="secondary"
+                onClick={() => setManaging(u)}
+                icon={<UserCog className="size-5" aria-hidden />}
+              >
+                Manage
+              </Button>
             )}
           </li>
         ))}
@@ -551,246 +780,26 @@ function PeopleTab({ businessId }: { businessId: string }) {
         <CreatePersonDialog
           businessId={businessId}
           stores={stores.data ?? []}
+          roles={roles}
           onClose={() => setCreating(false)}
           onCreated={() => {
             setCreating(false);
-            void refresh();
+            refresh();
           }}
         />
       )}
-      {editingStores && (
-        <EditStoresDialog
+      {managing && (
+        <ManagePersonDialog
           businessId={businessId}
-          user={editingStores}
+          user={managing}
           stores={stores.data ?? []}
-          onClose={() => setEditingStores(null)}
-          onSaved={() => {
-            setEditingStores(null);
-            void refresh();
-          }}
+          roles={roles}
+          full={full}
+          onClose={() => setManaging(null)}
+          onChanged={refresh}
         />
       )}
-      <ConfirmDialog
-        open={!!confirm}
-        title={
-          confirm?.action === 'remove'
-            ? `Remove ${confirm.user.displayName}?`
-            : confirm?.action === 'deactivate'
-              ? `Deactivate ${confirm.user.displayName}?`
-              : `Sign ${confirm?.user.displayName ?? ''} out everywhere?`
-        }
-        message={
-          <>
-            {act.isError && <Alert tone="error">{errorMessage(act.error)}</Alert>}
-            <p>
-              {confirm?.action === 'remove'
-                ? 'They lose access to this business, its stores and its chats. Their past messages stay in the history.'
-                : 'All their devices will be signed out immediately.'}
-            </p>
-          </>
-        }
-        confirmLabel={confirm?.action === 'remove' ? 'Remove from business' : 'Sign out everywhere'}
-        danger
-        busy={act.isPending}
-        onClose={() => setConfirm(null)}
-        onConfirm={() => confirm && act.mutate(confirm)}
-      />
     </div>
-  );
-}
-
-function CreatePersonDialog({
-  businessId,
-  stores,
-  onClose,
-  onCreated,
-}: {
-  businessId: string;
-  stores: StoreDto[];
-  onClose: () => void;
-  onCreated: () => void;
-}) {
-  const [form, setForm] = useState({
-    displayName: '',
-    username: '',
-    initialPassword: '',
-    roleKey: 'EMPLOYEE' as (typeof ROLE_OPTIONS)[number]['key'],
-    email: '',
-    phone: '',
-  });
-  const [storeIds, setStoreIds] = useState<Set<string>>(new Set());
-  const create = useMutation({
-    mutationFn: () =>
-      api<AdminUserDto>(`/businesses/${businessId}/users`, {
-        method: 'POST',
-        body: {
-          ...form,
-          email: form.email || undefined,
-          phone: form.phone || undefined,
-          storeIds: form.roleKey === 'BUSINESS_ADMIN' ? [] : [...storeIds],
-        },
-      }),
-    onSuccess: onCreated,
-  });
-  const fieldError = (path: string) =>
-    create.error instanceof ApiRequestError
-      ? create.error.details.find((d) => d.path === path)?.message
-      : undefined;
-
-  return (
-    <Dialog open onClose={onClose} title="Add a person" wide>
-      <form
-        className="flex flex-col gap-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          create.mutate();
-        }}
-      >
-        {create.isError && <Alert tone="error">{errorMessage(create.error)}</Alert>}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <TextField
-            label="Full name"
-            required
-            value={form.displayName}
-            onChange={(e) => setForm({ ...form, displayName: e.target.value })}
-            error={fieldError('displayName')}
-          />
-          <TextField
-            label="Username"
-            hint="Used to sign in"
-            required
-            autoCapitalize="none"
-            value={form.username}
-            onChange={(e) => setForm({ ...form, username: e.target.value })}
-            error={fieldError('username')}
-          />
-          <TextField
-            label="Temporary password"
-            hint="At least 12 characters. They choose their own at first sign-in."
-            required
-            value={form.initialPassword}
-            onChange={(e) => setForm({ ...form, initialPassword: e.target.value })}
-            error={fieldError('initialPassword')}
-          />
-          <SelectField
-            label="Role"
-            value={form.roleKey}
-            onChange={(e) => setForm({ ...form, roleKey: e.target.value as typeof form.roleKey })}
-          >
-            {ROLE_OPTIONS.map((r) => (
-              <option key={r.key} value={r.key}>
-                {r.label}
-              </option>
-            ))}
-          </SelectField>
-          <TextField
-            label="Email (private, optional)"
-            type="email"
-            value={form.email}
-            onChange={(e) => setForm({ ...form, email: e.target.value })}
-            error={fieldError('email')}
-          />
-          <TextField
-            label="Phone (private, optional)"
-            hint="International format, e.g. +14155550123"
-            value={form.phone}
-            onChange={(e) => setForm({ ...form, phone: e.target.value })}
-            error={fieldError('phone')}
-          />
-        </div>
-        {form.roleKey !== 'BUSINESS_ADMIN' && (
-          <fieldset className="flex flex-col gap-2">
-            <legend className="font-semibold">Works at</legend>
-            {stores.map((s) => (
-              <label key={s.id} className="flex min-h-11 items-center gap-3">
-                <input
-                  type="checkbox"
-                  className="size-5"
-                  checked={storeIds.has(s.id)}
-                  onChange={() =>
-                    setStoreIds((c) => {
-                      const n = new Set(c);
-                      if (n.has(s.id)) n.delete(s.id);
-                      else n.add(s.id);
-                      return n;
-                    })
-                  }
-                />
-                {s.name}
-              </label>
-            ))}
-          </fieldset>
-        )}
-        <p className="flex items-start gap-2 text-sm text-muted">
-          <KeyRound className="mt-0.5 size-4 shrink-0" aria-hidden />
-          Email and phone are never shown in chats. Only administrators with two-step verification
-          can see them, and each view is logged.
-        </p>
-        <div className="flex justify-end gap-3">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button type="submit" busy={create.isPending}>
-            Add person
-          </Button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
-
-function EditStoresDialog({
-  businessId,
-  user,
-  stores,
-  onClose,
-  onSaved,
-}: {
-  businessId: string;
-  user: AdminUserDto;
-  stores: StoreDto[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const [selected, setSelected] = useState(new Set(user.stores.map((s) => s.id)));
-  const save = useMutation({
-    mutationFn: () =>
-      api(`/businesses/${businessId}/users/${user.id}/stores`, {
-        method: 'PUT',
-        body: { storeIds: [...selected] },
-      }),
-    onSuccess: onSaved,
-  });
-  return (
-    <Dialog open onClose={onClose} title={`Stores for ${user.displayName}`}>
-      <div className="flex flex-col gap-4">
-        {save.isError && <Alert tone="error">{errorMessage(save.error)}</Alert>}
-        <Alert tone="warning">
-          Removing a store also removes this person from that store’s group chats and store roles.
-        </Alert>
-        {stores.map((s) => (
-          <label key={s.id} className="flex min-h-11 items-center gap-3">
-            <input
-              type="checkbox"
-              className="size-5"
-              checked={selected.has(s.id)}
-              onChange={() =>
-                setSelected((c) => {
-                  const n = new Set(c);
-                  if (n.has(s.id)) n.delete(s.id);
-                  else n.add(s.id);
-                  return n;
-                })
-              }
-            />
-            {s.name}
-          </label>
-        ))}
-        <Button busy={save.isPending} onClick={() => save.mutate()}>
-          Save stores
-        </Button>
-      </div>
-    </Dialog>
   );
 }
 

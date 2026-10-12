@@ -12,7 +12,7 @@
 import '../src/load-env';
 import { randomUUID } from 'node:crypto';
 import { Prisma, PrismaClient } from '@prisma/client';
-import type { SystemEventDto, SystemRoleKey } from '@storeline/shared';
+import type { EmergencyCategory, SystemEventDto, SystemRoleKey } from '@storeline/shared';
 
 const prisma = new PrismaClient();
 const MIN = 60_000;
@@ -62,26 +62,26 @@ type Line = [sender: string, body: string, minutesAgo: number];
 /** Group history (oldest first). Times are minutes before now. */
 const GROUP_HISTORY: Record<string, Line[]> = {
   'Store A Operations': [
-    ['manager.a', 'Good morning team! Delivery truck arrives at 7:30 today.', 2 * 24 * 60 + 90],
+    ['manager', 'Good morning team! Delivery truck arrives at 7:30 today.', 2 * 24 * 60 + 90],
     ['alice', 'I can take the cold storage check after unloading.', 2 * 24 * 60 + 80],
     ['bob', 'I will handle the front shelves and price labels.', 2 * 24 * 60 + 75],
     ['emma.wilson', 'Register 2 printer is low on paper, replacing it now.', 2 * 24 * 60 + 40],
-    ['manager.a', 'Thanks Emma. Reminder: weekly stock count tomorrow at 6 pm.', 24 * 60 + 300],
+    ['manager', 'Thanks Emma. Reminder: weekly stock count tomorrow at 6 pm.', 24 * 60 + 300],
     ['frank.lee', 'Can someone cover my 2–4 pm slot tomorrow? Doctor appointment.', 24 * 60 + 200],
     ['alice', 'I can cover it, Frank.', 24 * 60 + 190],
-    ['manager.a', 'Approved, thanks both 👍', 24 * 60 + 185],
+    ['manager', 'Approved, thanks both 👍', 24 * 60 + 185],
     ['security.a', 'Back entrance door is sticking again, logged a maintenance ticket.', 300],
     ['bob', 'Promo display for the weekend sale is up near the entrance.', 95],
-    ['manager.a', 'Looks great Bob! Please send a photo to the Regional Managers group.', 60],
+    ['manager', 'Looks great Bob! Please send a photo to the Regional Managers group.', 60],
     ['emma.wilson', 'Customer asked if we will restock oat milk before Friday?', 12],
     ['frank.lee', 'Supplier says Thursday morning.', 5],
   ],
   'Store A Security': [
     ['security.a', 'Night shift handover: all doors checked, alarm set at 22:05.', 26 * 60],
-    ['manager.a', 'Thanks Sam. Any incidents?', 25 * 60],
+    ['manager', 'Thanks Sam. Any incidents?', 25 * 60],
     ['security.a', 'None. One delivery van parked in the fire lane, driver moved it.', 25 * 60 - 5],
     ['security.a', 'CCTV camera 4 is flickering, technician booked for Thursday.', 180],
-    ['manager.a', 'Noted, please keep an eye on the loading bay meanwhile.', 170],
+    ['manager', 'Noted, please keep an eye on the loading bay meanwhile.', 170],
   ],
   'Store B Operations': [
     ['manager.b', 'Welcome Helen and Ivan to Store B! 🎉', 3 * 24 * 60],
@@ -100,30 +100,22 @@ const GROUP_HISTORY: Record<string, Line[]> = {
     ['ivan.ross', 'Restarting it now.', 13],
   ],
   'Regional Managers': [
-    ['bizadmin', 'Q4 sales targets are in the shared drive. Let us review on Monday.', 4 * 24 * 60],
-    ['manager.a', 'Store A is at 92% of target this month.', 4 * 24 * 60 - 30],
+    ['admin', 'Q4 sales targets are in the shared drive. Let us review on Monday.', 4 * 24 * 60],
+    ['manager', 'Store A is at 92% of target this month.', 4 * 24 * 60 - 30],
     ['manager.b', 'Store B at 88%, the produce shortage hurt us a bit.', 4 * 24 * 60 - 40],
     ['manager.c', 'Store C at 104% thanks to airport traffic ✈️', 4 * 24 * 60 - 50],
-    [
-      'bizadmin',
-      'Great work everyone. Carlos, can you share what is working at C?',
-      4 * 24 * 60 - 55,
-    ],
+    ['admin', 'Great work everyone. Carlos, can you share what is working at C?', 4 * 24 * 60 - 55],
     [
       'manager.c',
       'Extended opening hours and the grab-and-go section. Will write it up.',
       3 * 24 * 60,
     ],
-    ['bizadmin', 'Reminder: holiday rota due by Friday.', 120],
+    ['admin', 'Reminder: holiday rota due by Friday.', 120],
   ],
   'Business Announcements': [
-    [
-      'bizadmin',
-      'New uniform policy starts next month. Details in the staff handbook.',
-      5 * 24 * 60,
-    ],
-    ['bizadmin', 'Thank you all for a record-breaking weekend! 🙌', 2 * 24 * 60],
-    ['bizadmin', 'Fire drill in all stores on Wednesday at 10:00. Please review exit routes.', 240],
+    ['admin', 'New uniform policy starts next month. Details in the staff handbook.', 5 * 24 * 60],
+    ['admin', 'Thank you all for a record-breaking weekend! 🙌', 2 * 24 * 60],
+    ['admin', 'Fire drill in all stores on Wednesday at 10:00. Please review exit routes.', 240],
   ],
 };
 
@@ -202,22 +194,22 @@ const DIRECTS: Array<{ between: [string, string]; history: Line[] }> = [
     ],
   },
   {
-    between: ['manager.a', 'security.a'],
+    between: ['manager', 'security.a'],
     history: [
-      ['manager.a', 'Please walk the car park once more before closing tonight.', 100],
+      ['manager', 'Please walk the car park once more before closing tonight.', 100],
       ['security.a', 'Will do.', 95],
     ],
   },
   {
-    between: ['bizadmin', 'manager.c'],
+    between: ['admin', 'manager.c'],
     history: [
       [
-        'bizadmin',
+        'admin',
         'Carlos, great results this month. Can you mentor Ben on the grab-and-go setup?',
         2 * 24 * 60,
       ],
       ['manager.c', 'Happy to. I will visit Store B on Tuesday.', 2 * 24 * 60 - 60],
-      ['bizadmin', 'Perfect, thank you.', 2 * 24 * 60 - 65],
+      ['admin', 'Perfect, thank you.', 2 * 24 * 60 - 65],
     ],
   },
   {
@@ -411,12 +403,12 @@ async function main(): Promise<void> {
         groups['Store A Operations']!,
         GROUP_HISTORY['Store A Operations']!,
         {
-          unreadFor: { alice: 3, bob: 1, 'manager.a': 2 },
+          unreadFor: { alice: 3, bob: 1, manager: 2 },
         },
       );
       await react(opsA[7]!, 'alice', '👍');
       await react(opsA[7]!, 'frank.lee', '❤️');
-      await react(opsA[9]!, 'manager.a', '🔥');
+      await react(opsA[9]!, 'manager', '🔥');
       await writeHistory(groups['Store A Security']!, GROUP_HISTORY['Store A Security']!);
       const opsB = await writeHistory(
         groups['Store B Operations']!,
@@ -441,7 +433,7 @@ async function main(): Promise<void> {
         data: {
           conversationId: groups['Store A Operations']!,
           messageId: opsA[4]!,
-          pinnedById: id('manager.a'),
+          pinnedById: id('manager'),
         },
       });
 
@@ -540,7 +532,7 @@ async function main(): Promise<void> {
         store: 'B' | 'C';
         reporter: string;
         responder: string;
-        category: 'MEDICAL' | 'SECURITY' | 'FIRE' | 'OTHER';
+        category: EmergencyCategory;
         description: string;
         minutesAgo: number;
         outcome: 'RESOLVED' | 'CANCELLED';
@@ -713,7 +705,7 @@ async function main(): Promise<void> {
       });
 
       // ── Campaigns: one completed (with Announcements channels), one draft ──
-      const admin = id('bizadmin');
+      const admin = id('admin');
       const recipients = await tx.user.findMany({
         where: {
           id: { not: admin },

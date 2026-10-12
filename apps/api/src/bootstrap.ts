@@ -9,6 +9,7 @@ import { AllExceptionsFilter } from './infra/http/exception.filter';
 import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
 import type { NextFunction, Request, Response } from 'express';
 import { metrics, statusClass } from './infra/metrics/metrics';
+import { LOGO_CONTENT_TYPES, LOGO_MAX_BYTES } from './modules/tenancy/place-details';
 
 /** Request rate/latency by route template (never raw paths with ids). */
 function httpMetrics(req: Request, res: Response, next: NextFunction): void {
@@ -41,6 +42,8 @@ export function configureApp(app: NestExpressApplication): INestApplication {
   app.set('trust proxy', config.TRUST_PROXY_HOPS);
   app.disable('x-powered-by');
   app.useBodyParser('json', { limit: '256kb' });
+  // Business/store logo uploads send the image bytes as the request body.
+  app.useBodyParser('raw', { type: LOGO_CONTENT_TYPES, limit: LOGO_MAX_BYTES });
   app.use(cookieParser());
   app.use(httpMetrics);
   app.use(

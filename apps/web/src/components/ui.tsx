@@ -1,11 +1,12 @@
 'use client';
 
-import { AlertTriangle, CheckCircle2, Info, Loader2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Eye, EyeOff, Info, Loader2, X, XCircle } from 'lucide-react';
 import {
   forwardRef,
   useEffect,
   useId,
   useRef,
+  useState,
   type ButtonHTMLAttributes,
   type HTMLAttributes,
   type InputHTMLAttributes,
@@ -169,14 +170,18 @@ interface FieldProps {
 const fieldClass =
   'min-h-12 rounded-xl border bg-surface px-4 text-fg placeholder:text-muted transition-colors focus:border-brand focus:outline-none focus-visible:ring-4 focus-visible:ring-brand/20';
 
+/** Text input with label, hint and error. Password fields get a show/hide (eye) button. */
 export function TextField({
   label,
   hint,
   error,
   className,
+  type,
   ...props
 }: FieldProps & InputHTMLAttributes<HTMLInputElement>) {
   const id = useId();
+  const [revealed, setRevealed] = useState(false);
+  const password = type === 'password';
   return (
     <div className={cx('flex flex-col gap-1.5', className)}>
       <label htmlFor={id} className="font-semibold">
@@ -187,15 +192,39 @@ export function TextField({
           {hint}
         </p>
       )}
-      <input
-        id={id}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={
-          [hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(' ') || undefined
-        }
-        className={cx(fieldClass, error ? 'border-danger' : 'border-line-strong/70')}
-        {...props}
-      />
+      <div className="relative">
+        <input
+          id={id}
+          type={password && revealed ? 'text' : type}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={
+            [hint && `${id}-hint`, error && `${id}-error`].filter(Boolean).join(' ') || undefined
+          }
+          className={cx(
+            fieldClass,
+            'w-full',
+            password && 'pr-14',
+            error ? 'border-danger' : 'border-line-strong/70',
+          )}
+          {...props}
+        />
+        {password && (
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            aria-label={revealed ? 'Hide password' : 'Show password'}
+            aria-pressed={revealed}
+            title={revealed ? 'Hide password' : 'Show password'}
+            className="absolute top-1/2 right-1.5 inline-flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg"
+          >
+            {revealed ? (
+              <EyeOff className="size-5" aria-hidden />
+            ) : (
+              <Eye className="size-5" aria-hidden />
+            )}
+          </button>
+        )}
+      </div>
       {error && (
         <p
           id={`${id}-error`}

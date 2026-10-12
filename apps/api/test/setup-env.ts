@@ -6,3 +6,5 @@ import { resolve } from 'node:path';
 const file = resolve(__dirname, '../.env.test');
 if (existsSync(file)) process.loadEnvFile(file);
 process.env.NODE_ENV = 'test';
+// Never send email from tests (the development .env may point at Mailpit).
+process.env.SMTP_URL ??= '';

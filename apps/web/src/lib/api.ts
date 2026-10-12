@@ -184,3 +184,32 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+/** Sends a file as the raw request body (e.g. a logo image). */
+export async function uploadBody<T>(path: string, file: Blob, method = 'PUT'): Promise<T> {
+  const send = () =>
+    fetch(`/api/v1${path}`, {
+      method,
+      credentials: 'same-origin',
+      headers: {
+        'Content-Type': file.type,
+        Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}`,
+      },
+      body: file,
+    });
+  let res = await send();
+  if (res.status === 401 && (await refreshSession()) === 'ok') res = await send();
+  const data: unknown = await res.json().catch(() => undefined);
+  if (!res.ok) {
+    const error = (data as ApiErrorBody | undefined)?.error;
+    throw new ApiRequestError(
+      res.status,
+      error?.code ?? 'INTERNAL',
+      res.status === 413
+        ? 'This image is too large. Use one under 2 MB.'
+        : (error?.message ?? 'The file could not be uploaded.'),
+      error?.details,
+    );
+  }
+  return data as T;
+}

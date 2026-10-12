@@ -45,6 +45,8 @@ model User {
   /// Last accepted TOTP time step, prevents code replay.
   mfaLastUsedStep     BigInt?
   lastActiveAt        DateTime?  @db.Timestamptz(3)
+  /// Set when an admin deletes the account: it is anonymised and hidden; messages stay as "Deleted user".
+  deletedAt           DateTime?  @db.Timestamptz(3)
   createdAt           DateTime   @default(now()) @db.Timestamptz(3)
   updatedAt           DateTime   @updatedAt @db.Timestamptz(3)
 
@@ -71,6 +73,7 @@ model User {
   suppressions          CampaignSuppression[]        @relation("suppressedUser")
   devices               Device[]
   notificationPrefs     NotificationPreference?
+  passwordResets        PasswordResetToken[]
 }
 
 /// Private contact details. Only read by explicitly authorized, audited flows (ADR-0006).
@@ -116,6 +119,21 @@ model RefreshToken {
   @@index([sessionId])
 }
 
+/// One-time "forgot password" links. Only the SHA-256 of the token is stored.
+model PasswordResetToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  tokenHash   String    @unique @db.VarChar(64)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  expiresAt   DateTime  @db.Timestamptz(3)
+  usedAt      DateTime? @db.Timestamptz(3)
+  /// Keyed hash of the requesting IP (no raw IPs).
+  requestedIp String?   @db.VarChar(64)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt])
+}
+
 // ───────────────────────────── Tenancy ─────────────────────────────
 
 enum BusinessStatus {
@@ -135,17 +153,33 @@ enum MembershipStatus {
 }
 
 model Business {
-  id         String         @id @default(uuid()) @db.Uuid
-  slug       String         @unique @db.VarChar(48)
-  name       String         @db.VarChar(120)
-  status     BusinessStatus @default(ACTIVE)
-  timeZone   String         @default("UTC") @db.VarChar(64)
-  locale     String         @default("en") @db.VarChar(10)
+  id            String         @id @default(uuid()) @db.Uuid
+  slug          String         @unique @db.VarChar(48)
+  name          String         @db.VarChar(120)
+  status        BusinessStatus @default(ACTIVE)
+  timeZone      String         @default("UTC") @db.VarChar(64)
+  locale        String         @default("en") @db.VarChar(10)
   /// BusinessPolicy JSON (validated by @storeline/shared businessPolicySchema).
-  policy     Json           @default("{}")
-  createdAt  DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt  DateTime       @updatedAt @db.Timestamptz(3)
-  archivedAt DateTime?      @db.Timestamptz(3)
+  policy        Json           @default("{}")
+  /// { line1, line2, city, region (state), postalCode, country (ISO alpha-2) }
+  address       Json?
+  /// Public profile (see PlaceDetails in @storeline/shared).
+  description   String?        @db.VarChar(500)
+  phone         String?        @db.VarChar(16)
+  email         String?        @db.VarChar(254)
+  website       String?        @db.VarChar(500)
+  mapUrl        String?        @db.VarChar(500)
+  /// { facebook?, instagram?, x?, linkedin?, tiktok?, youtube?, whatsapp? } (http(s) links)
+  socialLinks   Json           @default("{}")
+  /// Logo re-encoded to 256px WebP by the API (never the uploaded bytes).
+  logo          Bytes?
+  logoUpdatedAt DateTime?      @db.Timestamptz(3)
+
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
+  archivedAt DateTime? @db.Timestamptz(3)
+  /// Set when the platform deletes the business: hidden everywhere, history kept.
+  deletedAt  DateTime? @db.Timestamptz(3)
 
   stores          Store[]
   departments     Department[]
@@ -172,18 +206,32 @@ model TenantQuota {
 }
 
 model Store {
-  id                         String      @id @default(uuid()) @db.Uuid
-  businessId                 String      @db.Uuid
-  code                       String      @db.VarChar(16)
-  name                       String      @db.VarChar(120)
-  status                     StoreStatus @default(ACTIVE)
-  timeZone                   String?     @db.VarChar(64)
-  address                    Json?
-  createdAt                  DateTime    @default(now()) @db.Timestamptz(3)
-  updatedAt                  DateTime    @updatedAt @db.Timestamptz(3)
-  archivedAt                 DateTime?   @db.Timestamptz(3)
+  id            String      @id @default(uuid()) @db.Uuid
+  businessId    String      @db.Uuid
+  code          String      @db.VarChar(16)
+  name          String      @db.VarChar(120)
+  status        StoreStatus @default(ACTIVE)
+  timeZone      String?     @db.VarChar(64)
+  address       Json?
+  /// Public profile (see PlaceDetails in @storeline/shared).
+  description   String?     @db.VarChar(500)
+  phone         String?     @db.VarChar(16)
+  email         String?     @db.VarChar(254)
+  website       String?     @db.VarChar(500)
+  mapUrl        String?     @db.VarChar(500)
+  /// { facebook?, instagram?, x?, linkedin?, tiktok?, youtube?, whatsapp? } (http(s) links)
+  socialLinks   Json        @default("{}")
+  /// Logo re-encoded to 256px WebP by the API (never the uploaded bytes).
+  logo          Bytes?
+  logoUpdatedAt DateTime?   @db.Timestamptz(3)
+
+  createdAt                  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime  @updatedAt @db.Timestamptz(3)
+  archivedAt                 DateTime? @db.Timestamptz(3)
+  /// Set when an admin deletes the store: hidden everywhere, history kept.
+  deletedAt                  DateTime? @db.Timestamptz(3)
   /// Seconds an emergency alert waits for acknowledgement before escalating (15-1800).
-  emergencyAckTimeoutSeconds Int         @default(120)
+  emergencyAckTimeoutSeconds Int       @default(120)
 
   business          Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
   memberships       StoreMembership[]
@@ -341,6 +389,10 @@ model Conversation {
   category          GroupCategory?
   postingPolicy     PostingPolicy     @default(ALL_MEMBERS)
   fileSharingPolicy FileSharingPolicy @default(ALL_MEMBERS)
+  /// Who may change the group name and description (WhatsApp "Edit group info").
+  editInfoPolicy    PostingPolicy     @default(ADMINS_ONLY)
+  /// Who may add people to the group (WhatsApp "Add other members").
+  addMembersPolicy  PostingPolicy     @default(ADMINS_ONLY)
   /// "businessId:userA:userB" with sorted user ids; dedupes direct conversations.
   directKey         String?           @unique @db.VarChar(120)
   /// "businessId:userId" for BROADCAST channels; dedupes the per-recipient announcements channel.
@@ -590,6 +642,12 @@ enum EmergencyCategory {
   SECURITY
   FIRE
   OTHER
+  THEFT
+  VIOLENCE
+  ACCIDENT
+  GAS_LEAK
+  POWER_FAILURE
+  NATURAL_DISASTER
 }
 
 /// OPEN -> (ESCALATED)* -> ACKNOWLEDGED -> RESOLVED; OPEN/ESCALATED -> CANCELLED by the reporter.

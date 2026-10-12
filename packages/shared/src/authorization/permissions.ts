@@ -104,7 +104,37 @@ export function permissionDefinition(permission: Permission): PermissionDefiniti
 export type ScopeType = 'PLATFORM' | 'BUSINESS' | 'STORE';
 
 export type SystemRoleKey =
-  'SUPER_ADMIN' | 'BUSINESS_ADMIN' | 'STORE_MANAGER' | 'SECURITY' | 'EMPLOYEE' | 'CUSTOMER';
+  | 'SUPER_ADMIN'
+  | 'BUSINESS_OWNER'
+  | 'BUSINESS_ADMIN'
+  | 'BUSINESS_MANAGER'
+  | 'STORE_MANAGER'
+  | 'SECURITY'
+  | 'EMPLOYEE'
+  | 'CUSTOMER';
+
+/** Most senior first; used to pick the role shown under a name and the dashboard to show. */
+export const SYSTEM_ROLE_ORDER: readonly SystemRoleKey[] = [
+  'SUPER_ADMIN',
+  'BUSINESS_OWNER',
+  'BUSINESS_ADMIN',
+  'BUSINESS_MANAGER',
+  'STORE_MANAGER',
+  'SECURITY',
+  'EMPLOYEE',
+  'CUSTOMER',
+];
+
+/** Roles held for a whole business (never tied to a store). */
+export const BUSINESS_ROLE_KEYS: readonly SystemRoleKey[] = [
+  'BUSINESS_OWNER',
+  'BUSINESS_ADMIN',
+  'BUSINESS_MANAGER',
+  'CUSTOMER',
+];
+
+/** Roles a store manager may give to people in their own stores. */
+export const STORE_STAFF_ROLE_KEYS: readonly SystemRoleKey[] = ['EMPLOYEE', 'SECURITY'];
 
 export interface SystemRoleDefinition {
   readonly key: SystemRoleKey;
@@ -124,6 +154,10 @@ const STAFF_BASE: readonly Permission[] = [
   'media.download',
 ];
 
+const BUSINESS_WIDE: readonly Permission[] = ALL_PERMISSIONS.filter(
+  (p) => !PERMISSIONS[p].platformOnly,
+);
+
 export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
   SUPER_ADMIN: {
     key: 'SUPER_ADMIN',
@@ -132,21 +166,44 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
     allowedScopes: ['PLATFORM'],
     permissions: ALL_PERMISSIONS.filter((p) => p !== 'emergency.trigger'),
   },
+  BUSINESS_OWNER: {
+    key: 'BUSINESS_OWNER',
+    name: 'Business Owner',
+    description:
+      'Owns one business: its profile, stores, managers, people, groups, roles and campaigns.',
+    allowedScopes: ['BUSINESS'],
+    permissions: BUSINESS_WIDE,
+  },
   BUSINESS_ADMIN: {
     key: 'BUSINESS_ADMIN',
     name: 'Business Admin',
     description: 'Manages one business: stores, users, groups, roles and campaigns.',
     allowedScopes: ['BUSINESS'],
-    permissions: ALL_PERMISSIONS.filter((p) => !PERMISSIONS[p].platformOnly),
+    permissions: BUSINESS_WIDE,
+  },
+  BUSINESS_MANAGER: {
+    key: 'BUSINESS_MANAGER',
+    name: 'Business Manager',
+    description:
+      'Runs the stores of one business: adds stores, assigns managers, manages people and groups. Cannot change the business profile, custom roles or read the audit log.',
+    allowedScopes: ['BUSINESS'],
+    permissions: BUSINESS_WIDE.filter(
+      (p) => !(['business.update', 'role.manage', 'audit.read'] as Permission[]).includes(p),
+    ),
   },
   STORE_MANAGER: {
     key: 'STORE_MANAGER',
     name: 'Store Manager',
-    description: 'Runs a store: team communication, groups, emergency response.',
+    description:
+      'Runs one or more stores: adds and deactivates staff, team communication, groups, emergency response.',
     allowedScopes: ['STORE'],
     permissions: [
       ...STAFF_BASE,
+      'user.create',
+      'user.update',
+      'user.deactivate',
       'role.read',
+      'role.assign',
       'group.create',
       'group.manage',
       'message.delete',

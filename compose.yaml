@@ -74,6 +74,14 @@ services:
       retries: 20
       start_period: 300s
 
+  # Development mailbox: catches every email the API sends (password reset links).
+  # Inbox UI: http://localhost:18025 · SMTP: 127.0.0.1:11025. Nothing reaches real inboxes.
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports:
+      - '127.0.0.1:18025:8025'
+      - '127.0.0.1:11025:1025'
+
   # Monitoring (optional): docker compose --profile monitoring up -d
   # Prometheus scrapes the API/worker metrics ports on the host; Grafana ships the SMA dashboard.
   prometheus:

@@ -1,6 +1,6 @@
 'use client';
 
-import type { MeDto } from '@storeline/shared';
+import { SYSTEM_ROLE_ORDER, type MeDto } from '@storeline/shared';
 import { create } from 'zustand';
 
 export type AuthStatus = 'loading' | 'signed-out' | 'signed-in';
@@ -48,7 +48,15 @@ export const useAuth = create<AuthState>((set) => ({
           ? state.activeBusinessId
           : rememberedBusiness(me),
     })),
-  setMe: (me) => set({ me }),
+  setMe: (me) =>
+    set((state) => ({
+      me,
+      // The active business may have been deleted or left: fall back to another one.
+      activeBusinessId:
+        state.activeBusinessId && me.businesses.some((b) => b.id === state.activeBusinessId)
+          ? state.activeBusinessId
+          : (me.businesses[0]?.id ?? null),
+    })),
   setActiveBusiness: (businessId) => {
     try {
       window.localStorage.setItem(ACTIVE_BUSINESS_KEY, businessId);
@@ -94,14 +102,7 @@ export function isPlatformAdmin(me: MeDto | null): boolean {
   return !!me?.grants.some((g) => g.scope.type === 'PLATFORM');
 }
 
-const ROLE_ORDER = [
-  'SUPER_ADMIN',
-  'BUSINESS_ADMIN',
-  'STORE_MANAGER',
-  'SECURITY',
-  'EMPLOYEE',
-  'CUSTOMER',
-];
+const ROLE_ORDER: readonly string[] = SYSTEM_ROLE_ORDER;
 
 /** The most senior role name for display (e.g. under the user's name). */
 export function primaryRoleName(me: MeDto | null, businessId?: string | null): string {

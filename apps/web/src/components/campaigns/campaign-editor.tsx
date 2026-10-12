@@ -21,7 +21,9 @@ import { uploadFile, type UploadProgress } from '@/lib/uploads';
 import { Alert, Button, cx, TextArea, TextField } from '../ui';
 
 const ROLE_LABEL: Record<(typeof CAMPAIGN_ROLE_FILTERS)[number], string> = {
+  BUSINESS_OWNER: 'Business owners',
   BUSINESS_ADMIN: 'Business admins',
+  BUSINESS_MANAGER: 'Business managers',
   STORE_MANAGER: 'Store managers',
   SECURITY: 'Security',
   EMPLOYEE: 'Employees',

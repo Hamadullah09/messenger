@@ -256,17 +256,69 @@ export class AuthService {
       }),
       this.authz.loadGrants(actor.userId),
     ]);
+    // Platform staff (Super Admin) work in every business: they can switch to any of them to
+    // chat, manage people and stores. Everyone else sees the businesses they belong to.
+    const platform = grants.grants.some((g) => g.scope.type === 'PLATFORM');
+    const businesses = platform
+      ? await this.prisma.business.findMany({
+          where: { status: { not: 'ARCHIVED' } },
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            status: true,
+            stores: {
+              where: { status: 'ACTIVE' },
+              select: { id: true, name: true, code: true },
+              orderBy: { name: 'asc' },
+            },
+          },
+          orderBy: { name: 'asc' },
+        })
+      : memberships.map((m) => m.business).filter((b) => b.status !== 'ARCHIVED');
     return {
       user: toPublicUser(user),
       mustChangePassword: user.mustChangePassword,
       mfaEnabled: user.mfaEnabledAt !== null,
       session: { id: actor.sessionId, mfaVerified: actor.mfaVerified },
-      businesses: memberships
-        .map((m) => m.business)
-        .filter((b) => b.status !== 'ARCHIVED')
-        .map((b) => ({ id: b.id, name: b.name, slug: b.slug, status: b.status, stores: b.stores })),
+      businesses: businesses.map((b) => ({
+        id: b.id,
+        name: b.name,
+        slug: b.slug,
+        status: b.status,
+        stores: b.stores,
+      })),
       grants: grants.dtos,
+      security: { mfaRequiredForAdmins: this.config.MFA_REQUIRED_FOR_PRIVILEGED },
     };
+  }
+
+  /** Turns two-step verification off for the caller (current password required). */
+  async disableMfa(actor: Actor, password: string): Promise<void> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: actor.userId },
+      select: { passwordHash: true, mfaEnabledAt: true },
+    });
+    if (!user.mfaEnabledAt) throw ApiError.conflict('Two-step verification is already off.');
+    if (!(await this.passwords.verify(user.passwordHash, password))) {
+      throw ApiError.validation('Your password is not correct.', 'password');
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: actor.userId },
+        data: {
+          mfaSecretEnc: null,
+          mfaPendingSecretEnc: null,
+          mfaEnabledAt: null,
+          mfaLastUsedStep: null,
+        },
+      });
+      await this.audit.record(
+        actor,
+        { action: 'auth.mfa_disabled', targetType: 'User', targetId: actor.userId },
+        tx,
+      );
+    });
   }
 
   async setupMfa(actor: Actor): Promise<MfaSetupDto> {

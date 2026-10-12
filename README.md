@@ -51,14 +51,19 @@ Seeded demo accounts (password = `SEED_PASSWORD` from `apps/api/.env`):
 
 | Username | Role |
 | --- | --- |
-| `superadmin` | Super Admin (sets up two-step verification at first sign-in) |
-| `bizadmin` | Business Admin, ABC Retail Group |
-| `manager.a`, `manager.b` | Store Managers (stores A, B) |
+| `superadmin` | Super Admin |
+| `admin` | Business Admin, ABC Retail Group |
+| `manager`, `manager.b` | Store Managers (stores A, B) |
 | `security.a` | Security, store A |
 | `alice`, `bob`, `carol`, `dave` | Employees (A, A, B, C) |
 | `nw.admin`, `nw.staff` | Second tenant (Northwind Pharmacy) for isolation checks |
 
-All demo people, emails and phone numbers are fictitious.
+All demo people, emails and phone numbers are fictitious. To give demo accounts their own
+passwords and emails, list them in `apps/api/demo-accounts.local.json` (git-ignored; see
+`demo-accounts.example.json`) and run `npm run accounts:apply -w @storeline/api`.
+
+Forgot-password emails are caught by Mailpit (`docker compose up -d mailpit`) at
+http://localhost:18025; nothing is sent to real inboxes in development.
 
 ## Tests
 

@@ -10,7 +10,7 @@ import {
   BellOff,
   Info,
   MailWarning,
-  MoreHorizontal,
+  MoreVertical,
   Pin,
   PinOff,
   Search,
@@ -33,14 +33,17 @@ import {
 import { formatRelativeShort, formatTime } from '@/lib/format';
 import { activeTypers, useLive } from '@/lib/live-store';
 import { useSocket } from '@/lib/realtime';
-import { Alert, Avatar, Button, ConfirmDialog, cx, Dialog, IconButton, Spinner } from '../ui';
+import { Alert, Avatar, Button, ConfirmDialog, cx, Dialog, Spinner } from '../ui';
 import { Composer } from './composer';
 import { UploadTray } from './upload-tray';
-import { ForwardDialog, GroupInfoDialog, MessageInfoDialog } from './dialogs';
+import { ChatInfoPanel } from './chat-info';
+import { ForwardDialog, MessageInfoDialog } from './dialogs';
 import type { BubbleActions } from './message-bubble';
 import { MessageList } from './message-list';
 
 const MUTE_FOREVER = '9999-12-31T00:00:00.000Z';
+const HEADER_ICON =
+  'inline-flex size-10 shrink-0 items-center justify-center rounded-full text-wa-icon transition-colors hover:bg-wa-hover';
 
 export function ChatPanel({
   conversationId,
@@ -67,7 +70,7 @@ export function ChatPanel({
   const [deleting, setDeleting] = useState<MessageDto | null>(null);
   const [forwarding, setForwarding] = useState<MessageDto | null>(null);
   const [infoFor, setInfoFor] = useState<MessageDto | null>(null);
-  const [groupInfo, setGroupInfo] = useState(false);
+  const [infoOpen, setInfoOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   // Remember where unread started when the chat was opened, for the "Unread messages" marker.
   const unreadMarker = useRef<{ id: string; seq: number | null } | null>(null);
@@ -171,179 +174,197 @@ export function ChatPanel({
           : counterpartPresence?.lastSeenAt
             ? `Last seen ${formatRelativeShort(counterpartPresence.lastSeenAt)}`
             : `@${conversation.counterpart?.username ?? ''}`
-        : `${conversation.memberCount} members`;
+        : conversation.type === 'BROADCAST'
+          ? `Announcements · ${conversation.memberCount} members`
+          : conversation.members
+              .slice(0, 6)
+              .map((m) => (m.user.id === me.user.id ? 'You' : m.user.displayName))
+              .join(', ') +
+            (conversation.memberCount > 6 ? ` and ${conversation.memberCount - 6} more` : '');
 
   return (
-    <section
-      aria-label={`Chat with ${conversation.title}`}
-      className="flex min-h-0 flex-1 flex-col"
-    >
-      <header className="flex min-h-[4.75rem] items-center gap-2 border-b border-line bg-surface px-2 py-2 sm:px-5">
-        <IconButton label="Back to chats" className="lg:hidden" onClick={onBack}>
-          <ArrowLeft className="size-6" aria-hidden />
-        </IconButton>
-        <button
-          type="button"
-          onClick={() => conversation.type !== 'DIRECT' && setGroupInfo(true)}
-          className="flex min-w-0 flex-1 items-center gap-3 rounded-xl p-1 text-left hover:bg-surface-2"
-        >
-          <Avatar
-            name={conversation.title}
-            size={52}
-            online={
-              conversation.type === 'DIRECT' ? (counterpartPresence?.online ?? false) : undefined
-            }
-          />
-          <span className="min-w-0">
-            <span className="block truncate text-lg font-bold">{conversation.title}</span>
-            <span
-              className={cx(
-                'block truncate text-sm',
-                typers.length > 0 ? 'font-semibold text-brand' : 'text-muted',
-              )}
-              aria-live="polite"
-            >
-              {subtitle}
+    <div className="relative flex min-h-0 min-w-0 flex-1">
+      <section
+        aria-label={`Chat with ${conversation.title}`}
+        className="flex min-h-0 min-w-0 flex-1 flex-col"
+      >
+        <header className="flex h-[60px] shrink-0 items-center gap-1 border-l border-wa-divider bg-wa-panel px-2 sm:px-4">
+          <button
+            type="button"
+            aria-label="Back to chats"
+            title="Back to chats"
+            className={cx(HEADER_ICON, 'lg:hidden')}
+            onClick={onBack}
+          >
+            <ArrowLeft className="size-6" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={() => setInfoOpen(true)}
+            title={conversation.type === 'DIRECT' ? 'Contact info' : 'Group info'}
+            className="flex h-full min-w-0 flex-1 items-center gap-3 text-left"
+          >
+            <Avatar
+              name={conversation.title}
+              size={40}
+              online={
+                conversation.type === 'DIRECT' ? (counterpartPresence?.online ?? false) : undefined
+              }
+            />
+            <span className="min-w-0">
+              <span className="block truncate text-[1rem] font-medium">{conversation.title}</span>
+              <span
+                className={cx(
+                  'block truncate text-[0.8rem]',
+                  typers.length > 0 ? 'text-brand' : 'text-wa-meta-in',
+                )}
+                aria-live="polite"
+              >
+                {subtitle}
+              </span>
             </span>
-          </span>
-        </button>
-        <IconButton label="Search in chat" bordered onClick={() => setSearching(true)}>
-          <Search className="size-5" aria-hidden />
-        </IconButton>
-        {conversation.type !== 'DIRECT' && (
-          <span className="hidden sm:block">
-            <IconButton label="Group info" bordered onClick={() => setGroupInfo(true)}>
-              <Info className="size-5" aria-hidden />
-            </IconButton>
-          </span>
+          </button>
+          <button
+            type="button"
+            aria-label="Search in chat"
+            title="Search"
+            className={HEADER_ICON}
+            onClick={() => setSearching(true)}
+          >
+            <Search className="size-5" aria-hidden />
+          </button>
+          <ChatMenu
+            items={[
+              {
+                label: muted ? 'Unmute notifications' : 'Mute notifications',
+                Icon: muted ? Bell : BellOff,
+                onSelect: () => myState.mutate({ mutedUntil: muted ? null : MUTE_FOREVER }),
+              },
+              {
+                label: conversation.me.pinnedAt ? 'Unpin chat' : 'Pin chat to top',
+                Icon: conversation.me.pinnedAt ? PinOff : Pin,
+                onSelect: () => myState.mutate({ pinned: !conversation.me.pinnedAt }),
+              },
+              {
+                label: conversation.me.archivedAt ? 'Move out of archive' : 'Archive chat',
+                Icon: conversation.me.archivedAt ? ArchiveRestore : Archive,
+                onSelect: () => myState.mutate({ archived: !conversation.me.archivedAt }),
+              },
+              {
+                label: 'Mark as unread',
+                Icon: MailWarning,
+                onSelect: () => myState.mutate({ markedUnread: true }),
+              },
+              {
+                label: conversation.type === 'DIRECT' ? 'Contact info' : 'Group info',
+                Icon: Info,
+                onSelect: () => setInfoOpen(true),
+              },
+            ]}
+          />
+        </header>
+        {conversation.type === 'BROADCAST' && me.user.kind === 'EXTERNAL' && (
+          <AnnouncementOptOut businessId={conversation.businessId} />
         )}
-        <ChatMenu
-          items={[
-            {
-              label: muted ? 'Unmute notifications' : 'Mute notifications',
-              Icon: muted ? Bell : BellOff,
-              onSelect: () => myState.mutate({ mutedUntil: muted ? null : MUTE_FOREVER }),
-            },
-            {
-              label: conversation.me.pinnedAt ? 'Unpin chat' : 'Pin chat to top',
-              Icon: conversation.me.pinnedAt ? PinOff : Pin,
-              onSelect: () => myState.mutate({ pinned: !conversation.me.pinnedAt }),
-            },
-            {
-              label: conversation.me.archivedAt ? 'Move out of archive' : 'Archive chat',
-              Icon: conversation.me.archivedAt ? ArchiveRestore : Archive,
-              onSelect: () => myState.mutate({ archived: !conversation.me.archivedAt }),
-            },
-            {
-              label: 'Mark as unread',
-              Icon: MailWarning,
-              onSelect: () => myState.mutate({ markedUnread: true }),
-            },
-            ...(conversation.type !== 'DIRECT'
-              ? [{ label: 'Group info', Icon: Info, onSelect: () => setGroupInfo(true) }]
-              : []),
-          ]}
-        />
-      </header>
-      {conversation.type === 'BROADCAST' && me.user.kind === 'EXTERNAL' && (
-        <AnnouncementOptOut businessId={conversation.businessId} />
-      )}
-      {conversation.type === 'EMERGENCY' && (
-        <Link
-          href={`/emergency?conversation=${conversation.id}`}
-          className="flex min-h-11 items-center gap-2 border-b border-danger/30 bg-danger-surface px-4 py-2 text-sm font-semibold text-danger sm:px-5"
-        >
-          <Siren className="size-5 shrink-0" aria-hidden />
-          <span className="min-w-0 flex-1 truncate">
-            Emergency conversation — status, who was alerted and the timeline
-          </span>
-          <span className="shrink-0 underline">View incident</span>
-        </Link>
-      )}
-      {myState.isError && (
-        <div className="p-2">
-          <Alert tone="error">{errorMessage(myState.error)}</Alert>
-        </div>
-      )}
-      {action.isError && (
-        <div className="p-2">
-          <Alert tone="error">{errorMessage(action.error)}</Alert>
-        </div>
-      )}
+        {conversation.type === 'EMERGENCY' && (
+          <Link
+            href={`/emergency?conversation=${conversation.id}`}
+            className="flex min-h-11 shrink-0 items-center gap-2 border-b border-danger/30 bg-danger-surface px-4 py-2 text-sm font-semibold text-danger sm:px-5"
+          >
+            <Siren className="size-5 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">
+              Emergency conversation — status, who was alerted and the timeline
+            </span>
+            <span className="shrink-0 underline">View incident</span>
+          </Link>
+        )}
+        {myState.isError && (
+          <div className="p-2">
+            <Alert tone="error">{errorMessage(myState.error)}</Alert>
+          </div>
+        )}
+        {action.isError && (
+          <div className="p-2">
+            <Alert tone="error">{errorMessage(action.error)}</Alert>
+          </div>
+        )}
 
-      <MessageList
-        conversation={conversation}
-        messages={messages.data.items}
-        hasMoreBefore={messages.data.hasMoreBefore}
-        loadingOlder={loadOlder.isPending}
-        onLoadOlder={() => loadOlder.mutate()}
-        myId={me.user.id}
-        nameOf={nameOf}
-        actions={actions}
-        canModerate={canModerate}
-        firstUnreadSeq={unreadMarker.current?.seq ?? null}
-      />
-
-      <UploadTray items={uploads.items} onCancel={uploads.cancel} onRetry={uploads.retry} />
-      <Composer
-        conversationId={conversationId}
-        canShareFiles={conversation.me.canShareFiles}
-        onSendFile={(file, caption) => uploads.send(file, caption)}
-        disabledReason={
-          conversation.me.canPost
-            ? null
-            : conversation.type === 'BROADCAST'
-              ? 'Announcements are one-way. Replies are turned off.'
-              : conversation.postingPolicy === 'ADMINS_ONLY'
-                ? 'Only group admins can send messages in this group.'
-                : 'You cannot send messages in this chat.'
-        }
-        replyTo={replyTo}
-        editing={editing}
-        onCancelReply={() => setReplyTo(null)}
-        onCancelEdit={() => setEditing(null)}
-        onSend={(body) => {
-          send(body, replyTo);
-          setReplyTo(null);
-        }}
-        onSaveEdit={(body) => {
-          if (editing) action.mutate({ message: editing, kind: 'edit', value: body });
-          setEditing(null);
-        }}
-      />
-
-      <ConfirmDialog
-        open={!!deleting}
-        title="Delete message?"
-        message="This message will be deleted for everyone in the chat."
-        confirmLabel="Delete for everyone"
-        danger
-        busy={action.isPending}
-        onClose={() => setDeleting(null)}
-        onConfirm={() => {
-          if (deleting)
-            action.mutate(
-              { message: deleting, kind: 'delete' },
-              { onSettled: () => setDeleting(null) },
-            );
-        }}
-      />
-      <ForwardDialog message={forwarding} onClose={() => setForwarding(null)} />
-      <MessageInfoDialog message={infoFor} onClose={() => setInfoFor(null)} />
-      {groupInfo && (
-        <GroupInfoDialog
-          open={groupInfo}
-          onClose={() => setGroupInfo(false)}
+        <MessageList
           conversation={conversation}
-          canManage={canManage}
+          messages={messages.data.items}
+          hasMoreBefore={messages.data.hasMoreBefore}
+          loadingOlder={loadOlder.isPending}
+          onLoadOlder={() => loadOlder.mutate()}
+          myId={me.user.id}
+          nameOf={nameOf}
+          actions={actions}
+          canModerate={canModerate}
+          firstUnreadSeq={unreadMarker.current?.seq ?? null}
         />
+
+        <UploadTray items={uploads.items} onCancel={uploads.cancel} onRetry={uploads.retry} />
+        <Composer
+          conversationId={conversationId}
+          canShareFiles={conversation.me.canShareFiles}
+          onSendFile={(file, caption) => uploads.send(file, caption)}
+          disabledReason={
+            conversation.me.canPost
+              ? null
+              : conversation.type === 'BROADCAST'
+                ? 'Announcements are one-way. Replies are turned off.'
+                : conversation.postingPolicy === 'ADMINS_ONLY'
+                  ? 'Only group admins can send messages in this group.'
+                  : 'You cannot send messages in this chat.'
+          }
+          replyTo={replyTo}
+          editing={editing}
+          onCancelReply={() => setReplyTo(null)}
+          onCancelEdit={() => setEditing(null)}
+          onSend={(body) => {
+            send(body, replyTo);
+            setReplyTo(null);
+          }}
+          onSaveEdit={(body) => {
+            if (editing) action.mutate({ message: editing, kind: 'edit', value: body });
+            setEditing(null);
+          }}
+        />
+
+        <ConfirmDialog
+          open={!!deleting}
+          title="Delete message?"
+          message="This message will be deleted for everyone in the chat."
+          confirmLabel="Delete for everyone"
+          danger
+          busy={action.isPending}
+          onClose={() => setDeleting(null)}
+          onConfirm={() => {
+            if (deleting)
+              action.mutate(
+                { message: deleting, kind: 'delete' },
+                { onSettled: () => setDeleting(null) },
+              );
+          }}
+        />
+        <ForwardDialog message={forwarding} onClose={() => setForwarding(null)} />
+        <MessageInfoDialog message={infoFor} onClose={() => setInfoFor(null)} />
+        <ChatSearchDialog
+          open={searching}
+          conversationId={conversationId}
+          onClose={() => setSearching(false)}
+        />
+      </section>
+      {/* WhatsApp Web-style info panel: beside the chat on large screens, over it on smaller ones. */}
+      {infoOpen && (
+        <div className="absolute inset-0 z-20 lg:static lg:w-[38%] lg:max-w-[460px] lg:min-w-[340px] lg:shrink-0">
+          <ChatInfoPanel
+            conversation={conversation}
+            canManage={canManage}
+            onClose={() => setInfoOpen(false)}
+          />
+        </div>
       )}
-      <ChatSearchDialog
-        open={searching}
-        conversationId={conversationId}
-        onClose={() => setSearching(false)}
-      />
-    </section>
+    </div>
   );
 }
 
@@ -432,19 +453,21 @@ function ChatMenu({
   }, [open]);
   return (
     <div ref={ref} className="relative">
-      <IconButton
-        label="More options"
-        bordered
+      <button
+        type="button"
+        aria-label="More options"
+        title="Menu"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
+        className={cx(HEADER_ICON, open && 'bg-wa-active')}
       >
-        <MoreHorizontal className="size-5" aria-hidden />
-      </IconButton>
+        <MoreVertical className="size-5" aria-hidden />
+      </button>
       {open && (
         <div
           role="menu"
-          className="absolute top-full right-0 z-30 mt-2 w-64 rounded-2xl border border-line bg-surface p-2 shadow-pop"
+          className="absolute top-full right-0 z-30 mt-1 w-64 rounded-lg bg-surface py-2 shadow-pop"
         >
           {items.map(({ label, Icon, onSelect }, index) => (
             <button
@@ -456,9 +479,9 @@ function ChatMenu({
                 setOpen(false);
                 onSelect();
               }}
-              className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left font-medium hover:bg-surface-2"
+              className="flex min-h-11 w-full items-center gap-3 px-5 text-left hover:bg-wa-hover"
             >
-              <Icon className="size-5 text-muted" aria-hidden /> {label}
+              <Icon className="size-5 text-wa-icon" aria-hidden /> {label}
             </button>
           ))}
         </div>
@@ -488,7 +511,7 @@ function AnnouncementOptOut({ businessId }: { businessId: string }) {
   });
   if (!status.data?.canOptOut) return null;
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-line bg-surface-2 px-4 py-2 text-sm sm:px-5">
+    <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-wa-divider bg-wa-panel px-4 py-2 text-sm sm:px-5">
       <span className="min-w-0 flex-1">
         {status.data.optedOut
           ? 'You will not receive new announcements from this business.'

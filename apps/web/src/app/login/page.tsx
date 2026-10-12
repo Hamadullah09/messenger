@@ -1,6 +1,7 @@
 'use client';
 
-import { KeyRound, LogIn, ShieldCheck } from 'lucide-react';
+import { LogIn, ShieldCheck } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
 import { BRAND, BrandMark } from '@/components/brand';
@@ -127,6 +128,12 @@ export default function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                 />
+                <Link
+                  href="/forgot-password"
+                  className="-mt-2 self-end rounded-lg px-1 font-semibold text-brand hover:underline"
+                >
+                  Forgot password?
+                </Link>
                 <Button
                   type="submit"
                   size="lg"
@@ -174,10 +181,6 @@ export default function LoginPage() {
               </>
             )}
           </form>
-          <p className="mt-6 flex items-start gap-2 text-sm text-muted">
-            <KeyRound className="mt-0.5 size-4 shrink-0" aria-hidden />
-            Forgot your password? Ask your store manager or business administrator to reset it.
-          </p>
         </div>
       </div>
     </main>

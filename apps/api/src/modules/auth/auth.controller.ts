@@ -15,12 +15,18 @@ import {
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   changePasswordRequestSchema,
+  disableMfaRequestSchema,
+  forgotPasswordRequestSchema,
   loginRequestSchema,
+  resetPasswordRequestSchema,
   mfaEnableRequestSchema,
   mfaVerifyRequestSchema,
   updateMeRequestSchema,
   type ChangePasswordRequest,
+  type DisableMfaRequest,
+  type ForgotPasswordRequest,
   type LoginRequest,
+  type ResetPasswordRequest,
   type LoginResponseDto,
   type MeDto,
   type MfaEnableRequest,
@@ -40,6 +46,7 @@ import { ApiZodBody, ZodPipe } from '../../infra/http/zod';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AllowPasswordChangePending, CurrentActor, Public, type Actor } from './actor';
 import { AuthService, type ClientContext } from './auth.service';
+import { PasswordResetService } from './password-reset.service';
 import type { IssuedSession } from './session.service';
 
 export const REFRESH_COOKIE = 'sl_refresh';
@@ -59,7 +66,31 @@ export class AuthController {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly auth: AuthService,
     private readonly crypto: CryptoService,
+    private readonly passwordReset: PasswordResetService,
   ) {}
+
+  /** Always the same answer, whether or not the account exists. */
+  @Public()
+  @Post('password/forgot')
+  @HttpCode(200)
+  @ApiZodBody(forgotPasswordRequestSchema)
+  forgotPassword(
+    @Body(new ZodPipe(forgotPasswordRequestSchema)) body: ForgotPasswordRequest,
+    @Req() req: Request,
+  ): Promise<{ emailEnabled: boolean }> {
+    return this.passwordReset.request(body.identifier, this.client(req));
+  }
+
+  @Public()
+  @Post('password/reset')
+  @HttpCode(204)
+  @ApiZodBody(resetPasswordRequestSchema)
+  async resetPassword(
+    @Body(new ZodPipe(resetPasswordRequestSchema)) body: ResetPasswordRequest,
+    @Req() req: Request,
+  ): Promise<void> {
+    await this.passwordReset.reset(body.token, body.newPassword, this.client(req));
+  }
 
   @Public()
   @Post('login')
@@ -150,6 +181,18 @@ export class AuthController {
     @Body(new ZodPipe(mfaEnableRequestSchema)) body: MfaEnableRequest,
   ): Promise<void> {
     await this.auth.enableMfa(actor, body.code);
+  }
+
+  @ApiBearerAuth()
+  @AllowPasswordChangePending()
+  @Post('mfa/disable')
+  @HttpCode(204)
+  @ApiZodBody(disableMfaRequestSchema)
+  async disableMfa(
+    @CurrentActor() actor: Actor,
+    @Body(new ZodPipe(disableMfaRequestSchema)) body: DisableMfaRequest,
+  ): Promise<void> {
+    await this.auth.disableMfa(actor, body.password);
   }
 
   @ApiBearerAuth()

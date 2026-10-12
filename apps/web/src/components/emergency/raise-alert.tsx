@@ -6,7 +6,19 @@ import {
   type EmergencyCategory,
 } from '@storeline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Flame, HeartPulse, ShieldAlert, Siren, TriangleAlert } from 'lucide-react';
+import {
+  Ambulance,
+  CloudLightning,
+  Flame,
+  HandMetal,
+  HeartPulse,
+  ShieldAlert,
+  ShoppingBag,
+  Siren,
+  TriangleAlert,
+  Wind,
+  ZapOff,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api, ApiRequestError, errorMessage } from '@/lib/api';
@@ -14,15 +26,30 @@ import { hasPermission, useAuth } from '@/lib/auth-store';
 import { CATEGORY_LABEL, emergencyKeys } from '@/lib/emergency';
 import { Alert, Button, cx, Dialog, Spinner, TextArea } from '../ui';
 
-const CATEGORY_ICON = {
+const CATEGORY_ICON: Record<EmergencyCategory, typeof Flame> = {
   MEDICAL: HeartPulse,
-  SECURITY: ShieldAlert,
   FIRE: Flame,
+  SECURITY: ShieldAlert,
+  THEFT: ShoppingBag,
+  VIOLENCE: HandMetal,
+  ACCIDENT: Ambulance,
+  GAS_LEAK: Wind,
+  POWER_FAILURE: ZapOff,
+  NATURAL_DISASTER: CloudLightning,
   OTHER: TriangleAlert,
-} as const;
+};
 
-/** The always-visible "Emergency help" button. `compact` shows a short SOS label (phones). */
-export function EmergencyButton({ compact = false }: { compact?: boolean }) {
+/**
+ * The always-visible "Emergency help" button. `compact` shows a short SOS label (phones);
+ * `round` is an icon-only circle for the messenger rail.
+ */
+export function EmergencyButton({
+  compact = false,
+  round = false,
+}: {
+  compact?: boolean;
+  round?: boolean;
+}) {
   const me = useAuth((s) => s.me);
   const [open, setOpen] = useState(false);
   if (!hasPermission(me, 'emergency.trigger')) return null;
@@ -31,13 +58,16 @@ export function EmergencyButton({ compact = false }: { compact?: boolean }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
+        aria-label={round ? 'Emergency help' : undefined}
+        title={round ? 'Emergency help' : undefined}
         className={cx(
-          'inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-danger font-bold text-danger-contrast shadow-card transition-opacity hover:opacity-90',
-          compact ? 'min-h-11 px-3 text-sm' : 'min-h-11 px-4',
+          'inline-flex shrink-0 items-center justify-center gap-2 bg-danger font-bold text-danger-contrast shadow-card transition-opacity hover:opacity-90',
+          round ? 'size-11 rounded-full' : 'rounded-xl',
+          !round && (compact ? 'min-h-11 px-3 text-sm' : 'min-h-11 px-4'),
         )}
       >
         <Siren className="size-5" aria-hidden />
-        {compact ? 'SOS' : 'Emergency help'}
+        {!round && (compact ? 'SOS' : 'Emergency help')}
       </button>
       <RaiseAlertDialog open={open} onClose={() => setOpen(false)} />
     </>
@@ -179,12 +209,24 @@ export function RaiseAlertDialog({ open, onClose }: { open: boolean; onClose: ()
               </div>
             </fieldset>
             <TextArea
-              label="What is happening? (optional)"
-              hint="Where you are and what you need. You can add photos in the conversation next."
+              label={
+                category === 'OTHER'
+                  ? 'What kind of emergency is it?'
+                  : 'What is happening? (optional)'
+              }
+              hint={
+                category === 'OTHER'
+                  ? 'Describe it in a few words so responders know what to bring.'
+                  : 'Where you are and what you need. You can add photos in the conversation next.'
+              }
               value={description}
               maxLength={1000}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Customer fainted at checkout 3"
+              placeholder={
+                category === 'OTHER'
+                  ? 'e.g. Water pipe burst in the stock room'
+                  : 'e.g. Customer fainted at checkout 3'
+              }
             />
             {raise.error && !storeError && (
               <Alert tone="error" title="The alert was not sent">

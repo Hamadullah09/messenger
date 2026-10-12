@@ -159,6 +159,46 @@
         ]
       }
     },
+    "/api/v1/auth/mfa/disable": {
+      "post": {
+        "operationId": "AuthController_disableMfa_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "password": {
+                    "maxLength": 128,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "password"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
     "/api/v1/auth/mfa/enable": {
       "post": {
         "operationId": "AuthController_enableMfa_v1",
@@ -274,7 +314,7 @@
                   },
                   "newPassword": {
                     "maxLength": 128,
-                    "minLength": 12,
+                    "minLength": 8,
                     "type": "string"
                   }
                 },
@@ -298,6 +338,82 @@
             "bearer": []
           }
         ],
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/password/forgot": {
+      "post": {
+        "operationId": "AuthController_forgotPassword_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "identifier": {
+                    "maxLength": 254,
+                    "minLength": 3,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "identifier"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "auth"
+        ]
+      }
+    },
+    "/api/v1/auth/password/reset": {
+      "post": {
+        "operationId": "AuthController_resetPassword_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "newPassword": {
+                    "maxLength": 128,
+                    "minLength": 8,
+                    "type": "string"
+                  },
+                  "token": {
+                    "maxLength": 200,
+                    "minLength": 20,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "token",
+                  "newPassword"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
         "tags": [
           "auth"
         ]
@@ -365,15 +481,99 @@
               "schema": {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "properties": {
+                  "address": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "city": {
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "minLength": 2,
+                            "type": "string"
+                          },
+                          "line1": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "postalCode": {
+                            "maxLength": 20,
+                            "type": "string"
+                          },
+                          "region": {
+                            "maxLength": 100,
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "email": {
+                    "anyOf": [
+                      {
+                        "format": "email",
+                        "maxLength": 254,
+                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "locale": {
                     "default": "en",
                     "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$",
                     "type": "string"
                   },
+                  "mapUrl": {
+                    "anyOf": [
+                      {
+                        "format": "uri",
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "name": {
                     "maxLength": 120,
                     "minLength": 2,
                     "type": "string"
+                  },
+                  "phone": {
+                    "anyOf": [
+                      {
+                        "pattern": "^\\+[1-9]\\d{6,14}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "slug": {
                     "maxLength": 48,
@@ -381,11 +581,43 @@
                     "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
                     "type": "string"
                   },
+                  "socialLinks": {
+                    "additionalProperties": {
+                      "format": "uri",
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "facebook",
+                        "instagram",
+                        "x",
+                        "linkedin",
+                        "tiktok",
+                        "youtube",
+                        "whatsapp"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
                   "timeZone": {
                     "default": "UTC",
                     "maxLength": 64,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "website": {
+                    "anyOf": [
+                      {
+                        "format": "uri",
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -862,7 +1094,7 @@
                   },
                   "initialPassword": {
                     "maxLength": 128,
-                    "minLength": 12,
+                    "minLength": 8,
                     "type": "string"
                   },
                   "kind": {
@@ -873,6 +1105,10 @@
                     ],
                     "type": "string"
                   },
+                  "mustChangePassword": {
+                    "default": true,
+                    "type": "boolean"
+                  },
                   "phone": {
                     "pattern": "^\\+[1-9]\\d{6,14}$",
                     "type": "string"
@@ -880,7 +1116,9 @@
                   "roleKey": {
                     "default": "EMPLOYEE",
                     "enum": [
+                      "BUSINESS_OWNER",
                       "BUSINESS_ADMIN",
+                      "BUSINESS_MANAGER",
                       "STORE_MANAGER",
                       "SECURITY",
                       "EMPLOYEE",
@@ -908,7 +1146,8 @@
                 "required": [
                   "username",
                   "displayName",
-                  "initialPassword"
+                  "initialPassword",
+                  "email"
                 ],
                 "type": "object"
               }
@@ -1030,6 +1269,12 @@
                     "maxLength": 80,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "username": {
+                    "maxLength": 32,
+                    "minLength": 3,
+                    "pattern": "^[a-z0-9][a-z0-9._-]*$",
+                    "type": "string"
                   }
                 },
                 "type": "object"
@@ -1139,6 +1384,166 @@
                     ]
                   }
                 },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/businesses/{businessId}/users/{userId}/managed-stores/{storeId}": {
+      "delete": {
+        "operationId": "BusinessUsersController_removeManagedStore_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "businessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "storeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      },
+      "put": {
+        "operationId": "BusinessUsersController_addManagedStore_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "businessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "storeId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/businesses/{businessId}/users/{userId}/role": {
+      "put": {
+        "operationId": "BusinessUsersController_setRole_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "businessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "roleKey": {
+                    "enum": [
+                      "BUSINESS_OWNER",
+                      "BUSINESS_ADMIN",
+                      "BUSINESS_MANAGER",
+                      "STORE_MANAGER",
+                      "SECURITY",
+                      "EMPLOYEE",
+                      "CUSTOMER"
+                    ],
+                    "type": "string"
+                  },
+                  "storeIds": {
+                    "default": [],
+                    "items": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "maxItems": 200,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "roleKey"
+                ],
                 "type": "object"
               }
             }
@@ -1302,14 +1707,98 @@
               "schema": {
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "properties": {
+                  "address": {
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "city": {
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "minLength": 2,
+                            "type": "string"
+                          },
+                          "line1": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "postalCode": {
+                            "maxLength": 20,
+                            "type": "string"
+                          },
+                          "region": {
+                            "maxLength": 100,
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "email": {
+                    "anyOf": [
+                      {
+                        "format": "email",
+                        "maxLength": 254,
+                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "locale": {
                     "pattern": "^[a-z]{2,3}(-[A-Z]{2})?$",
                     "type": "string"
+                  },
+                  "mapUrl": {
+                    "anyOf": [
+                      {
+                        "format": "uri",
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "name": {
                     "maxLength": 120,
                     "minLength": 2,
                     "type": "string"
+                  },
+                  "phone": {
+                    "anyOf": [
+                      {
+                        "pattern": "^\\+[1-9]\\d{6,14}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   },
                   "policy": {
                     "properties": {
@@ -1353,10 +1842,42 @@
                     },
                     "type": "object"
                   },
+                  "socialLinks": {
+                    "additionalProperties": {
+                      "format": "uri",
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "facebook",
+                        "instagram",
+                        "x",
+                        "linkedin",
+                        "tiktok",
+                        "youtube",
+                        "whatsapp"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
                   "timeZone": {
                     "maxLength": 64,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "website": {
+                    "anyOf": [
+                      {
+                        "format": "uri",
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -1383,6 +1904,114 @@
     "/api/v1/businesses/{id}/archive": {
       "post": {
         "operationId": "BusinessesController_archive_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "businesses"
+        ]
+      }
+    },
+    "/api/v1/businesses/{id}/groups": {
+      "get": {
+        "operationId": "BusinessesController_groups_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "businesses"
+        ]
+      }
+    },
+    "/api/v1/businesses/{id}/logo": {
+      "delete": {
+        "operationId": "BusinessesController_removeLogo_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "businesses"
+        ]
+      },
+      "get": {
+        "operationId": "BusinessesController_logo_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "businesses"
+        ]
+      },
+      "put": {
+        "operationId": "BusinessesController_setLogo_v1",
         "parameters": [
           {
             "in": "path",
@@ -1490,34 +2119,41 @@
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "properties": {
                   "address": {
-                    "properties": {
-                      "city": {
-                        "maxLength": 100,
-                        "type": "string"
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "city": {
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "minLength": 2,
+                            "type": "string"
+                          },
+                          "line1": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "postalCode": {
+                            "maxLength": 20,
+                            "type": "string"
+                          },
+                          "region": {
+                            "maxLength": 100,
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
                       },
-                      "country": {
-                        "maxLength": 2,
-                        "minLength": 2,
-                        "type": "string"
-                      },
-                      "line1": {
-                        "maxLength": 200,
-                        "type": "string"
-                      },
-                      "line2": {
-                        "maxLength": 200,
-                        "type": "string"
-                      },
-                      "postalCode": {
-                        "maxLength": 20,
-                        "type": "string"
-                      },
-                      "region": {
-                        "maxLength": 100,
-                        "type": "string"
+                      {
+                        "type": "null"
                       }
-                    },
-                    "type": "object"
+                    ]
                   },
                   "code": {
                     "maxLength": 16,
@@ -1525,15 +2161,94 @@
                     "pattern": "^[A-Z0-9-]+$",
                     "type": "string"
                   },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "email": {
+                    "anyOf": [
+                      {
+                        "format": "email",
+                        "maxLength": 254,
+                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "mapUrl": {
+                    "anyOf": [
+                      {
+                        "format": "uri",
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "name": {
                     "maxLength": 120,
                     "minLength": 2,
                     "type": "string"
                   },
+                  "phone": {
+                    "anyOf": [
+                      {
+                        "pattern": "^\\+[1-9]\\d{6,14}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "socialLinks": {
+                    "additionalProperties": {
+                      "format": "uri",
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "facebook",
+                        "instagram",
+                        "x",
+                        "linkedin",
+                        "tiktok",
+                        "youtube",
+                        "whatsapp"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
                   "timeZone": {
                     "maxLength": 64,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "website": {
+                    "anyOf": [
+                      {
+                        "format": "uri",
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -1623,14 +2338,16 @@
                         "default": [],
                         "items": {
                           "enum": [
+                            "BUSINESS_OWNER",
                             "BUSINESS_ADMIN",
+                            "BUSINESS_MANAGER",
                             "STORE_MANAGER",
                             "SECURITY",
                             "EMPLOYEE"
                           ],
                           "type": "string"
                         },
-                        "maxItems": 4,
+                        "maxItems": 6,
                         "type": "array"
                       },
                       "storeIds": {
@@ -1804,14 +2521,16 @@
                         "default": [],
                         "items": {
                           "enum": [
+                            "BUSINESS_OWNER",
                             "BUSINESS_ADMIN",
+                            "BUSINESS_MANAGER",
                             "STORE_MANAGER",
                             "SECURITY",
                             "EMPLOYEE"
                           ],
                           "type": "string"
                         },
-                        "maxItems": 4,
+                        "maxItems": 6,
                         "type": "array"
                       },
                       "storeIds": {
@@ -4740,34 +5459,41 @@
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "properties": {
                   "address": {
-                    "properties": {
-                      "city": {
-                        "maxLength": 100,
-                        "type": "string"
+                    "anyOf": [
+                      {
+                        "properties": {
+                          "city": {
+                            "maxLength": 100,
+                            "type": "string"
+                          },
+                          "country": {
+                            "maxLength": 2,
+                            "minLength": 2,
+                            "type": "string"
+                          },
+                          "line1": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "line2": {
+                            "maxLength": 200,
+                            "type": "string"
+                          },
+                          "postalCode": {
+                            "maxLength": 20,
+                            "type": "string"
+                          },
+                          "region": {
+                            "maxLength": 100,
+                            "type": "string"
+                          }
+                        },
+                        "type": "object"
                       },
-                      "country": {
-                        "maxLength": 2,
-                        "minLength": 2,
-                        "type": "string"
-                      },
-                      "line1": {
-                        "maxLength": 200,
-                        "type": "string"
-                      },
-                      "line2": {
-                        "maxLength": 200,
-                        "type": "string"
-                      },
-                      "postalCode": {
-                        "maxLength": 20,
-                        "type": "string"
-                      },
-                      "region": {
-                        "maxLength": 100,
-                        "type": "string"
+                      {
+                        "type": "null"
                       }
-                    },
-                    "type": "object"
+                    ]
                   },
                   "code": {
                     "maxLength": 16,
@@ -4775,15 +5501,94 @@
                     "pattern": "^[A-Z0-9-]+$",
                     "type": "string"
                   },
+                  "description": {
+                    "anyOf": [
+                      {
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "email": {
+                    "anyOf": [
+                      {
+                        "format": "email",
+                        "maxLength": 254,
+                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "mapUrl": {
+                    "anyOf": [
+                      {
+                        "format": "uri",
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "name": {
                     "maxLength": 120,
                     "minLength": 2,
                     "type": "string"
                   },
+                  "phone": {
+                    "anyOf": [
+                      {
+                        "pattern": "^\\+[1-9]\\d{6,14}$",
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "socialLinks": {
+                    "additionalProperties": {
+                      "format": "uri",
+                      "maxLength": 500,
+                      "type": "string"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "facebook",
+                        "instagram",
+                        "x",
+                        "linkedin",
+                        "tiktok",
+                        "youtube",
+                        "whatsapp"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "object"
+                  },
                   "timeZone": {
                     "maxLength": 64,
                     "minLength": 1,
                     "type": "string"
+                  },
+                  "website": {
+                    "anyOf": [
+                      {
+                        "format": "uri",
+                        "maxLength": 500,
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "type": "object"
@@ -4835,6 +5640,86 @@
         ]
       }
     },
+    "/api/v1/stores/{id}/logo": {
+      "delete": {
+        "operationId": "StoresController_removeLogo_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "stores"
+        ]
+      },
+      "get": {
+        "operationId": "StoresController_logo_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "stores"
+        ]
+      },
+      "put": {
+        "operationId": "StoresController_setLogo_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "stores"
+        ]
+      }
+    },
     "/api/v1/users/{userId}/deactivate": {
       "post": {
         "operationId": "UsersController_deactivate_v1",
@@ -4848,6 +5733,87 @@
             }
           }
         ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{userId}/mfa/reset": {
+      "post": {
+        "operationId": "UsersController_resetMfa_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
+    "/api/v1/users/{userId}/password": {
+      "post": {
+        "operationId": "UsersController_setPassword_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "mustChangePassword": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "newPassword": {
+                    "maxLength": 128,
+                    "minLength": 8,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "newPassword"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "204": {
             "description": ""

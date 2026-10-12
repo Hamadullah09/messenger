@@ -18,6 +18,12 @@ const CATEGORY_LABEL = {
   MEDICAL: 'Medical emergency',
   SECURITY: 'Security emergency',
   FIRE: 'Fire or hazard',
+  THEFT: 'Theft or robbery',
+  VIOLENCE: 'Threat or violence',
+  ACCIDENT: 'Accident or injury',
+  GAS_LEAK: 'Gas leak or chemical spill',
+  POWER_FAILURE: 'Power or building failure',
+  NATURAL_DISASTER: 'Earthquake, flood or storm',
   OTHER: 'Emergency',
 } as const;
 

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from './infra/config/config.module';
 import { CryptoModule } from './infra/crypto/crypto.service';
 import { LoggerModule } from './infra/logging/logger.module';
+import { MailModule } from './infra/mail/mail.module';
 import { PrismaModule } from './infra/prisma/prisma.service';
 import { RedisModule } from './infra/redis/redis.module';
 import { StorageModule } from './infra/storage/storage.service';
@@ -29,6 +30,7 @@ export const CORE_IMPORTS = [
   PrismaModule,
   RedisModule,
   CryptoModule,
+  MailModule,
   AuditModule,
   OutboxModule,
   AuthorizationModule,

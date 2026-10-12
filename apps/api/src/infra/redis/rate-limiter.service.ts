@@ -85,6 +85,10 @@ export const RATE_LIMITS = {
   /** Generous per-IP ceiling: many people may share one office IP. */
   mfaPerIp: { name: 'mfa:ip', limit: 60, windowSeconds: 300 },
   refreshPerIp: { name: 'refresh:ip', limit: 60, windowSeconds: 60 },
+  /** "Forgot password" requests: per IP and per account identifier (stops mail bombing). */
+  passwordResetPerIp: { name: 'pwreset:ip', limit: 10, windowSeconds: 900 },
+  passwordResetPerIdentifier: { name: 'pwreset:id', limit: 3, windowSeconds: 900 },
+  passwordResetConfirmPerIp: { name: 'pwreset:confirm', limit: 20, windowSeconds: 900 },
   messageSendPerUser: { name: 'msg:user', limit: 60, windowSeconds: 60 },
   messageSendPerBusiness: { name: 'msg:biz', limit: 3000, windowSeconds: 60 },
   searchPerUser: { name: 'search:user', limit: 30, windowSeconds: 60 },

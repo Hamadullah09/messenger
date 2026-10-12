@@ -38,7 +38,7 @@ export async function signIn(page: Page, who: Person): Promise<void> {
   await clearLoginLimits();
   await page.goto('/login');
   await page.getByLabel('Username').fill(users[who].username);
-  await page.getByLabel('Password').fill(process.env.ALPHA_PASSWORD!);
+  await page.getByLabel('Password', { exact: true }).fill(process.env.ALPHA_PASSWORD!);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   if (who === 'admin') {
     await page.getByLabel('6-digit code').fill(await nextTotp());

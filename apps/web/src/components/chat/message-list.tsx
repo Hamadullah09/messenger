@@ -2,18 +2,19 @@
 
 import type { ConversationDetailDto } from '@storeline/shared';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, Check, CheckCheck, ChevronsUp } from 'lucide-react';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronsUp } from 'lucide-react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { ClientMessage } from '@/lib/chat-cache';
+import { FONT_SIZES, useChatPrefs, WALLPAPERS } from '@/lib/chat-prefs';
+import { resolvedTheme, useTheme } from '@/lib/theme';
 import { formatDay, sameDay } from '@/lib/format';
-import { Button, cx, EmptyState } from '../ui';
+import { Button } from '../ui';
 import { MessageBubble, type BubbleActions, type DeliveryStatus } from './message-bubble';
 
 type Row =
   | { kind: 'day'; key: string; label: string }
   | { kind: 'unread'; key: string }
-  | { kind: 'message'; key: string; message: ClientMessage; showSender: boolean }
-  | { kind: 'receipt'; key: string; message: ClientMessage };
+  | { kind: 'message'; key: string; message: ClientMessage; showSender: boolean };
 
 const NEAR_BOTTOM_PX = 160;
 
@@ -46,6 +47,20 @@ export function MessageList({
   firstUnreadSeq: number | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const wallpaper = useChatPrefs((p) => p.wallpaper);
+  const fontSize = useChatPrefs((p) => p.fontSize);
+  const [theme] = useTheme();
+  const paper = WALLPAPERS[wallpaper];
+  // Chat wallpaper and text size from Settings → Chats (this device only).
+  const backdrop = {
+    ...(wallpaper === 'doodle'
+      ? {}
+      : {
+          backgroundImage: 'none',
+          backgroundColor: resolvedTheme(theme) === 'dark' ? paper.dark : paper.light,
+        }),
+    '--chat-font': `${FONT_SIZES[fontSize].px}px`,
+  } as CSSProperties;
   const [atBottom, setAtBottom] = useState(true);
 
   const rows = useMemo<Row[]>(() => {
@@ -72,18 +87,13 @@ export function MessageList({
       out.push({ kind: 'message', key: message.clientMessageId, message, showSender });
       previous = message;
     }
-    // "Seen" / "Delivered" under the newest message, as in familiar messaging apps.
-    const newest = messages.at(-1);
-    if (newest && newest.sender.id === myId && newest.kind !== 'SYSTEM' && !newest.local) {
-      out.push({ kind: 'receipt', key: `receipt-${newest.id}`, message: newest });
-    }
     return out;
-  }, [messages, firstUnreadSeq, myId]);
+  }, [messages, firstUnreadSeq]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (rows[i]?.kind === 'message' ? 76 : 44),
+    estimateSize: (i) => (rows[i]?.kind === 'message' ? 64 : 44),
     getItemKey: (i) => rows[i]!.key,
     overscan: 12,
   });
@@ -124,19 +134,20 @@ export function MessageList({
 
   if (messages.length === 0) {
     return (
-      <div className="flex flex-1 items-center justify-center bg-chat">
-        <EmptyState title="No messages yet">
-          Say hello! Type a message below and press Send.
-        </EmptyState>
+      <div className="wa-wallpaper flex flex-1 items-center justify-center p-4" style={backdrop}>
+        <p className="wa-bubble max-w-sm rounded-lg bg-wa-chip px-4 py-2 text-center text-sm text-wa-chip-text">
+          <span className="font-semibold">No messages yet.</span> Say hello! Type a message below
+          and press Send.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="relative min-h-0 flex-1 bg-chat">
+    <div className="wa-wallpaper relative min-h-0 flex-1" style={backdrop}>
       <div
         ref={scrollRef}
-        className="scroll-thin h-full overflow-y-auto pb-4"
+        className="scroll-thin h-full overflow-y-auto pt-2 pb-5"
         role="log"
         aria-live="polite"
         aria-relevant="additions"
@@ -175,25 +186,25 @@ export function MessageList({
                 }}
               >
                 {row.kind === 'day' && (
-                  <div className="flex justify-center py-2">
-                    <span className="rounded-full border border-line bg-surface px-4 py-1 text-sm font-semibold text-muted">
+                  <div className="flex justify-center pt-3 pb-1">
+                    <span className="wa-bubble rounded-lg bg-wa-chip px-3 py-1.5 text-[0.8rem] font-medium text-wa-chip-text uppercase">
                       {row.label}
                     </span>
                   </div>
                 )}
                 {row.kind === 'unread' && (
-                  <div className="my-2 flex items-center gap-3 px-6" role="separator">
-                    <span className="h-0.5 flex-1 bg-brand" />
-                    <span className="text-sm font-bold text-brand">Unread messages</span>
-                    <span className="h-0.5 flex-1 bg-brand" />
+                  <div className="my-2 flex justify-center bg-wa-chip/60 py-1" role="separator">
+                    <span className="wa-bubble rounded-full bg-wa-chip px-4 py-1 text-[0.8rem] font-semibold text-brand-strong">
+                      Unread messages
+                    </span>
                   </div>
                 )}
-                {row.kind === 'receipt' && <ReceiptLine status={status(row.message)} />}
                 {row.kind === 'message' && (
                   <MessageBubble
                     message={row.message}
                     mine={row.message.sender.id === myId}
                     showSender={row.showSender}
+                    group={!!conversation && conversation.type !== 'DIRECT'}
                     status={status(row.message)}
                     myId={myId}
                     nameOf={nameOf}
@@ -207,39 +218,16 @@ export function MessageList({
         </div>
       </div>
       {!atBottom && (
-        <Button
-          variant="secondary"
-          className="absolute right-4 bottom-4 shadow-md"
+        <button
+          type="button"
+          aria-label="Scroll to latest"
+          title="Scroll to latest"
+          className="wa-bubble absolute right-5 bottom-4 inline-flex size-11 items-center justify-center rounded-full bg-wa-in text-wa-icon shadow-md hover:text-fg"
           onClick={() => virtualizer.scrollToIndex(rows.length - 1, { align: 'end' })}
-          icon={<ArrowDown className="size-5" aria-hidden />}
         >
-          Latest
-        </Button>
+          <ChevronDown className="size-6" aria-hidden />
+        </button>
       )}
     </div>
-  );
-}
-
-const RECEIPT_TEXT: Partial<Record<DeliveryStatus, string>> = {
-  read: 'Seen',
-  delivered: 'Delivered',
-  sent: 'Sent',
-  queued: 'Sending…',
-};
-
-function ReceiptLine({ status }: { status: DeliveryStatus | null }) {
-  const text = status ? RECEIPT_TEXT[status] : undefined;
-  if (!text) return null;
-  const Icon = status === 'read' || status === 'delivered' ? CheckCheck : Check;
-  return (
-    <p
-      className={cx(
-        'flex items-center justify-end gap-1 px-6 pt-1 text-sm font-medium',
-        status === 'read' ? 'text-brand' : 'text-muted',
-      )}
-    >
-      <Icon className="size-4" aria-hidden />
-      {text}
-    </p>
   );
 }

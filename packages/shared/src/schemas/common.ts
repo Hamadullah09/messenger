@@ -2,18 +2,21 @@ import { z } from 'zod';
 
 export const idSchema = z.uuid();
 
+/** Sign-in name: unique, lowercase, no spaces. People sign in with this, never their full name. */
 export const usernameSchema = z
   .string()
   .trim()
   .toLowerCase()
+  .refine((v) => !/\s/.test(v), 'Usernames cannot contain spaces')
   .min(3, 'Username must be at least 3 characters')
   .max(32, 'Username must be at most 32 characters')
   .regex(/^[a-z0-9][a-z0-9._-]*$/, 'Use letters, numbers, dots, dashes or underscores');
 
-/** Length-based policy (NIST SP 800-63B): no composition rules, generous maximum. */
+/** Length-based policy (NIST SP 800-63B minimum of 8): no composition rules, generous maximum. */
+export const PASSWORD_MIN_LENGTH = 8;
 export const passwordSchema = z
   .string()
-  .min(12, 'Password must be at least 12 characters')
+  .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`)
   .max(128, 'Password must be at most 128 characters');
 
 export const displayNameSchema = z.string().trim().min(1).max(80);
@@ -63,6 +66,11 @@ export const emailSchema = z
   .email()
   .max(254)
   .transform((v) => v.toLowerCase());
+
+/** Web links people can open: http(s) only, so javascript: and data: URLs are rejected. */
+export const httpUrlSchema = z
+  .url({ protocol: /^https?$/, error: 'Enter a full link starting with https://' })
+  .max(500);
 
 /** E.164 phone numbers only. */
 export const phoneSchema = z

@@ -21,6 +21,11 @@ import {
 import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import { NewChatDialog, NewGroupDialog } from '@/components/chat/dialogs';
+import {
+  BusinessDashboard,
+  dashboardKind,
+  StoreManagerDashboard,
+} from '@/components/manage/dashboards';
 import { Avatar, Card, cx, EmptyState, Spinner } from '@/components/ui';
 import { api } from '@/lib/api';
 import { hasPermission, isPlatformAdmin, useAuth } from '@/lib/auth-store';
@@ -96,6 +101,7 @@ export default function DashboardPage() {
   const business = me.businesses.find((b) => b.id === businessId);
 
   const isAdmin = isPlatformAdmin(me) || hasPermission(me, 'user.create', businessId);
+  const managed = dashboardKind(me, businessId);
   const canAudit =
     !!businessId && hasPermission(me, 'audit.read', businessId) && me.session.mfaVerified;
 
@@ -181,6 +187,14 @@ export default function DashboardPage() {
             </button>
           </div>
         </section>
+
+        {/* Role dashboards: business owners/admins/managers, and store managers */}
+        {managed?.kind === 'business' && businessId && (
+          <BusinessDashboard businessId={businessId} role={managed.role} />
+        )}
+        {managed?.kind === 'store' && businessId && (
+          <StoreManagerDashboard businessId={businessId} storeIds={managed.storeIds} />
+        )}
 
         {/* Key numbers */}
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -313,7 +327,9 @@ export default function DashboardPage() {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
+        <div
+          className={cx('grid grid-cols-1 gap-5', managed ? 'lg:grid-cols-2' : 'lg:grid-cols-3')}
+        >
           {/* Account security */}
           <Card aria-labelledby="security-title">
             <h2 id="security-title" className="mb-3 text-xl font-bold">
@@ -355,37 +371,39 @@ export default function DashboardPage() {
             </Link>
           </Card>
 
-          {/* Stores */}
-          <Card aria-labelledby="stores-title">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 id="stores-title" className="text-xl font-bold">
-                {isAdmin ? 'Stores' : 'Your stores'}
-              </h2>
-              {isAdmin && (
-                <Link
-                  href="/admin?tab=stores"
-                  className="rounded-lg px-2 py-1 font-semibold text-brand hover:bg-brand-soft"
-                >
-                  Manage
-                </Link>
-              )}
-            </div>
-            {stores.isLoading && <Spinner label="Loading stores" />}
-            {stores.data?.length === 0 && <p className="text-muted">No stores yet.</p>}
-            <ul className="grid gap-2">
-              {stores.data?.slice(0, 5).map((s) => (
-                <li key={s.id} className="flex items-center gap-3 rounded-2xl bg-surface-2 p-3">
-                  <span className="inline-flex size-10 items-center justify-center rounded-xl bg-surface text-brand">
-                    <Store className="size-5" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold">{s.name}</span>
-                    <span className="text-sm text-muted">{s.memberCount} people</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </Card>
+          {/* Stores (role dashboards above already list them) */}
+          {!managed && (
+            <Card aria-labelledby="stores-title">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 id="stores-title" className="text-xl font-bold">
+                  {isAdmin ? 'Stores' : 'Your stores'}
+                </h2>
+                {isAdmin && (
+                  <Link
+                    href="/admin?tab=stores"
+                    className="rounded-lg px-2 py-1 font-semibold text-brand hover:bg-brand-soft"
+                  >
+                    Manage
+                  </Link>
+                )}
+              </div>
+              {stores.isLoading && <Spinner label="Loading stores" />}
+              {stores.data?.length === 0 && <p className="text-muted">No stores yet.</p>}
+              <ul className="grid gap-2">
+                {stores.data?.slice(0, 5).map((s) => (
+                  <li key={s.id} className="flex items-center gap-3 rounded-2xl bg-surface-2 p-3">
+                    <span className="inline-flex size-10 items-center justify-center rounded-xl bg-surface text-brand">
+                      <Store className="size-5" aria-hidden />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate font-semibold">{s.name}</span>
+                      <span className="text-sm text-muted">{s.memberCount} people</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           {/* Recent administrative activity (audit log) or business info */}
           <Card aria-labelledby="activity-title">
