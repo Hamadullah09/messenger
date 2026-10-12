@@ -32,7 +32,7 @@ import {
   type AccessibleConversation,
   type ActiveMember,
 } from './conversation-access.service';
-import { canPost, canShareFiles, messageInclude, toMessageDto } from './mappers';
+import { canPost, canShareFiles, kindPreview, messageInclude, toMessageDto } from './mappers';
 import { MessageWriter } from './message-writer.service';
 import { BroadcastService } from './broadcast.service';
 import { RealtimeEmitter } from '../realtime/realtime-emitter.service';
@@ -77,6 +77,7 @@ export class MessagesService {
           ...(query.beforeSeq !== undefined ? { lt: query.beforeSeq } : {}),
         },
         hiddenBy: { none: { userId: actor.userId } },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
       },
       orderBy: { seq: ascending ? 'asc' : 'desc' },
       take: query.limit + 1,
@@ -183,14 +184,18 @@ export class MessagesService {
           : null;
         if (request.audio && media?.kind !== 'AUDIO')
           throw ApiError.validation('Audio details need an audio file.', 'audio');
+        if (request.asSticker && media?.kind !== 'IMAGE')
+          throw ApiError.validation('Stickers are made from a picture.', 'asSticker');
         return this.writer.create(tx, {
           conversationId,
           businessId: current.businessId,
           senderId: actor.userId,
           clientMessageId: request.clientMessageId,
-          kind: rich?.kind ?? media?.kind ?? 'TEXT',
-          body: rich ? rich.body : (request.body ?? null),
-          meta: rich?.meta ?? (media?.kind === 'AUDIO' ? audioMeta(request.audio) : null),
+          kind: request.asSticker ? 'STICKER' : (rich?.kind ?? media?.kind ?? 'TEXT'),
+          body: request.asSticker ? null : rich ? rich.body : (request.body ?? null),
+          meta: request.asSticker
+            ? { type: 'sticker', sticker: 'custom' }
+            : (rich?.meta ?? (media?.kind === 'AUDIO' ? audioMeta(request.audio) : null)),
           mediaId: media?.id ?? null,
           replyToId: request.replyToId ?? null,
         });
@@ -631,6 +636,60 @@ export class MessagesService {
       include: { message: { include: messageInclude } },
     });
     return pins.map((p) => toMessageDto(p.message));
+  }
+
+  /**
+   * WhatsApp's "Export chat" (without media): the messages this member can see, as text.
+   * Audited, since it takes conversation content out of the app.
+   */
+  async exportText(actor: Actor, conversationId: string): Promise<{ text: string; title: string }> {
+    const { member, conversation } = await this.access.requireMember(conversationId, actor.userId);
+    const rows = await this.prisma.message.findMany({
+      where: {
+        conversationId,
+        seq: { gt: member.historyFromSeq },
+        deletedAt: null,
+        kind: { not: 'SYSTEM' },
+        hiddenBy: { none: { userId: actor.userId } },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+      },
+      orderBy: { seq: 'asc' },
+      take: 20_000,
+      select: {
+        createdAt: true,
+        kind: true,
+        body: true,
+        sender: { select: { displayName: true } },
+        attachments: { take: 1, select: { media: { select: { fileName: true } } } },
+      },
+    });
+    const title =
+      (
+        await this.prisma.conversation.findUnique({
+          where: { id: conversationId },
+          select: { title: true },
+        })
+      )?.title ?? 'Chat';
+    const stamp = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 16);
+    const lines = rows.map((m) => {
+      const file = m.attachments[0]?.media.fileName;
+      const text =
+        m.kind === 'TEXT'
+          ? (m.body ?? '')
+          : [kindPreview(m.kind, null), file ? `(${file})` : null, m.body].filter(Boolean).join(' ');
+      return `[${stamp(m.createdAt)}] ${m.sender.displayName}: ${text}`;
+    });
+    await this.audit.record(actor, {
+      action: 'conversation.exported',
+      businessId: conversation.businessId,
+      targetType: 'Conversation',
+      targetId: conversationId,
+      metadata: { messages: rows.length },
+    });
+    return {
+      title,
+      text: [`Chat export · ${title} · ${new Date().toISOString().slice(0, 10)} (times in UTC)`, '', ...lines].join('\r\n'),
+    };
   }
 
   /** Per-recipient delivery state, derived from membership watermarks. Sender only. */

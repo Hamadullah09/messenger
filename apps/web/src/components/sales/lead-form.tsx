@@ -7,9 +7,11 @@ import {
   type LeadDirection,
   type LeadDetailDto,
   type LeadDto,
+  type LeadDuplicateDto,
   type SalesUserDto,
 } from '@storeline/shared';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { useDebounced } from '@/lib/use-debounced';
 import { useState } from 'react';
 import { api, ApiRequestError, errorMessage } from '@/lib/api';
 import { countries } from '@/lib/countries';
@@ -86,6 +88,21 @@ export function LeadFormDialog({
       ? save.error.details.find((d) => d.path === path)?.message
       : undefined;
 
+  const dupKey = useDebounced(`${form.companyName.trim()}|${form.email.trim()}|${form.phone.trim()}`);
+  const [dupCompany, dupEmail, dupPhone] = dupKey.split('|');
+  const duplicates = useQuery({
+    queryKey: ['lead-duplicates', dupKey],
+    queryFn: () =>
+      api<LeadDuplicateDto[]>('/sales/crm/leads/duplicates', {
+        query: {
+          companyName: dupCompany || undefined,
+          email: dupEmail || undefined,
+          phone: dupPhone || undefined,
+        },
+      }),
+    enabled: !lead && ((dupCompany?.length ?? 0) >= 3 || !!dupEmail || (dupPhone?.length ?? 0) >= 7),
+  });
+
   return (
     <Dialog open onClose={onClose} title={lead ? `Edit ${lead.companyName}` : 'New lead'} wide>
       <form
@@ -96,6 +113,18 @@ export function LeadFormDialog({
         }}
       >
         {save.isError && <Alert tone="error">{errorMessage(save.error)}</Alert>}
+        {!lead && duplicates.data && duplicates.data.length > 0 && (
+          <Alert tone="warning" title="This lead may already exist">
+            <ul className="mt-1 list-disc pl-5">
+              {duplicates.data.map((d) => (
+                <li key={d.id}>
+                  <b>{d.companyName}</b> ({d.contactName}) · {d.reason} · {d.stage.toLowerCase()}
+                  {d.owner ? ` · ${d.owner.displayName}` : ' · unassigned'}
+                </li>
+              ))}
+            </ul>
+          </Alert>
+        )}
         <fieldset className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <legend className="mb-2 font-bold">Company</legend>
           <TextField

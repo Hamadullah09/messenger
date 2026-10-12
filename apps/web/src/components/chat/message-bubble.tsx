@@ -18,6 +18,7 @@ import {
   RotateCcw,
   Star,
   StarOff,
+  Timer,
   Trash2,
 } from 'lucide-react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
@@ -280,7 +281,7 @@ export function MessageBubble({
             senderName={message.sender.displayName}
           />
         )}
-        {!message.deleted && message.attachment && message.kind !== 'AUDIO' && (
+        {!message.deleted && message.attachment && message.kind !== 'AUDIO' && message.kind !== 'STICKER' && (
           <div className="-mx-0.5 mb-0.5">
             <AttachmentView attachment={message.attachment} />
           </div>
@@ -292,7 +293,7 @@ export function MessageBubble({
         )}
         {meta?.type === 'event' && <EventMessage message={message} meta={meta} myId={myId} />}
         {meta?.type === 'call' && <CallMessage message={message} meta={meta} myId={myId} />}
-        {meta?.type === 'sticker' && <StickerMessage meta={meta} />}
+        {meta?.type === 'sticker' && <StickerMessage meta={meta} attachment={message.attachment} />}
         {rich ? (
           <div className="h-4" aria-hidden />
         ) : message.deleted ? (
@@ -316,6 +317,7 @@ export function MessageBubble({
             metaColor,
           )}
         >
+          {message.expiresAt && <Timer className="size-3" aria-label="Disappearing message" />}
           {message.pinned && <Pin className="size-3" aria-label="Pinned" />}
           {message.starred && <Star className="size-3" aria-label="Starred" />}
           {edited && <span>Edited</span>}

@@ -32,19 +32,27 @@ export class MessageWriter {
   constructor(private readonly outbox: OutboxService) {}
 
   async allocateSeq(tx: Tx, conversationId: string): Promise<number> {
-    const { lastSeq } = await tx.conversation.update({
+    return (await this.allocate(tx, conversationId)).lastSeq;
+  }
+
+  private allocate(tx: Tx, conversationId: string) {
+    return tx.conversation.update({
       where: { id: conversationId },
       data: { lastSeq: { increment: 1 }, lastActivityAt: new Date() },
-      select: { lastSeq: true },
+      select: { lastSeq: true, disappearAfterSeconds: true },
     });
-    return lastSeq;
   }
 
   async create(
     tx: Tx,
     message: NewMessage,
   ): Promise<{ id: string; seq: number; event: PendingOutboxEvent }> {
-    const seq = await this.allocateSeq(tx, message.conversationId);
+    const { lastSeq: seq, disappearAfterSeconds } = await this.allocate(tx, message.conversationId);
+    // Disappearing messages (not the chat's own notices).
+    const expiresAt =
+      disappearAfterSeconds && message.kind !== 'SYSTEM'
+        ? new Date(Date.now() + disappearAfterSeconds * 1000)
+        : null;
     const row = await tx.message.create({
       data: {
         conversationId: message.conversationId,
@@ -59,6 +67,7 @@ export class MessageWriter {
         meta: message.meta ? (message.meta as Prisma.InputJsonValue) : Prisma.JsonNull,
         replyToId: message.replyToId ?? null,
         forwardedFromId: message.forwardedFromId ?? null,
+        expiresAt,
       },
       select: { id: true },
     });

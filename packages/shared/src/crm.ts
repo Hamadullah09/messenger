@@ -6,6 +6,8 @@ import { z } from 'zod';
 import type { PublicUserDto } from './dto';
 import { idSchema } from './schemas/common';
 
+const currencyField = z.enum(['USD', 'PKR']);
+
 export const SERVICE_BILLINGS = ['ONE_TIME', 'MONTHLY', 'YEARLY'] as const;
 export type ServiceBilling = (typeof SERVICE_BILLINGS)[number];
 export const DEAL_TYPES = ['NEW_BUSINESS', 'UPSELL', 'RENEWAL'] as const;
@@ -29,6 +31,7 @@ export const upsertServiceRequestSchema = z.object({
   description: text(1000).nullable().optional(),
   category: text(60).nullable().optional(),
   price: money,
+  currency: currencyField.default('USD'),
   billing: z.enum(SERVICE_BILLINGS).default('ONE_TIME'),
   active: z.boolean().optional(),
 });
@@ -56,6 +59,7 @@ export const createDealRequestSchema = z
     /** Upsell / renewal: the existing SMA customer. */
     businessId: idSchema.nullable().optional(),
     ownerId: idSchema.nullable().optional(),
+    currency: currencyField.optional(),
     expectedCloseAt: z.coerce.date().nullable().optional(),
     notes: text(2000).nullable().optional(),
     items: z.array(lineItemSchema).min(1, 'Add at least one service').max(50),
@@ -126,10 +130,11 @@ export const createInvoiceRequestSchema = z
     billToEmail: z.string().trim().email().max(254).nullable().optional(),
     billToPhone: text(16).nullable().optional(),
     billToAddress: text(500).nullable().optional(),
+    currency: currencyField.optional(),
     issueDate: z.coerce.date().optional(),
     dueDate: z.coerce.date().optional(),
     discount: money.default(0),
-    taxRate: z.coerce.number().min(0).max(100).default(0),
+    taxRate: z.coerce.number().min(0).max(100).optional(),
     notes: text(2000).nullable().optional(),
     items: invoiceItemsSchema.optional(),
   })
@@ -192,6 +197,7 @@ export interface CrmServiceDto {
   description: string | null;
   category: string | null;
   price: number;
+  currency: string;
   billing: ServiceBilling;
   active: boolean;
   /** How many won deals included it. */
@@ -224,6 +230,8 @@ export interface DealDto {
   lostReason: string | null;
   notes: string | null;
   items: LineItemDto[];
+  /** Recurring subscription created from this deal. */
+  subscriptionId: string | null;
   /** Invoiced and paid so far (non-void invoices). */
   invoiced: number;
   paid: number;
@@ -280,6 +288,14 @@ export interface InvoiceDto {
   issuedAt: string | null;
   paidAt: string | null;
   lastEmailedAt: string | null;
+  subscription: { id: string; name: string } | null;
+  periodStart: string | null;
+  periodEnd: string | null;
+  reminderCount: number;
+  lastReminderAt: string | null;
+  /** The customer's pay page (null for drafts and void invoices). */
+  payUrl: string | null;
+  pendingClaims: number;
   createdAt: string;
   canManage: boolean;
 }
@@ -320,20 +336,29 @@ export interface TargetProgressDto {
   leadsWon: number;
   /** Payments received this month on the person's deals. */
   collected: number;
+  /** Commission earned this month (in the targets' currency). */
+  commission: number;
+  commissionPlan: { baseRate: number; bonusRate: number; basis: 'WON' | 'COLLECTED'; custom: boolean };
 }
 
 export interface TargetsDto {
   month: string;
   currency: string;
   team: TargetProgressDto[];
-  totals: { target: number; achieved: number; collected: number };
+  totals: { target: number; achieved: number; collected: number; commission: number };
   canManage: boolean;
 }
 
 export interface TargetHistoryDto {
   user: PublicUserDto;
   currency: string;
-  months: Array<{ month: string; target: number | null; achieved: number; leadsWon: number }>;
+  months: Array<{
+    month: string;
+    target: number | null;
+    achieved: number;
+    leadsWon: number;
+    commission: number;
+  }>;
 }
 
 export interface CrmOverviewDto {

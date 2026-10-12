@@ -10,8 +10,10 @@ import {
   BellOff,
   Info,
   MailWarning,
+  Download,
   Megaphone,
   MoreVertical,
+  Timer,
   Phone,
   Pin,
   PinOff,
@@ -22,7 +24,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, errorMessage } from '@/lib/api';
+import { api, downloadFile, errorMessage } from '@/lib/api';
 import { hasPermission, useAuth } from '@/lib/auth-store';
 import {
   useConversationDetail,
@@ -34,7 +36,7 @@ import {
   useUpdateMyState,
 } from '@/lib/chat-hooks';
 import { hideMessage } from '@/lib/chat-cache';
-import { formatRelativeShort, formatTime } from '@/lib/format';
+import { disappearLabel, formatRelativeShort, formatTime } from '@/lib/format';
 import { activeTypers, useLive } from '@/lib/live-store';
 import { useSocket } from '@/lib/realtime';
 import { Alert, Avatar, Button, cx, Dialog, Spinner } from '../ui';
@@ -78,6 +80,7 @@ export function ChatPanel({
   const [infoFor, setInfoFor] = useState<MessageDto | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [disappearing, setDisappearing] = useState(false);
   const broadcastList = useBroadcastList(
     conversationId,
     detail.data?.type === 'BROADCAST_LIST',
@@ -242,7 +245,7 @@ export function ChatPanel({
               </span>
             </span>
           </button>
-          {conversation.type === 'DIRECT' && conversation.me.canPost && (
+          {(conversation.type === 'DIRECT' || conversation.type === 'GROUP') && conversation.me.canPost && (
             <>
               <button
                 type="button"
@@ -300,6 +303,21 @@ export function ChatPanel({
                 Icon: Info,
                 onSelect: () => setInfoOpen(true),
               },
+              ...(conversation.type === 'DIRECT' || conversation.type === 'GROUP'
+                ? [
+                    {
+                      label: 'Disappearing messages',
+                      Icon: Timer,
+                      onSelect: () => setDisappearing(true),
+                    },
+                  ]
+                : []),
+              {
+                label: 'Export chat',
+                Icon: Download,
+                onSelect: () =>
+                  void downloadFile(`/conversations/${conversationId}/export.txt`, 'SMA-chat.txt'),
+              },
             ]}
           />
         </header>
@@ -329,9 +347,21 @@ export function ChatPanel({
           </div>
         )}
 
+        {conversation.disappearAfterSeconds && (
+          <button
+            type="button"
+            onClick={() => setDisappearing(true)}
+            className="flex shrink-0 items-center justify-center gap-1.5 bg-wa-panel px-3 py-1 text-xs text-wa-meta-in"
+          >
+            <Timer className="size-3.5" aria-hidden /> Disappearing messages:{' '}
+            {disappearLabel(conversation.disappearAfterSeconds)}
+          </button>
+        )}
         <MessageList
           conversation={conversation}
-          messages={messages.data.items}
+          messages={messages.data.items.filter(
+            (m) => !m.expiresAt || Date.parse(m.expiresAt) > Date.now(),
+          )}
           hasMoreBefore={messages.data.hasMoreBefore}
           loadingOlder={loadOlder.isPending}
           onLoadOlder={() => loadOlder.mutate()}
@@ -346,7 +376,9 @@ export function ChatPanel({
           conversationId={conversationId}
           businessId={conversation.businessId}
           canShareFiles={conversation.me.canShareFiles}
-          onSendFile={(file, caption, audio) => uploads.send(file, caption, audio ?? null)}
+          onSendFile={(file, caption, audio, options) =>
+            uploads.send(file, caption, audio ?? null, options?.asSticker ?? false)
+          }
           onSendContent={(content) => {
             sendContent(content, replyTo);
             setReplyTo(null);
@@ -392,6 +424,13 @@ export function ChatPanel({
           />
         )}
         <ForwardDialog message={forwarding} onClose={() => setForwarding(null)} />
+        {disappearing && (
+          <DisappearingDialog
+            conversationId={conversationId}
+            current={conversation.disappearAfterSeconds}
+            onClose={() => setDisappearing(false)}
+          />
+        )}
         <MessageInfoDialog message={infoFor} onClose={() => setInfoFor(null)} />
         <ChatSearchDialog
           open={searching}
@@ -418,6 +457,71 @@ export function ChatPanel({
         </div>
       )}
     </div>
+  );
+}
+
+/** WhatsApp's disappearing messages: off, 24 hours, 7 days or 90 days. */
+function DisappearingDialog({
+  conversationId,
+  current,
+  onClose,
+}: {
+  conversationId: string;
+  current: number | null;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const set = useMutation({
+    mutationFn: (seconds: number | null) =>
+      api(`/conversations/${conversationId}/disappearing`, { method: 'PUT', body: { seconds } }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ['conversation', conversationId] });
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+      onClose();
+    },
+  });
+  const options: Array<[number | null, string]> = [
+    [86_400, '24 hours'],
+    [604_800, '7 days'],
+    [7_776_000, '90 days'],
+    [null, 'Off'],
+  ];
+  return (
+    <Dialog open onClose={onClose} title="Disappearing messages">
+      <div className="flex flex-col gap-3">
+        <p className="text-muted">
+          New messages in this chat disappear for everyone after the chosen time. Messages sent
+          before stay.
+        </p>
+        {set.isError && <Alert tone="error">{errorMessage(set.error)}</Alert>}
+        <div role="radiogroup" aria-label="Timer" className="flex flex-col gap-1">
+          {options.map(([seconds, label]) => (
+            <button
+              key={label}
+              type="button"
+              role="radio"
+              aria-checked={current === seconds}
+              disabled={set.isPending}
+              onClick={() => set.mutate(seconds)}
+              className={cx(
+                'flex min-h-12 items-center gap-3 rounded-xl px-3 text-left hover:bg-surface-2',
+                current === seconds && 'bg-brand-soft font-semibold text-brand-strong',
+              )}
+            >
+              <span
+                className={cx(
+                  'inline-flex size-5 items-center justify-center rounded-full border-2',
+                  current === seconds ? 'border-brand' : 'border-line-strong',
+                )}
+              >
+                {current === seconds && <span className="size-2.5 rounded-full bg-brand" />}
+              </span>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

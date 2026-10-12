@@ -166,6 +166,8 @@ export type StartCallRequest = z.infer<typeof startCallRequestSchema>;
 /** WebRTC signalling relayed between the two people in a call. */
 export const callSignalSchema = z.object({
   callId: idSchema,
+  /** Group calls: the participant this is for. */
+  to: idSchema.optional(),
   data: z.union([
     z.object({ type: z.enum(['offer', 'answer']), sdp: z.string().min(1).max(20_000) }),
     z.object({

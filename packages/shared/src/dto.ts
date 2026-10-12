@@ -125,6 +125,10 @@ export interface StoreDto extends PlaceDetailsDto {
   memberCount: number;
   /** Active store managers (names only; never contact details). */
   managers: Array<{ id: string; displayName: string; username: string }>;
+  /** Store location (attendance check-ins and location sharing). */
+  latitude: number | null;
+  longitude: number | null;
+  geofenceMeters: number;
   createdAt: string;
 }
 
@@ -313,7 +317,8 @@ export type SystemEventDto =
   | { type: 'emergency_joined'; actorId: string }
   | { type: 'emergency_acknowledged'; actorId: string }
   | { type: 'emergency_resolved'; actorId: string }
-  | { type: 'emergency_cancelled'; actorId: string };
+  | { type: 'emergency_cancelled'; actorId: string }
+  | { type: 'disappearing_changed'; actorId: string; seconds: number | null };
 
 export interface MessageDto {
   id: string;
@@ -347,6 +352,8 @@ export interface MessageDto {
   /** EVENT: who is going. */
   eventResponses: Array<{ userId: string; response: 'GOING' | 'MAYBE' | 'NOT_GOING' }>;
   pinned: boolean;
+  /** Disappearing messages: removed for everyone at this time. */
+  expiresAt: string | null;
   /** Viewer-specific; only present on per-user reads (history, search, starred list). */
   starred?: boolean;
 }
@@ -387,6 +394,8 @@ export interface ConversationSummaryDto {
   editInfoPolicy: PostingPolicy;
   /** Who can add people to the group. */
   addMembersPolicy: PostingPolicy;
+  /** Disappearing messages timer in seconds (null = off). */
+  disappearAfterSeconds: number | null;
   /** For DIRECT conversations: the other participant. */
   counterpart: PublicUserDto | null;
   lastSeq: number;

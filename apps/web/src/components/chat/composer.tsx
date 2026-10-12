@@ -89,7 +89,12 @@ export function Composer({
   onSendContent: (content: RichContent) => void;
   onSaveEdit: (body: string) => void;
   canShareFiles: boolean;
-  onSendFile: (file: File, caption: string, audio?: AudioDetails | null) => void;
+  onSendFile: (
+    file: File,
+    caption: string,
+    audio?: AudioDetails | null,
+    options?: { asSticker?: boolean },
+  ) => void;
 }) {
   const socket = useSocket();
   const enterToSend = useChatPrefs((p) => p.enterToSend);
@@ -359,7 +364,20 @@ export function Composer({
       {dialog === 'contact' && (
         <ContactDialog businessId={businessId} onClose={() => setDialog(null)} onSend={sendContent} />
       )}
-      {dialog === 'sticker' && <StickerDialog onClose={() => setDialog(null)} onSend={sendContent} />}
+      {dialog === 'sticker' && (
+        <StickerDialog
+          onClose={() => setDialog(null)}
+          onSend={sendContent}
+          onSendCustom={
+            canShareFiles
+              ? (file) => {
+                  setDialog(null);
+                  onSendFile(file, '', null, { asSticker: true });
+                }
+              : undefined
+          }
+        />
+      )}
       {dialog === 'camera' && (
         <CameraDialog
           onClose={() => setDialog(null)}

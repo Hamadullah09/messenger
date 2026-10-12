@@ -24,6 +24,8 @@ import {
   listMessagesQuerySchema,
   paginationQuerySchema,
   reactionRequestSchema,
+  setDisappearingRequestSchema,
+  type SetDisappearingRequest,
   pollVoteRequestSchema,
   eventResponseRequestSchema,
   liveLocationUpdateSchema,
@@ -86,6 +88,30 @@ export class ConversationsController {
     private readonly messages: MessagesService,
     private readonly receipts: ReceiptsService,
   ) {}
+
+  @Put(':id/disappearing')
+  @ApiZodBody(setDisappearingRequestSchema)
+  setDisappearing(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(setDisappearingRequestSchema)) body: SetDisappearingRequest,
+  ): Promise<ConversationDetailDto> {
+    return this.conversations.setDisappearing(actor, id, body.seconds);
+  }
+
+  /** "Export chat": the visible messages as a text file (no media). */
+  @Get(':id/export.txt')
+  async exportChat(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<string> {
+    const { text, title } = await this.messages.exportText(actor, id);
+    const safe = title.replace(/[^\w-]+/g, '-').slice(0, 40) || 'chat';
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="SMA-chat-${safe}.txt"`);
+    return '\uFEFF' + text;
+  }
 
   @Get()
   @ApiZodQuery(listConversationsQuerySchema)

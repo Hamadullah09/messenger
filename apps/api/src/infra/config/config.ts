@@ -81,6 +81,8 @@ const envSchema = z.object({
         return z.NEVER;
       }
     }),
+  /** Map tiles for location previews (fetched by the server). {z}/{x}/{y} are filled in. */
+  MAP_TILE_URL: z.string().default('https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
   /** Seconds a call rings before it counts as missed. */
   CALL_RING_SECONDS: z.coerce.number().int().min(10).max(120).default(45),
 

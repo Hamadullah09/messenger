@@ -116,6 +116,7 @@ export class MediaService {
           conversationId: context.conversationId,
           campaignId: context.campaignId,
           forStatus: context.forStatus,
+          forOps: context.forOps ?? false,
           uploaderId: actor.userId,
           kind,
           fileName,
@@ -328,6 +329,7 @@ export class MediaService {
         conversationId: true,
         campaignId: true,
         forStatus: true,
+        forOps: true,
         uploaderId: true,
         status: true,
         kind: true,
@@ -363,6 +365,21 @@ export class MediaService {
         where: { AND: [{ mediaId }, visibleStatusWhere(actor.userId)] },
       });
       if (visible > 0) return { media, sensitiveConversationId };
+      throw notFound;
+    }
+    // Checklist photos: the uploader, and the store's staff and managers.
+    if (media.forOps) {
+      if (media.uploaderId === actor.userId) return { media, sensitiveConversationId };
+      const runs = await this.prisma.checklistRunItem.findMany({
+        where: { mediaId },
+        select: { run: { select: { businessId: true, storeId: true } } },
+        take: 5,
+      });
+      for (const { run } of runs) {
+        const scope = { businessId: run.businessId, storeId: run.storeId };
+        if ((await this.authz.can(actor, 'task.work', scope)) || (await this.authz.can(actor, 'task.manage', scope)))
+          return { media, sensitiveConversationId };
+      }
       throw notFound;
     }
     if (media.uploaderId === actor.userId && media.conversationId) {
@@ -428,6 +445,7 @@ export class MediaService {
         conversationId: true,
         campaignId: true,
         forStatus: true,
+        forOps: true,
         status: true,
         incomingKey: true,
         multipartUploadId: true,
@@ -445,6 +463,10 @@ export class MediaService {
     // The uploader must still be allowed to post in the conversation / manage the campaign.
     if (media.conversationId) await this.access.requireMember(media.conversationId, actor.userId);
     else if (media.forStatus) await this.statusUploadContext(actor, media.businessId);
+    else if (media.forOps) {
+      // The store is checked again when the photo is attached to a checklist.
+      await this.requirePermission(actor, 'media.upload', media.businessId);
+    }
     else await this.campaignUploadContext(actor, media.campaignId!);
     return media;
   }
@@ -458,8 +480,10 @@ export class MediaService {
     conversationId: string | null;
     campaignId: string | null;
     forStatus: boolean;
+    forOps?: boolean;
   }> {
     if (request.campaignId) return this.campaignUploadContext(actor, request.campaignId);
+    if (request.opsStoreId) return this.opsUploadContext(actor, request.opsStoreId);
     if (request.statusBusinessId) return this.statusUploadContext(actor, request.statusBusinessId);
     const { conversation, member } = await this.access.requireMember(
       request.conversationId!,
@@ -479,6 +503,25 @@ export class MediaService {
       conversationId: conversation.id,
       campaignId: null,
       forStatus: false,
+    };
+  }
+
+  /** Checklist photo proof: people who work at the store. */
+  private async opsUploadContext(actor: Actor, storeId: string) {
+    const store = await this.prisma.store.findFirst({
+      where: { id: storeId, deletedAt: null, status: 'ACTIVE', business: { status: 'ACTIVE' } },
+      select: { businessId: true, business: { select: { policy: true } } },
+    });
+    if (!store || !(await this.authz.can(actor, 'task.work', { businessId: store.businessId, storeId })))
+      throw ApiError.notFound('Store');
+    await this.requirePermission(actor, 'media.upload', store.businessId);
+    return {
+      businessId: store.businessId,
+      policy: store.business.policy,
+      conversationId: null,
+      campaignId: null,
+      forStatus: false,
+      forOps: true,
     };
   }
 

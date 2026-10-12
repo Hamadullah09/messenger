@@ -36,6 +36,13 @@ export function sameDay(a: string, b: string): boolean {
   return startOfDay(new Date(a)) === startOfDay(new Date(b));
 }
 
+/** "24 hours", "7 days", "90 days". */
+export function disappearLabel(seconds: number): string {
+  if (seconds < 86_400) return `${Math.round(seconds / 3600)} hours`;
+  const days = Math.round(seconds / 86_400);
+  return days === 1 ? '24 hours' : `${days} days`;
+}
+
 /** Human-readable text for system messages. `nameOf` resolves user ids to display names. */
 export function describeSystemEvent(event: SystemEventDto, nameOf: (id: string) => string): string {
   const actor = nameOf(event.actorId);
@@ -66,6 +73,10 @@ export function describeSystemEvent(event: SystemEventDto, nameOf: (id: string) 
       return `${actor} marked the emergency resolved`;
     case 'emergency_cancelled':
       return `${actor} cancelled the alert — they are safe`;
+    case 'disappearing_changed':
+      return event.seconds
+        ? `${actor} turned on disappearing messages. New messages will disappear ${disappearLabel(event.seconds)} after they're sent.`
+        : `${actor} turned off disappearing messages.`;
   }
 }
 

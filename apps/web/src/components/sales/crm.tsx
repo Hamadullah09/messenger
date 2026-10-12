@@ -7,6 +7,7 @@ import {
   type CrmCustomerDto,
   type CrmOverviewDto,
   type CrmServiceDto,
+  type CrmSettingsDto,
   type DealDto,
   type DealStatus,
   type DealType,
@@ -28,6 +29,7 @@ import {
   Ban,
   Banknote,
   Briefcase,
+  CalendarClock,
   ChevronLeft,
   ChevronRight,
   CircleDollarSign,
@@ -62,10 +64,20 @@ import {
 } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { formatDay } from '@/lib/format';
+import {
+  CommissionDialog,
+  PayLinkBox,
+  PaymentClaimsBox,
+  QuoteFormDialog,
+  QuotePanel,
+  SubscriptionDialog,
+} from './crm-more';
 
 // ───────────────────────────── Labels and formatting ─────────────────────────────
 
 /** Amounts with cents, e.g. "$1,250.00". */
+export { useCustomers, refreshCrm, Mini, Chip, Stat };
+
 export function money2(value: number | null | undefined, currency: string): string {
   if (value === null || value === undefined) return '—';
   try {
@@ -164,15 +176,20 @@ function useCustomers() {
     queryFn: () => api<CrmCustomerDto[]>('/sales/crm/customers'),
   });
 }
-function useCrmSettings() {
+export function useCrmSettings() {
   return useQuery({
     queryKey: ['crm', 'settings'],
-    queryFn: () =>
-      api<{ currency: string; emailEnabled: boolean; companyName: string }>(
-        '/sales/crm/settings',
-      ),
-    staleTime: 5 * 60_000,
+    queryFn: () => api<CrmSettingsDto>('/sales/crm/settings'),
+    staleTime: 60_000,
   });
+}
+
+/** Converts between USD and PKR with the CRM's rate. */
+export function convertAmount(amount: number, from: string, to: string, usdToPkr: number): number {
+  if (from === to) return amount;
+  if (from === 'USD' && to === 'PKR') return Math.round(amount * usdToPkr * 100) / 100;
+  if (from === 'PKR' && to === 'USD') return Math.round((amount / usdToPkr) * 100) / 100;
+  return amount;
 }
 
 function currentMonth(): string {
@@ -446,11 +463,11 @@ function TrendChart({ trend, currency }: { trend: CrmOverviewDto['trend']; curre
 
 // ───────────────────────────── Line items editor ─────────────────────────────
 
-type DraftItem = LineItemInput & { key: string };
+export type DraftItem = LineItemInput & { key: string };
 let draftKey = 0;
-const newKey = () => `i${++draftKey}`;
+export const newKey = () => `i${++draftKey}`;
 
-function ItemsEditor({
+export function ItemsEditor({
   items,
   onChange,
   currency,
@@ -462,6 +479,9 @@ function ItemsEditor({
   withDiscount?: boolean;
 }) {
   const services = useServices();
+  const settings = useCrmSettings();
+  const rate = settings.data?.usdToPkr ?? 280;
+  const priceIn = (s: CrmServiceDto) => convertAmount(s.price, s.currency, currency, rate);
   const active = (services.data ?? []).filter((s) => s.active);
   const total = items.reduce(
     (sum, i) => sum + i.quantity * i.unitPrice * (1 - (i.discountPct ?? 0) / 100),
@@ -487,7 +507,7 @@ function ItemsEditor({
                 serviceId: s.id,
                 name: s.name,
                 quantity: 1,
-                unitPrice: s.price,
+                unitPrice: priceIn(s),
                 discountPct: 0,
                 billing: s.billing,
               },
@@ -497,7 +517,7 @@ function ItemsEditor({
           <option value="">{services.isLoading ? 'Loading…' : 'Choose from the catalog…'}</option>
           {active.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name} — {money2(s.price, currency)} {s.billing !== 'ONE_TIME' ? BILLING_LABEL[s.billing] : ''}
+              {s.name} — {money2(priceIn(s), currency)} {s.billing !== 'ONE_TIME' ? BILLING_LABEL[s.billing] : ''}
             </option>
           ))}
         </SelectField>
@@ -649,7 +669,8 @@ export function DealFormDialog({
 }) {
   const refresh = useCrmRefresh();
   const settings = useCrmSettings();
-  const currency = deal?.currency ?? settings.data?.currency ?? 'USD';
+  const [chosenCurrency, setCurrency] = useState<string | null>(null);
+  const currency = deal?.currency ?? chosenCurrency ?? settings.data?.defaultCurrency ?? 'USD';
   const customers = useCustomers();
   const leads = useQuery({
     queryKey: ['leads', { open: 'true', forDeals: true }],
@@ -680,6 +701,7 @@ export function DealFormDialog({
             body: {
               ...body,
               type,
+              currency,
               leadId: type === 'NEW_BUSINESS' ? leadId || null : null,
               businessId: type === 'NEW_BUSINESS' ? null : businessId || null,
             },
@@ -782,6 +804,21 @@ export function DealFormDialog({
             value={expected}
             onChange={(e) => setExpected(e.target.value)}
           />
+          {!deal && (
+            <SelectField
+              label="Currency"
+              value={currency}
+              onChange={(e) => {
+                const next = e.target.value;
+                const rate = settings.data?.usdToPkr ?? 280;
+                setItems(items.map((i) => ({ ...i, unitPrice: convertAmount(i.unitPrice, currency, next, rate) })));
+                setCurrency(next);
+              }}
+            >
+              <option value="USD">US dollars (USD)</option>
+              <option value="PKR">Pakistani rupees (PKR)</option>
+            </SelectField>
+          )}
         </div>
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1 font-semibold">Services sold</legend>
@@ -841,6 +878,9 @@ export function DealPanel({
   const [losing, setLosing] = useState(false);
   const [reason, setReason] = useState('');
   const [invoicing, setInvoicing] = useState(false);
+  const [quoting, setQuoting] = useState(false);
+  const [billing, setBilling] = useState(false);
+  const [openQuote, setOpenQuote] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const done = (d: DealDto) => {
     client.setQueryData(['crm', 'deal', dealId], d);
@@ -961,6 +1001,15 @@ export function DealPanel({
               >
                 Edit
               </Button>
+              {d.status === 'OPEN' && (
+                <Button
+                  variant="secondary"
+                  icon={<FileText className="size-4" aria-hidden />}
+                  onClick={() => setQuoting(true)}
+                >
+                  Create quote
+                </Button>
+              )}
               {canBill && d.status !== 'LOST' && (
                 <Button
                   variant="secondary"
@@ -968,6 +1017,15 @@ export function DealPanel({
                   onClick={() => setInvoicing(true)}
                 >
                   Create invoice
+                </Button>
+              )}
+              {canBill && d.status === 'WON' && d.customer && !d.subscriptionId && (
+                <Button
+                  variant="secondary"
+                  icon={<CalendarClock className="size-4" aria-hidden />}
+                  onClick={() => setBilling(true)}
+                >
+                  Bill monthly
                 </Button>
               )}
               <Button
@@ -1060,6 +1118,24 @@ export function DealPanel({
             setInvoicing(false);
             onOpenInvoice(inv.id);
           }}
+        />
+      )}
+      {quoting && d && (
+        <QuoteFormDialog
+          deal={d}
+          onClose={() => setQuoting(false)}
+          onSaved={(q) => {
+            setQuoting(false);
+            setOpenQuote(q.id);
+          }}
+        />
+      )}
+      {openQuote && <QuotePanel quoteId={openQuote} onClose={() => setOpenQuote(null)} />}
+      {billing && d?.customer && (
+        <SubscriptionDialog
+          customer={d.customer}
+          deal={d}
+          onClose={() => setBilling(false)}
         />
       )}
     </Dialog>
@@ -1312,7 +1388,8 @@ export function InvoiceFormDialog({
 }) {
   const refresh = useCrmRefresh();
   const settings = useCrmSettings();
-  const currency = deal?.currency ?? settings.data?.currency ?? 'USD';
+  const [chosenCurrency, setCurrency] = useState<string | null>(null);
+  const currency = deal?.currency ?? chosenCurrency ?? settings.data?.defaultCurrency ?? 'USD';
   const customers = useCustomers();
   const [businessId, setBusinessId] = useState(customer?.id ?? '');
   const [billToName, setBillToName] = useState('');
@@ -1320,9 +1397,10 @@ export function InvoiceFormDialog({
   const [issueDate, setIssueDate] = useState(toDateInput(new Date()));
   const [dueDate, setDueDate] = useState('');
   const [discount, setDiscount] = useState(0);
-  const [taxRate, setTaxRate] = useState(0);
+  const [taxRate, setTaxRate] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<DraftItem[]>([]);
+  const tax = taxRate ?? settings.data?.taxRate ?? 0;
   const save = useMutation({
     mutationFn: () =>
       api<InvoiceDto>('/sales/crm/invoices', {
@@ -1343,8 +1421,9 @@ export function InvoiceFormDialog({
           ...(billToEmail.trim() ? { billToEmail: billToEmail.trim() } : {}),
           issueDate: new Date(`${issueDate}T12:00:00`).toISOString(),
           ...(dueDate ? { dueDate: new Date(`${dueDate}T12:00:00`).toISOString() } : {}),
+          ...(deal ? {} : { currency }),
           discount,
-          taxRate,
+          taxRate: tax,
           notes: notes.trim() || null,
         },
       }),
@@ -1391,6 +1470,10 @@ export function InvoiceFormDialog({
                 onChange={(e) => setBillToName(e.target.value)}
               />
             )}
+            <SelectField label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+              <option value="USD">US dollars (USD)</option>
+              <option value="PKR">Pakistani rupees (PKR)</option>
+            </SelectField>
             <fieldset>
               <legend className="mb-1 font-semibold">Items</legend>
               <ItemsEditor items={items} onChange={setItems} currency={currency} />
@@ -1416,12 +1499,12 @@ export function InvoiceFormDialog({
             onChange={(e) => setDiscount(Math.max(0, Number(e.target.value) || 0))}
           />
           <TextField
-            label="Tax %"
+            label={`${settings.data?.taxName ?? 'Tax'} %`}
             type="number"
             min={0}
             max={100}
             step="0.01"
-            value={taxRate}
+            value={tax}
             onChange={(e) => setTaxRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
           />
         </div>
@@ -1490,12 +1573,23 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
                   {DEAL_TYPE_LABEL[i.deal.type]} · {i.deal.title}
                 </p>
               )}
+              {i.subscription && (
+                <p className="text-sm text-muted">
+                  {i.subscription.name} · {i.periodStart} to {i.periodEnd}
+                </p>
+              )}
             </div>
             <div className="text-right">
               <InvoiceStatusChip invoice={i} />
               <p className="mt-1 text-sm text-muted">
                 Issued {i.issueDate} · Due {i.dueDate}
               </p>
+              {i.reminderCount > 0 && (
+                <p className="text-xs text-muted">
+                  {i.reminderCount} reminder{i.reminderCount > 1 ? 's' : ''} sent
+                  {i.lastReminderAt ? ` · last ${formatDay(i.lastReminderAt)}` : ''}
+                </p>
+              )}
             </div>
           </div>
           <table className="w-full text-sm">
@@ -1546,6 +1640,14 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
             </dd>
           </dl>
 
+          {i.pendingClaims > 0 && (
+            <Alert tone="warning" title={`${i.pendingClaims} payment${i.pendingClaims > 1 ? 's' : ''} reported by the customer`}>
+              Check your account, then confirm it under Invoices → Payments to confirm.
+            </Alert>
+          )}
+          {i.payUrl && (
+            <PayLinkBox path={i.payUrl} />
+          )}
           <section>
             <h3 className="mb-2 font-bold">Payments</h3>
             {i.payments.length === 0 && <p className="text-sm text-muted">No payments yet.</p>}
@@ -1620,6 +1722,16 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
                 onClick={() => action.mutate({ path: '/email' })}
               >
                 Email to customer
+              </Button>
+            )}
+            {i.canManage && i.overdue && (
+              <Button
+                variant="secondary"
+                icon={<Send className="size-4" aria-hidden />}
+                busy={action.isPending && action.variables?.path === '/remind'}
+                onClick={() => action.mutate({ path: '/remind' })}
+              >
+                Send reminder now
               </Button>
             )}
             {i.canManage && i.status !== 'VOID' && (
@@ -1784,6 +1896,7 @@ export function InvoicesTab() {
           />
         </div>
       )}
+      {overview.data?.canManageBilling && <PaymentClaimsBox onOpenInvoice={setOpen} />}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1" role="radiogroup" aria-label="Show">
           {(Object.keys(labels) as Array<keyof typeof labels>).map((k) => (
@@ -1892,6 +2005,7 @@ export function InvoicesTab() {
 export function TargetsTab() {
   const [month, setMonth] = useState(currentMonth());
   const [history, setHistory] = useState<string | null>(null);
+  const [commission, setCommission] = useState(false);
   const targets = useQuery({
     queryKey: ['crm', 'targets', month],
     queryFn: () => api<TargetsDto>('/sales/crm/targets', { query: { month } }),
@@ -1943,8 +2057,20 @@ export function TargetsTab() {
               hint={t.totals.target > 0 ? `${Math.round((t.totals.achieved / t.totals.target) * 100)}% of target` : undefined}
               tone="success"
             />
-            <Stat Icon={Banknote} label="Collected" value={moneyShort(t.totals.collected, t.currency)} />
+            <Stat
+              Icon={Banknote}
+              label="Collected"
+              value={moneyShort(t.totals.collected, t.currency)}
+              hint={`Commission ${moneyShort(t.totals.commission, t.currency)}`}
+            />
           </div>
+          {t.canManage && (
+            <div className="flex justify-end">
+              <Button variant="secondary" size="sm" onClick={() => setCommission(true)}>
+                Commission rules
+              </Button>
+            </div>
+          )}
           <div className="flex flex-col gap-3">
             {t.team.map((p) => (
               <TargetRow
@@ -1961,6 +2087,7 @@ export function TargetsTab() {
         </>
       )}
       {history && <TargetHistoryDialog userId={history} onClose={() => setHistory(null)} />}
+      {commission && t && <CommissionDialog team={t.team.map((p) => p.user)} onClose={() => setCommission(false)} />}
     </div>
   );
 }
@@ -2000,7 +2127,9 @@ function TargetRow({
           <p className="font-bold">{row.user.displayName}</p>
           <p className="text-sm text-muted">
             {row.wonDeals} deals won ({row.upsells} upsells) · {row.leadsClosed} leads closed, {row.leadsWon} won ·
-            collected {moneyShort(row.collected, currency)}
+            collected {moneyShort(row.collected, currency)} · commission{' '}
+            <b className="text-fg">{money2(row.commission, currency)}</b> ({row.commissionPlan.baseRate}% / {row.commissionPlan.bonusRate}% above target
+            {row.commissionPlan.basis === 'COLLECTED' ? ', on collections' : ''})
           </p>
         </div>
         <div className="text-right">
@@ -2113,6 +2242,7 @@ function TargetHistoryDialog({ userId, onClose }: { userId: string; onClose: () 
                 <th className="py-1 text-right font-semibold">Target</th>
                 <th className="py-1 text-right font-semibold">Achieved</th>
                 <th className="py-1 text-right font-semibold">Leads won</th>
+                <th className="py-1 text-right font-semibold">Commission</th>
               </tr>
             </thead>
             <tbody>
@@ -2125,6 +2255,7 @@ function TargetHistoryDialog({ userId, onClose }: { userId: string; onClose: () 
                     {m.target ? ` (${Math.round((m.achieved / m.target) * 100)}%)` : ''}
                   </td>
                   <td className="py-1.5 text-right tabular-nums">{m.leadsWon}</td>
+                  <td className="py-1.5 text-right tabular-nums">{money2(m.commission, h.currency)}</td>
                 </tr>
               ))}
             </tbody>
@@ -2192,7 +2323,7 @@ export function ServicesTab() {
                 {s.description && <p className="line-clamp-3 text-sm text-muted">{s.description}</p>}
                 <div className="mt-auto flex items-end justify-between gap-2">
                   <span>
-                    <span className="text-xl font-bold tabular-nums">{money2(s.price, currency)}</span>{' '}
+                    <span className="text-xl font-bold tabular-nums">{money2(s.price, s.currency)}</span>{' '}
                     <span className="text-sm text-muted">{s.billing === 'ONE_TIME' ? 'one-time' : BILLING_LABEL[s.billing]}</span>
                   </span>
                   <span className="text-sm text-muted">Sold {s.timesSold}×</span>
@@ -2233,6 +2364,7 @@ function ServiceDialog({
     description: service?.description ?? '',
     category: service?.category ?? '',
     price: service?.price ?? 0,
+    currency: service?.currency ?? currency,
     billing: service?.billing ?? ('MONTHLY' as ServiceBilling),
     active: service?.active ?? true,
   });
@@ -2245,6 +2377,7 @@ function ServiceDialog({
           description: form.description.trim() || null,
           category: form.category.trim() || null,
           price: form.price,
+          currency: form.currency,
           billing: form.billing,
           active: form.active,
         },
@@ -2275,7 +2408,7 @@ function ServiceDialog({
         <TextArea label="Description" rows={3} maxLength={1000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
         <div className="grid grid-cols-2 gap-3">
           <TextField
-            label={`Price (${currency})`}
+            label={`Price (${form.currency})`}
             type="number"
             min={0}
             step="0.01"
@@ -2283,6 +2416,10 @@ function ServiceDialog({
             value={form.price}
             onChange={(e) => setForm({ ...form, price: Math.max(0, Number(e.target.value) || 0) })}
           />
+          <SelectField label="Currency" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+            <option value="USD">USD</option>
+            <option value="PKR">PKR</option>
+          </SelectField>
           <SelectField label="Billing" value={form.billing} onChange={(e) => setForm({ ...form, billing: e.target.value as ServiceBilling })}>
             <option value="ONE_TIME">One-time</option>
             <option value="MONTHLY">Monthly</option>
@@ -2329,6 +2466,7 @@ export function CrmCustomersTab({
   const [q, setQ] = useState('');
   const [upsellFor, setUpsellFor] = useState<{ id: string; name: string } | null>(null);
   const [invoiceFor, setInvoiceFor] = useState<{ id: string; name: string } | null>(null);
+  const [billFor, setBillFor] = useState<{ id: string; name: string } | null>(null);
   const [openDeal, setOpenDeal] = useState<string | null>(null);
   const [openInvoice, setOpenInvoice] = useState<string | null>(null);
   const overview = useQuery({
@@ -2420,6 +2558,16 @@ export function CrmCustomersTab({
                   Invoice
                 </Button>
               )}
+              {overview.data?.canManageBilling && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<CalendarClock className="size-4" aria-hidden />}
+                  onClick={() => setBillFor({ id: c.id, name: c.name })}
+                >
+                  Monthly billing
+                </Button>
+              )}
               {c.lead && (
                 <Button size="sm" variant="ghost" onClick={() => onOpenLead(c.lead!.id)}>
                   Lead history
@@ -2429,6 +2577,7 @@ export function CrmCustomersTab({
           </section>
         ))}
       </div>
+      {billFor && <SubscriptionDialog customer={billFor} onClose={() => setBillFor(null)} />}
       {upsellFor && (
         <DealFormDialog
           preset={{ type: 'UPSELL', customer: upsellFor }}

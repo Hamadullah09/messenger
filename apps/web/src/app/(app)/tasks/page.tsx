@@ -28,6 +28,7 @@ import {
   TextArea,
   TextField,
 } from '@/components/ui';
+import { AttendanceTab, ChecklistsTab, LeaveTab } from '@/components/ops/staff-tabs';
 import { api, errorMessage } from '@/lib/api';
 import { hasPermission, useAuth } from '@/lib/auth-store';
 import { formatDay, formatTime } from '@/lib/format';
@@ -57,7 +58,10 @@ function useStaff(storeId: string) {
 function TasksScreen() {
   const router = useRouter();
   const params = useSearchParams();
-  const tab = params.get('tab') === 'shifts' ? 'shifts' : 'tasks';
+  const TABS = ['tasks', 'shifts', 'attendance', 'checklists', 'leave'] as const;
+  const tab = (TABS as readonly string[]).includes(params.get('tab') ?? '')
+    ? (params.get('tab') as (typeof TABS)[number])
+    : 'tasks';
   const me = useAuth((s) => s.me)!;
   const businessId = useAuth((s) => s.activeBusinessId);
   const stores = me.businesses.find((b) => b.id === businessId)?.stores ?? [];
@@ -68,7 +72,7 @@ function TasksScreen() {
     <div className="scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 p-4 sm:p-6">
         <PageHeader
-          title="Tasks & shifts"
+          title="Store work"
           subtitle={
             canManage
               ? 'Give your stores to-dos and plan who works when.'
@@ -81,7 +85,7 @@ function TasksScreen() {
           <>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex gap-1 rounded-xl bg-surface-2 p-1" role="tablist" aria-label="Sections">
-                {(['tasks', 'shifts'] as const).map((t) => (
+                {TABS.map((t) => (
                   <button
                     key={t}
                     type="button"
@@ -93,7 +97,7 @@ function TasksScreen() {
                       tab === t ? 'bg-surface shadow-card' : 'text-muted',
                     )}
                   >
-                    {t === 'tasks' ? 'Tasks' : 'Shifts'}
+                    {{ tasks: 'Tasks', shifts: 'Shifts', attendance: 'Attendance', checklists: 'Checklists', leave: 'Leave' }[t]}
                   </button>
                 ))}
               </div>
@@ -113,11 +117,19 @@ function TasksScreen() {
                 </select>
               )}
             </div>
-            {tab === 'tasks' ? (
+            {tab === 'tasks' && (
               <TasksTab businessId={businessId} storeId={storeId} stores={stores} canManage={canManage} myId={me.user.id} />
-            ) : (
+            )}
+            {tab === 'shifts' && (
               <ShiftsTab businessId={businessId} storeId={storeId} stores={stores} canManage={canManage} myId={me.user.id} />
             )}
+            {tab === 'attendance' && (
+              <AttendanceTab businessId={businessId} storeId={storeId} stores={stores} canManage={canManage} />
+            )}
+            {tab === 'checklists' && (
+              <ChecklistsTab businessId={businessId} storeId={storeId} stores={stores} canManage={canManage} />
+            )}
+            {tab === 'leave' && <LeaveTab businessId={businessId} stores={stores} />}
           </>
         )}
       </div>

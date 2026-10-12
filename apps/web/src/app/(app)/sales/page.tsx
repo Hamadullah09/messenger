@@ -24,6 +24,7 @@ import {
   Briefcase,
   CalendarClock,
   Download,
+  FileText,
   Globe,
   Kanban,
   List,
@@ -37,8 +38,10 @@ import {
   Target,
   TrendingUp,
   Trophy,
+  Upload,
   UserPlus,
   Users,
+  Settings2,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -53,6 +56,12 @@ import {
   TargetsTab,
   WebsiteFormDialog,
 } from '@/components/sales/crm';
+import {
+  CrmSettingsTab,
+  LeadImportDialog,
+  QuotesTab,
+  SubscriptionsTab,
+} from '@/components/sales/crm-more';
 import { LeadFormDialog } from '@/components/sales/lead-form';
 import { LeadPanel, OwnerBadge, StageChip } from '@/components/sales/lead-panel';
 import {
@@ -87,8 +96,11 @@ type Tab =
   | 'deals'
   | 'customers'
   | 'invoices'
+  | 'quotes'
+  | 'billing'
   | 'targets'
   | 'services'
+  | 'settings'
   | 'team';
 const TABS: Array<{ key: Tab; label: string; Icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', Icon: BarChart3 },
@@ -96,9 +108,12 @@ const TABS: Array<{ key: Tab; label: string; Icon: LucideIcon }> = [
   { key: 'leads', label: 'Leads', Icon: List },
   { key: 'deals', label: 'Deals', Icon: Briefcase },
   { key: 'customers', label: 'SMA customers', Icon: BadgeCheck },
+  { key: 'quotes', label: 'Quotes', Icon: FileText },
   { key: 'invoices', label: 'Invoices', Icon: Receipt },
+  { key: 'billing', label: 'Monthly billing', Icon: CalendarClock },
   { key: 'targets', label: 'Targets', Icon: Trophy },
   { key: 'services', label: 'Services', Icon: Package },
+  { key: 'settings', label: 'CRM settings', Icon: Settings2 },
   { key: 'team', label: 'Team', Icon: Users },
 ];
 
@@ -109,6 +124,7 @@ function SalesScreen() {
   const tab = (TABS.find((t) => t.key === params.get('tab'))?.key ?? 'overview') as Tab;
   const [creating, setCreating] = useState(false);
   const [websiteForm, setWebsiteForm] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [openLead, setOpenLead] = useState<string | null>(null);
   const context = useQuery({
     queryKey: ['sales-context'],
@@ -147,6 +163,13 @@ function SalesScreen() {
                   <MessageCircle className="size-5" aria-hidden /> Team chat
                 </Link>
               )}
+              <Button
+                variant="secondary"
+                onClick={() => setImporting(true)}
+                icon={<Upload className="size-5" aria-hidden />}
+              >
+                Import
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() => setWebsiteForm(true)}
@@ -205,6 +228,9 @@ function SalesScreen() {
             <Customers context={ctx} team={team.data ?? []} onOpen={setOpenLead} />
           )}
           {tab === 'invoices' && <InvoicesTab />}
+          {tab === 'quotes' && <QuotesTab />}
+          {tab === 'billing' && <SubscriptionsTab />}
+          {tab === 'settings' && <CrmSettingsTab />}
           {tab === 'targets' && <TargetsTab />}
           {tab === 'services' && <ServicesTab />}
           {tab === 'team' && <TeamTab context={ctx} team={team.data} loading={team.isLoading} />}
@@ -222,6 +248,13 @@ function SalesScreen() {
         />
       )}
       {websiteForm && <WebsiteFormDialog onClose={() => setWebsiteForm(false)} />}
+      {importing && (
+        <LeadImportDialog
+          team={team.data ?? []}
+          canAssign={ctx.canAssign}
+          onClose={() => setImporting(false)}
+        />
+      )}
       {openLead && (
         <LeadPanel
           leadId={openLead}

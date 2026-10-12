@@ -48,7 +48,7 @@ function put(
 export async function uploadFile(
   file: File,
   /** A conversation id, a draft campaign, or a status update (its business) as the context. */
-  target: string | { campaignId: string } | { statusBusinessId: string },
+  target: string | { campaignId: string } | { statusBusinessId: string } | { opsStoreId: string },
   mimeType: string,
   onProgress: (progress: UploadProgress) => void,
   signal: AbortSignal,

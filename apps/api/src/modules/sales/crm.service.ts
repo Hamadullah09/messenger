@@ -22,19 +22,31 @@ import {
   type UpdateDealRequest,
   type UpdateInvoiceRequest,
   type UpsertServiceRequest,
+  type CommissionPlanDto,
+  type CrmSettingsDto,
+  type PaymentClaimDto,
+  type ReviewPaymentClaimRequest,
+  type SetCommissionPlanRequest,
+  type UpdateCrmSettingsRequest,
 } from '@storeline/shared';
 import { APP_CONFIG, type AppConfig } from '../../infra/config/config';
 import { ApiError } from '../../infra/http/api-error';
 import { MailService } from '../../infra/mail/mail.service';
-import { PrismaService, type Tx } from '../../infra/prisma/prisma.service';
+import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { publicUserSelect, toPublicUser } from '../users/user.mapper';
+import {
+  CrmSettingsService,
+  documentHtml,
+  documentText,
+  InvoiceFactory,
+  newPublicToken,
+  num,
+  round2,
+} from './crm-core';
 import { SalesService } from './sales.service';
-
-const num = (v: Prisma.Decimal | number | null | undefined): number => (v == null ? 0 : Number(v));
-const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 /** "2026-10" → [first day of the month, first day of the next) in server time. */
 function monthRange(month: string): [Date, Date] {
@@ -76,6 +88,7 @@ const dealInclude = {
   owner: { select: publicUserSelect },
   items: { orderBy: { position: 'asc' } },
   invoices: { where: { status: { not: 'VOID' } }, select: { total: true, amountPaid: true } },
+  subscriptions: { where: { status: { not: 'CANCELLED' } }, select: { id: true }, take: 1 },
 } as const satisfies Prisma.DealInclude;
 type DealRow = Prisma.DealGetPayload<{ include: typeof dealInclude }>;
 
@@ -85,6 +98,8 @@ const invoiceInclude = {
   lead: { select: { id: true, companyName: true } },
   items: { orderBy: { position: 'asc' } },
   payments: { orderBy: { paidAt: 'asc' }, include: { recordedBy: { select: publicUserSelect } } },
+  subscription: { select: { id: true, name: true } },
+  _count: { select: { claims: { where: { status: 'PENDING' } } } },
 } as const satisfies Prisma.InvoiceInclude;
 type InvoiceRow = Prisma.InvoiceGetPayload<{ include: typeof invoiceInclude }>;
 
@@ -111,6 +126,8 @@ export class CrmService {
     private readonly sales: SalesService,
     private readonly audit: AuditService,
     private readonly mail: MailService,
+    private readonly crmSettings: CrmSettingsService,
+    private readonly factory: InvoiceFactory,
   ) {}
 
   private async access(actor: Actor): Promise<Access> {
@@ -141,21 +158,28 @@ export class CrmService {
   }
 
   get currency(): string {
-    return this.config.CRM_CURRENCY;
+    return this.crmSettings.current().defaultCurrency;
   }
 
-  /** Company details printed on invoices. */
-  invoiceSettings() {
-    const c = this.config;
-    return {
-      companyName: c.INVOICE_COMPANY_NAME,
-      companyAddress: c.INVOICE_COMPANY_ADDRESS || null,
-      companyEmail: c.INVOICE_COMPANY_EMAIL || null,
-      companyPhone: c.INVOICE_COMPANY_PHONE || null,
-      paymentDetails: c.INVOICE_PAYMENT_DETAILS || null,
-      currency: c.CRM_CURRENCY,
-      emailEnabled: this.mail.enabled,
-    };
+  /** Amount in the CRM's main currency (targets, totals). */
+  private main(amount: number, currency: string): number {
+    return this.crmSettings.convert(amount, currency, this.currency);
+  }
+
+  async getSettings(actor: Actor): Promise<CrmSettingsDto> {
+    const access = await this.access(actor);
+    return { ...this.crmSettings.current(), canManage: access.billing };
+  }
+
+  async updateSettings(actor: Actor, request: UpdateCrmSettingsRequest): Promise<CrmSettingsDto> {
+    const access = await this.access(actor);
+    if (!access.billing) throw ApiError.forbidden('Only sales managers can change these settings.');
+    await this.crmSettings.update(request, actor.userId);
+    await this.audit.record(actor, {
+      action: 'crm.settings_changed',
+      metadata: { fields: Object.keys(request) },
+    });
+    return this.getSettings(actor);
   }
 
   // ───────────────────────────── Services catalog ─────────────────────────────
@@ -177,6 +201,7 @@ export class CrmService {
       description: r.description,
       category: r.category,
       price: num(r.price),
+      currency: r.currency,
       billing: r.billing,
       active: r.active,
       timesSold: counts.get(r.id) ?? 0,
@@ -195,6 +220,7 @@ export class CrmService {
       description: request.description ?? null,
       category: request.category ?? null,
       price: request.price,
+      currency: request.currency,
       billing: request.billing,
       ...(request.active !== undefined ? { active: request.active } : {}),
     };
@@ -240,6 +266,7 @@ export class CrmService {
         total: num(i.total),
         billing: i.billing,
       })),
+      subscriptionId: row.subscriptions[0]?.id ?? null,
       invoiced: round2(row.invoices.reduce((s, i) => s + num(i.total), 0)),
       paid: round2(row.invoices.reduce((s, i) => s + num(i.amountPaid), 0)),
       invoiceCount: row.invoices.length,
@@ -332,7 +359,7 @@ export class CrmService {
         businessId,
         ownerId,
         amount,
-        currency: this.currency,
+        currency: request.currency ?? this.currency,
         expectedCloseAt: request.expectedCloseAt ?? null,
         notes: request.notes ?? null,
         createdById: actor.userId,
@@ -345,7 +372,7 @@ export class CrmService {
         data: {
           leadId,
           type: 'NOTE',
-          body: `Deal created: ${request.title} (${amount.toFixed(2)} ${this.currency})`,
+          body: `Deal created: ${request.title} (${amount.toFixed(2)} ${request.currency ?? this.currency})`,
           actorId: actor.userId,
         },
       });
@@ -540,6 +567,13 @@ export class CrmService {
       issuedAt: row.issuedAt?.toISOString() ?? null,
       paidAt: row.paidAt?.toISOString() ?? null,
       lastEmailedAt: row.lastEmailedAt?.toISOString() ?? null,
+      subscription: row.subscription,
+      periodStart: row.periodStart ? isoDate(row.periodStart) : null,
+      periodEnd: row.periodEnd ? isoDate(row.periodEnd) : null,
+      reminderCount: row.reminderCount,
+      lastReminderAt: row.lastReminderAt?.toISOString() ?? null,
+      payUrl: row.payToken && row.status !== 'DRAFT' && row.status !== 'VOID' ? `/pay/${row.payToken}` : null,
+      pendingClaims: row._count.claims,
       createdAt: row.createdAt.toISOString(),
       canManage: access.billing,
     };
@@ -596,51 +630,6 @@ export class CrmService {
     return access;
   }
 
-  private async nextNumber(tx: Tx): Promise<string> {
-    const rows = await tx.$queryRaw<Array<{ n: bigint }>>`SELECT nextval('invoice_number_seq') AS n`;
-    return `INV-${new Date().getFullYear()}-${String(rows[0]!.n).padStart(5, '0')}`;
-  }
-
-  /** Recomputes totals from items and payments, and the paid status. */
-  private async recompute(tx: Tx, invoiceId: string): Promise<void> {
-    const invoice = await tx.invoice.findUniqueOrThrow({
-      where: { id: invoiceId },
-      select: {
-        status: true,
-        discount: true,
-        taxRate: true,
-        paidAt: true,
-        items: { select: { total: true } },
-        payments: { where: { voidedAt: null }, select: { amount: true, paidAt: true } },
-      },
-    });
-    const subtotal = round2(invoice.items.reduce((s, i) => s + num(i.total), 0));
-    const discount = Math.min(num(invoice.discount), subtotal);
-    const taxAmount = round2(((subtotal - discount) * num(invoice.taxRate)) / 100);
-    const total = round2(subtotal - discount + taxAmount);
-    const amountPaid = round2(invoice.payments.reduce((s, p) => s + num(p.amount), 0));
-    let status = invoice.status;
-    if (status !== 'VOID' && status !== 'DRAFT') {
-      status = amountPaid <= 0 ? 'ISSUED' : amountPaid + 0.004 >= total ? 'PAID' : 'PARTIALLY_PAID';
-    }
-    const lastPayment = invoice.payments.reduce<Date | null>(
-      (latest, p) => (!latest || p.paidAt > latest ? p.paidAt : latest),
-      null,
-    );
-    await tx.invoice.update({
-      where: { id: invoiceId },
-      data: {
-        subtotal,
-        discount,
-        taxAmount,
-        total,
-        amountPaid,
-        status,
-        paidAt: status === 'PAID' ? lastPayment : null,
-      },
-    });
-  }
-
   private async billTo(
     businessId: string | null,
     leadId: string | null,
@@ -677,6 +666,7 @@ export class CrmService {
     await this.requireBilling(actor);
     let businessId = request.businessId ?? null;
     let leadId = request.leadId ?? null;
+    let currency = request.currency ?? this.currency;
     let items: Array<{
       serviceId: string | null;
       name: string;
@@ -693,6 +683,7 @@ export class CrmService {
       });
       if (!deal) throw ApiError.notFound('Deal');
       if (deal.status === 'LOST') throw ApiError.conflict('This deal was lost.');
+      currency = deal.currency;
       businessId = businessId ?? deal.businessId;
       leadId = leadId ?? deal.leadId;
       items = deal.items.map((i, position) => {
@@ -741,7 +732,7 @@ export class CrmService {
     const id = await this.prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.create({
         data: {
-          number: await this.nextNumber(tx),
+          number: await this.factory.nextInvoiceNumber(tx),
           dealId: request.dealId ?? null,
           businessId,
           leadId,
@@ -752,16 +743,16 @@ export class CrmService {
             request.billToAddress !== undefined ? request.billToAddress : party.address,
           issueDate,
           dueDate,
-          currency: this.currency,
+          currency,
           discount: request.discount ?? 0,
-          taxRate: request.taxRate ?? 0,
+          taxRate: request.taxRate ?? this.crmSettings.current().taxRate,
           notes: request.notes ?? null,
           createdById: actor.userId,
           items: { create: items },
         },
         select: { id: true },
       });
-      await this.recompute(tx, invoice.id);
+      await this.factory.recompute(tx, invoice.id);
       return invoice.id;
     });
     return this.getInvoice(actor, id);
@@ -814,7 +805,7 @@ export class CrmService {
           dueDate,
         },
       });
-      await this.recompute(tx, invoiceId);
+      await this.factory.recompute(tx, invoiceId);
     });
     return this.getInvoice(actor, invoiceId);
   }
@@ -823,10 +814,10 @@ export class CrmService {
     await this.requireBilling(actor);
     const updated = await this.prisma.invoice.updateMany({
       where: { id: invoiceId, status: 'DRAFT' },
-      data: { status: 'ISSUED', issuedAt: new Date() },
+      data: { status: 'ISSUED', issuedAt: new Date(), payToken: newPublicToken() },
     });
     if (updated.count === 0) throw ApiError.conflict('Only draft invoices can be issued.');
-    await this.prisma.$transaction((tx) => this.recompute(tx, invoiceId));
+    await this.prisma.$transaction((tx) => this.factory.recompute(tx, invoiceId));
     return this.getInvoice(actor, invoiceId);
   }
 
@@ -882,7 +873,7 @@ export class CrmService {
       if (invoice.status === 'DRAFT') {
         await tx.invoice.update({
           where: { id: invoiceId },
-          data: { status: 'ISSUED', issuedAt: new Date() },
+          data: { status: 'ISSUED', issuedAt: new Date(), payToken: newPublicToken() },
         });
       }
       await tx.payment.create({
@@ -896,7 +887,7 @@ export class CrmService {
           recordedById: actor.userId,
         },
       });
-      await this.recompute(tx, invoiceId);
+      await this.factory.recompute(tx, invoiceId);
       await this.audit.record(
         actor,
         {
@@ -919,7 +910,7 @@ export class CrmService {
         data: { voidedAt: new Date() },
       });
       if (updated.count === 0) throw ApiError.notFound('Payment');
-      await this.recompute(tx, invoiceId);
+      await this.factory.recompute(tx, invoiceId);
       await this.audit.record(
         actor,
         { action: 'crm.payment_voided', targetType: 'Invoice', targetId: invoiceId },
@@ -939,11 +930,13 @@ export class CrmService {
       throw ApiError.validation('Add the customer’s email address first.', 'billToEmail');
     if (!this.mail.enabled)
       throw ApiError.conflict('Email is not set up yet. Add the mail server in Integrations.');
+    const settings = this.crmSettings.current();
+    const doc = invoiceDocument(invoice, this.crmSettings);
     const sent = await this.mail.send({
       to: invoice.billToEmail,
-      subject: `Invoice ${invoice.number} from ${this.config.INVOICE_COMPANY_NAME}`,
-      text: invoiceText(invoice, this.invoiceSettings()),
-      html: invoiceHtml(invoice, this.invoiceSettings()),
+      subject: `Invoice ${invoice.number} from ${settings.companyName}`,
+      text: documentText(doc, settings),
+      html: documentHtml(doc, settings),
     });
     if (!sent) throw ApiError.conflict('The mail server did not accept the email. Try again later.');
     await this.prisma.invoice.update({
@@ -975,12 +968,13 @@ export class CrmService {
             status: true,
             type: true,
             amount: true,
+            currency: true,
             items: { select: { name: true } },
           },
         },
         invoices: {
           where: { status: { not: 'VOID' } },
-          select: { total: true, amountPaid: true, status: true },
+          select: { total: true, amountPaid: true, status: true, currency: true },
         },
       },
       orderBy: { name: 'asc' },
@@ -988,9 +982,13 @@ export class CrmService {
     return businesses.map((b) => {
       const won = b.deals.filter((d) => d.status === 'WON');
       const invoiced = round2(
-        b.invoices.filter((i) => i.status !== 'DRAFT').reduce((s, i) => s + num(i.total), 0),
+        b.invoices
+          .filter((i) => i.status !== 'DRAFT')
+          .reduce((s, i) => s + this.main(num(i.total), i.currency), 0),
       );
-      const paid = round2(b.invoices.reduce((s, i) => s + num(i.amountPaid), 0));
+      const paid = round2(
+        b.invoices.reduce((s, i) => s + this.main(num(i.amountPaid), i.currency), 0),
+      );
       return {
         id: b.id,
         name: b.name,
@@ -1007,7 +1005,7 @@ export class CrmService {
         storeCount: b._count.stores,
         wonDeals: won.length,
         upsells: won.filter((d) => d.type === 'UPSELL').length,
-        lifetimeValue: round2(won.reduce((s, d) => s + num(d.amount), 0)),
+        lifetimeValue: round2(won.reduce((s, d) => s + this.main(num(d.amount), d.currency), 0)),
         invoiced,
         paid,
         outstanding: round2(invoiced - paid),
@@ -1043,7 +1041,7 @@ export class CrmService {
           closedAt: { gte: start, lt: end },
           ownerId: { in: userIds },
         },
-        select: { ownerId: true, amount: true, type: true },
+        select: { ownerId: true, amount: true, type: true, currency: true },
       }),
       this.prisma.lead.groupBy({
         by: ['ownerId', 'stage'],
@@ -1061,7 +1059,10 @@ export class CrmService {
           paidAt: { gte: start, lt: end },
           invoice: { status: { not: 'VOID' }, deal: { ownerId: { in: userIds } } },
         },
-        select: { amount: true, invoice: { select: { deal: { select: { ownerId: true } } } } },
+        select: {
+          amount: true,
+          invoice: { select: { currency: true, deal: { select: { ownerId: true } } } },
+        },
       }),
     ]);
     const by = new Map<
@@ -1078,7 +1079,7 @@ export class CrmService {
     };
     for (const d of deals) {
       const v = get(d.ownerId!);
-      v.achieved = round2(v.achieved + num(d.amount));
+      v.achieved = round2(v.achieved + this.main(num(d.amount), d.currency));
       v.won += 1;
       if (d.type === 'UPSELL') v.upsells += 1;
     }
@@ -1089,7 +1090,10 @@ export class CrmService {
     }
     for (const p of payments) {
       const owner = p.invoice.deal?.ownerId;
-      if (owner) get(owner).collected = round2(get(owner).collected + num(p.amount));
+      if (owner)
+        get(owner).collected = round2(
+          get(owner).collected + this.main(num(p.amount), p.invoice.currency),
+        );
     }
     return by;
   }
@@ -1108,11 +1112,20 @@ export class CrmService {
       this.achievements(start, end, ids),
     ]);
     const targetBy = new Map(targets.map((t) => [t.userId, num(t.amount)]));
+    const plans = await this.commissionPlans();
     const team: TargetProgressDto[] = people.map((user) => {
       const a = achieved.get(user.id);
       const target = targetBy.get(user.id) ?? null;
       const value = a?.achieved ?? 0;
+      const plan = plans.get(user.id) ?? plans.get('team')!;
       return {
+        commission: commissionFor(plan, plan.basis === 'WON' ? value : (a?.collected ?? 0), target),
+        commissionPlan: {
+          baseRate: plan.baseRate,
+          bonusRate: plan.bonusRate,
+          basis: plan.basis,
+          custom: plans.has(user.id),
+        },
         user,
         month,
         target,
@@ -1133,6 +1146,7 @@ export class CrmService {
         target: round2(team.reduce((s, t) => s + (t.target ?? 0), 0)),
         achieved: round2(team.reduce((s, t) => s + t.achieved, 0)),
         collected: round2(team.reduce((s, t) => s + t.collected, 0)),
+        commission: round2(team.reduce((s, t) => s + t.commission, 0)),
       },
       canManage: access.targets,
     };
@@ -1175,7 +1189,7 @@ export class CrmService {
       }),
       this.prisma.deal.findMany({
         where: { ownerId: userId, status: 'WON', deletedAt: null, closedAt: { gte: first, lt: last } },
-        select: { amount: true, closedAt: true },
+        select: { amount: true, closedAt: true, currency: true },
       }),
       this.prisma.lead.findMany({
         where: { ownerId: userId, stage: 'WON', deletedAt: null, closedAt: { gte: first, lt: last } },
@@ -1185,20 +1199,168 @@ export class CrmService {
     const targetBy = new Map(
       targets.map((t) => [t.month.toISOString().slice(0, 7), num(t.amount)]),
     );
+    const plans = await this.commissionPlans();
+    const plan = plans.get(userId) ?? plans.get('team')!;
     return {
       user: toPublicUser(user),
       currency: this.currency,
-      months: keys.map((key) => ({
-        month: key,
-        target: targetBy.get(key) ?? null,
-        achieved: round2(
+      months: keys.map((key) => {
+        const achieved = round2(
           deals
             .filter((d) => d.closedAt && monthKey(d.closedAt) === key)
-            .reduce((s, d) => s + num(d.amount), 0),
-        ),
-        leadsWon: leads.filter((l) => l.closedAt && monthKey(l.closedAt) === key).length,
-      })),
+            .reduce((s, d) => s + this.main(num(d.amount), d.currency), 0),
+        );
+        const target = targetBy.get(key) ?? null;
+        return {
+          month: key,
+          target,
+          achieved,
+          leadsWon: leads.filter((l) => l.closedAt && monthKey(l.closedAt) === key).length,
+          // History shows commission on won value (collections per month are on the Targets tab).
+          commission: commissionFor(plan, achieved, target),
+        };
+      }),
     };
+  }
+
+  // ───────────────────────────── Commission ─────────────────────────────
+
+  /** "team" plus per-person overrides. */
+  private async commissionPlans() {
+    const rows = await this.prisma.commissionPlan.findMany();
+    const plans = new Map<string, { baseRate: number; bonusRate: number; basis: 'WON' | 'COLLECTED' }>(
+      rows.map((r) => [r.scope, { baseRate: num(r.baseRate), bonusRate: num(r.bonusRate), basis: r.basis }]),
+    );
+    if (!plans.has('team')) plans.set('team', { baseRate: 5, bonusRate: 10, basis: 'WON' });
+    return plans;
+  }
+
+  async listCommissionPlans(actor: Actor): Promise<CommissionPlanDto[]> {
+    const access = await this.access(actor);
+    const plans = await this.commissionPlans();
+    const people = await this.salesPeople(access.teamId);
+    const team = plans.get('team')!;
+    return [
+      { scope: 'team', user: null, ...team },
+      ...people
+        .filter((p) => plans.has(p.id) && (access.seeAll || access.targets || p.id === actor.userId))
+        .map((p) => ({ scope: p.id, user: p, ...plans.get(p.id)! })),
+    ];
+  }
+
+  async setCommissionPlan(actor: Actor, request: SetCommissionPlanRequest): Promise<CommissionPlanDto[]> {
+    const access = await this.access(actor);
+    if (!access.targets) throw ApiError.forbidden('Only sales managers can change commission.');
+    if (request.scope !== 'team') await this.requireSalesUser(access.teamId, request.scope);
+    await this.prisma.commissionPlan.upsert({
+      where: { scope: request.scope },
+      create: { ...request, updatedById: actor.userId },
+      update: {
+        baseRate: request.baseRate,
+        bonusRate: request.bonusRate,
+        basis: request.basis,
+        updatedById: actor.userId,
+      },
+    });
+    return this.listCommissionPlans(actor);
+  }
+
+  async removeCommissionPlan(actor: Actor, scope: string): Promise<CommissionPlanDto[]> {
+    const access = await this.access(actor);
+    if (!access.targets) throw ApiError.forbidden('Only sales managers can change commission.');
+    if (scope === 'team') throw ApiError.validation('The team plan cannot be removed.', 'scope');
+    await this.prisma.commissionPlan.deleteMany({ where: { scope } });
+    return this.listCommissionPlans(actor);
+  }
+
+  // ───────────────────────────── Payment claims ─────────────────────────────
+
+  async listClaims(actor: Actor, status?: 'PENDING' | 'CONFIRMED' | 'REJECTED'): Promise<PaymentClaimDto[]> {
+    const access = await this.access(actor);
+    if (!access.billing && !access.seeAll) throw ApiError.forbidden();
+    const rows = await this.prisma.paymentClaim.findMany({
+      where: status ? { status } : {},
+      include: {
+        invoice: { select: { id: true, number: true, billToName: true, currency: true, total: true, amountPaid: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 200,
+    });
+    return rows.map((c) => ({
+      id: c.id,
+      invoice: {
+        id: c.invoice.id,
+        number: c.invoice.number,
+        billToName: c.invoice.billToName,
+        currency: c.invoice.currency,
+        balance: round2(num(c.invoice.total) - num(c.invoice.amountPaid)),
+      },
+      amount: num(c.amount),
+      method: c.method,
+      reference: c.reference,
+      payerName: c.payerName,
+      note: c.note,
+      status: c.status,
+      reviewedAt: c.reviewedAt?.toISOString() ?? null,
+      reviewNote: c.reviewNote,
+      createdAt: c.createdAt.toISOString(),
+    }));
+  }
+
+  /** Confirming a customer's "I have paid" records the payment on the invoice. */
+  async reviewClaim(actor: Actor, claimId: string, request: ReviewPaymentClaimRequest): Promise<PaymentClaimDto[]> {
+    await this.requireBilling(actor);
+    const claim = await this.prisma.paymentClaim.findUnique({ where: { id: claimId } });
+    if (!claim) throw ApiError.notFound('Payment');
+    if (claim.status !== 'PENDING') throw ApiError.conflict('This payment was already reviewed.');
+    if (request.action === 'confirm') {
+      const invoice = await this.prisma.invoice.findUniqueOrThrow({
+        where: { id: claim.invoiceId },
+        select: { total: true, amountPaid: true },
+      });
+      const balance = round2(num(invoice.total) - num(invoice.amountPaid));
+      const amount = Math.min(num(claim.amount), balance);
+      if (amount <= 0) throw ApiError.conflict('This invoice is already paid.');
+      await this.recordPayment(actor, claim.invoiceId, {
+        amount,
+        paidAt: claim.createdAt,
+        method: claim.method,
+        reference: claim.reference,
+        notes: [claim.payerName ? `Paid by ${claim.payerName}` : null, claim.note].filter(Boolean).join(' — ') || null,
+      });
+      const payment = await this.prisma.payment.findFirst({
+        where: { invoiceId: claim.invoiceId, reference: claim.reference },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true },
+      });
+      await this.prisma.paymentClaim.update({
+        where: { id: claimId },
+        data: {
+          status: 'CONFIRMED',
+          paymentId: payment?.id ?? null,
+          reviewedById: actor.userId,
+          reviewedAt: new Date(),
+          reviewNote: request.note ?? null,
+        },
+      });
+    } else {
+      await this.prisma.paymentClaim.update({
+        where: { id: claimId },
+        data: {
+          status: 'REJECTED',
+          reviewedById: actor.userId,
+          reviewedAt: new Date(),
+          reviewNote: request.note ?? null,
+        },
+      });
+    }
+    await this.audit.record(actor, {
+      action: `crm.payment_claim_${request.action === 'confirm' ? 'confirmed' : 'rejected'}`,
+      targetType: 'Invoice',
+      targetId: claim.invoiceId,
+      metadata: { amount: num(claim.amount), method: claim.method },
+    });
+    return this.listClaims(actor, 'PENDING');
   }
 
   // ───────────────────────────── Overview ─────────────────────────────
@@ -1215,16 +1377,22 @@ export class CrmService {
     const [won, open, invoices, payments, items] = await Promise.all([
       this.prisma.deal.findMany({
         where: { AND: [dealScope, { status: 'WON', closedAt: { gte: trendStart, lt: end } }] },
-        select: { amount: true, closedAt: true, type: true },
+        select: { amount: true, closedAt: true, type: true, currency: true },
       }),
-      this.prisma.deal.aggregate({
+      this.prisma.deal.findMany({
         where: { AND: [dealScope, { status: 'OPEN' }] },
-        _sum: { amount: true },
-        _count: { _all: true },
+        select: { amount: true, currency: true },
       }),
       this.prisma.invoice.findMany({
         where: { AND: [invoiceScope, { status: { in: ['ISSUED', 'PARTIALLY_PAID', 'PAID'] } }] },
-        select: { total: true, amountPaid: true, status: true, dueDate: true, issueDate: true },
+        select: {
+          total: true,
+          amountPaid: true,
+          status: true,
+          dueDate: true,
+          issueDate: true,
+          currency: true,
+        },
       }),
       this.prisma.payment.findMany({
         where: {
@@ -1232,11 +1400,11 @@ export class CrmService {
           paidAt: { gte: trendStart, lt: end },
           invoice: { AND: [invoiceScope, { status: { not: 'VOID' } }] },
         },
-        select: { amount: true, paidAt: true },
+        select: { amount: true, paidAt: true, invoice: { select: { currency: true } } },
       }),
       this.prisma.dealItem.findMany({
         where: { deal: { AND: [dealScope, { status: 'WON' }] } },
-        select: { name: true, total: true },
+        select: { name: true, total: true, deal: { select: { currency: true } } },
       }),
     ]);
     const thisMonth = won.filter((d) => d.closedAt && d.closedAt >= start);
@@ -1246,7 +1414,7 @@ export class CrmService {
     for (const i of items) {
       const s = services.get(i.name) ?? { name: i.name, count: 0, value: 0 };
       s.count += 1;
-      s.value = round2(s.value + num(i.total));
+      s.value = round2(s.value + this.main(num(i.total), i.deal.currency));
       services.set(i.name, s);
     }
     const trend = Array.from({ length: 6 }, (_, i) => {
@@ -1256,31 +1424,37 @@ export class CrmService {
         won: round2(
           won
             .filter((d) => d.closedAt && monthKey(d.closedAt) === key)
-            .reduce((s, d) => s + num(d.amount), 0),
+            .reduce((s, d) => s + this.main(num(d.amount), d.currency), 0),
         ),
         collected: round2(
-          payments.filter((p) => monthKey(p.paidAt) === key).reduce((s, p) => s + num(p.amount), 0),
+          payments
+            .filter((p) => monthKey(p.paidAt) === key)
+            .reduce((s, p) => s + this.main(num(p.amount), p.invoice.currency), 0),
         ),
       };
     });
     return {
       currency: this.currency,
       month,
-      wonThisMonth: round2(thisMonth.reduce((s, d) => s + num(d.amount), 0)),
+      wonThisMonth: round2(thisMonth.reduce((s, d) => s + this.main(num(d.amount), d.currency), 0)),
       wonCountThisMonth: thisMonth.length,
       upsellThisMonth: round2(
-        thisMonth.filter((d) => d.type === 'UPSELL').reduce((s, d) => s + num(d.amount), 0),
+        thisMonth.filter((d) => d.type === 'UPSELL').reduce((s, d) => s + this.main(num(d.amount), d.currency), 0),
       ),
-      openPipeline: num(open._sum.amount),
-      openDeals: open._count._all,
+      openPipeline: round2(open.reduce((s, d) => s + this.main(num(d.amount), d.currency), 0)),
+      openDeals: open.length,
       invoicedThisMonth: round2(
         invoices
           .filter((i) => i.issueDate >= dateOnly(start) && i.issueDate < dateOnly(end))
-          .reduce((s, i) => s + num(i.total), 0),
+          .reduce((s, i) => s + this.main(num(i.total), i.currency), 0),
       ),
       collectedThisMonth: trend.at(-1)!.collected,
-      outstanding: round2(unpaid.reduce((s, i) => s + num(i.total) - num(i.amountPaid), 0)),
-      overdue: round2(overdue.reduce((s, i) => s + num(i.total) - num(i.amountPaid), 0)),
+      outstanding: round2(
+        unpaid.reduce((s, i) => s + this.main(num(i.total) - num(i.amountPaid), i.currency), 0),
+      ),
+      overdue: round2(
+        overdue.reduce((s, i) => s + this.main(num(i.total) - num(i.amountPaid), i.currency), 0),
+      ),
       overdueCount: overdue.length,
       trend,
       topServices: [...services.values()].sort((a, b) => b.value - a.value).slice(0, 6),
@@ -1291,48 +1465,40 @@ export class CrmService {
   }
 }
 
+/** Base rate up to the target, bonus rate on everything above it (no target: base rate). */
+export function commissionFor(
+  plan: { baseRate: number; bonusRate: number },
+  value: number,
+  target: number | null,
+): number {
+  if (!target || target <= 0) return round2((value * plan.baseRate) / 100);
+  const within = Math.min(value, target);
+  const above = Math.max(0, value - target);
+  return round2((within * plan.baseRate + above * plan.bonusRate) / 100);
+}
+
 // ───────────────────────────── Invoice email ─────────────────────────────
 
-type InvoiceSettings = ReturnType<CrmService['invoiceSettings']>;
-
-const esc = (s: string): string =>
-  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
-
-function money(value: number, currency: string): string {
-  return `${currency} ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function invoiceText(i: InvoiceDto, s: InvoiceSettings): string {
-  return [
-    `Invoice ${i.number} from ${s.companyName}`,
-    `Issued ${i.issueDate}, due ${i.dueDate}`,
-    '',
-    ...i.items.map((it) => `${it.name} × ${it.quantity}: ${money(it.total, i.currency)}`),
-    '',
-    `Total: ${money(i.total, i.currency)}`,
-    `Paid: ${money(i.amountPaid, i.currency)}`,
-    `Balance due: ${money(i.balance, i.currency)}`,
-    ...(s.paymentDetails ? ['', 'How to pay:', s.paymentDetails] : []),
-  ].join('\n');
-}
-
-function invoiceHtml(i: InvoiceDto, s: InvoiceSettings): string {
-  const rows = i.items
-    .map(
-      (it) =>
-        `<tr><td style="padding:8px;border-bottom:1px solid #eee">${esc(it.name)}${
-          it.description ? `<br><small style="color:#666">${esc(it.description)}</small>` : ''
-        }</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${it.quantity}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(it.unitPrice, i.currency)}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${money(it.total, i.currency)}</td></tr>`,
-    )
-    .join('');
-  return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111">
-<h2 style="color:#ea580c;margin:0">${esc(s.companyName)}</h2>
-<p style="color:#666;margin:4px 0 16px">${[s.companyAddress, s.companyEmail, s.companyPhone].filter(Boolean).map((v) => esc(v!)).join(' · ')}</p>
-<h3 style="margin:0">Invoice ${esc(i.number)}</h3>
-<p style="margin:4px 0">Bill to: <b>${esc(i.billToName)}</b><br>Issued ${i.issueDate} · Due ${i.dueDate}</p>
-<table style="width:100%;border-collapse:collapse;margin-top:12px"><thead><tr style="background:#fff7ed"><th style="padding:8px;text-align:left">Item</th><th style="padding:8px;text-align:right">Qty</th><th style="padding:8px;text-align:right">Price</th><th style="padding:8px;text-align:right">Amount</th></tr></thead><tbody>${rows}</tbody></table>
-<p style="text-align:right;margin-top:12px">Subtotal ${money(i.subtotal, i.currency)}${i.discount ? `<br>Discount −${money(i.discount, i.currency)}` : ''}${i.taxAmount ? `<br>Tax (${i.taxRate}%) ${money(i.taxAmount, i.currency)}` : ''}<br><b style="font-size:18px">Total ${money(i.total, i.currency)}</b><br>Paid ${money(i.amountPaid, i.currency)}<br><b>Balance due ${money(i.balance, i.currency)}</b></p>
-${s.paymentDetails ? `<p style="background:#f5f5f5;padding:12px;border-radius:8px;white-space:pre-line"><b>How to pay</b><br>${esc(s.paymentDetails)}</p>` : ''}
-${i.notes ? `<p style="white-space:pre-line">${esc(i.notes)}</p>` : ''}
-</div>`;
+/** An invoice as an email document, with its pay page link. */
+export function invoiceDocument(i: InvoiceDto, settings: CrmSettingsService) {
+  return {
+    kind: 'Invoice' as const,
+    number: i.number,
+    billToName: i.billToName,
+    issueDate: i.issueDate,
+    dueLabel: 'Due',
+    dueDate: i.dueDate,
+    currency: i.currency,
+    items: i.items,
+    subtotal: i.subtotal,
+    discount: i.discount,
+    taxRate: i.taxRate,
+    taxAmount: i.taxAmount,
+    total: i.total,
+    amountPaid: i.amountPaid,
+    balance: i.balance,
+    notes: i.notes,
+    actionUrl: i.payUrl ? settings.link(i.payUrl) : null,
+    actionLabel: 'View and pay',
+  };
 }

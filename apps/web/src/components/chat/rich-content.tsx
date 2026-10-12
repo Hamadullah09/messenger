@@ -210,6 +210,51 @@ export function AudioMessage({
 
 // ───────────────────────────── Location ─────────────────────────────
 
+const MAP_W = 288;
+const MAP_H = 128;
+const MAP_ZOOM = 15;
+
+/**
+ * Map preview from OpenStreetMap tiles, fetched through our own server (the phone never
+ * contacts the map provider). The point sits in the middle of the picture.
+ */
+export function StaticMap({ lat, lng, zoom = MAP_ZOOM }: { lat: number; lng: number; zoom?: number }) {
+  const n = 2 ** zoom;
+  const rad = (lat * Math.PI) / 180;
+  const px = ((lng + 180) / 360) * n * 256;
+  const py = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n * 256;
+  const left = px - MAP_W / 2;
+  const top = py - MAP_H / 2;
+  return (
+    <span aria-hidden className="absolute inset-0 overflow-hidden">
+      {(() => {
+        const out = [];
+        for (let tx = Math.floor(left / 256); tx <= Math.floor((left + MAP_W) / 256); tx++)
+          for (let ty = Math.floor(top / 256); ty <= Math.floor((top + MAP_H) / 256); ty++) {
+            if (ty < 0 || ty >= n) continue;
+            const x = ((tx % n) + n) % n;
+            out.push(
+              <img
+                key={`${tx}-${ty}`}
+                src={`/api/v1/maps/tiles/${zoom}/${x}/${ty}.png`}
+                alt=""
+                width={256}
+                height={256}
+                loading="lazy"
+                className="absolute max-w-none"
+                style={{ left: tx * 256 - left, top: ty * 256 - top }}
+              />,
+            );
+          }
+        return out;
+      })()}
+      <span className="absolute right-1 bottom-0.5 rounded bg-white/80 px-1 text-[9px] text-neutral-700">
+        © OpenStreetMap
+      </span>
+    </span>
+  );
+}
+
 export function mapsLink(lat: number, lng: number): string {
   return `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lng.toFixed(6)}`;
 }
@@ -229,16 +274,7 @@ export function LocationMessage({ message, meta, mine }: { message: MessageDto; 
         className="relative block h-32 overflow-hidden bg-[#e7efe3] dark:bg-[#1f2c27]"
         aria-label="Open the location in maps"
       >
-        {/* A simple map-like backdrop (no third-party map tiles are loaded). */}
-        <span
-          aria-hidden
-          className="absolute inset-0 opacity-60"
-          style={{
-            backgroundImage:
-              'linear-gradient(90deg, rgb(0 0 0 / 0.06) 1px, transparent 1px), linear-gradient(rgb(0 0 0 / 0.06) 1px, transparent 1px), linear-gradient(35deg, transparent 46%, rgb(255 255 255 / 0.7) 46%, rgb(255 255 255 / 0.7) 52%, transparent 52%)',
-            backgroundSize: '24px 24px, 24px 24px, 100% 100%',
-          }}
-        />
+        <StaticMap lat={meta.lat} lng={meta.lng} />
         <span className="absolute inset-0 flex items-center justify-center">
           {liveActive ? (
             <span className="relative inline-flex size-12 items-center justify-center">
@@ -619,7 +655,23 @@ export function stickerEmoji(id: string): string {
   return STICKERS.find((s) => s.id === id)?.emoji ?? '🙂';
 }
 
-export function StickerMessage({ meta }: { meta: Meta<'sticker'> }) {
+function CustomSticker({ attachment }: { attachment: AttachmentDto }) {
+  const url = useMediaUrl(attachment.mediaId, attachment.hasThumbnail ? 'thumbnail' : 'original');
+  return url.data ? (
+    <img src={url.data.url} alt="Sticker" className="size-40 object-contain drop-shadow-md" />
+  ) : (
+    <span className="block size-40 animate-pulse rounded-3xl bg-black/5" aria-label="Loading sticker" />
+  );
+}
+
+export function StickerMessage({
+  meta,
+  attachment,
+}: {
+  meta: Meta<'sticker'>;
+  attachment?: AttachmentDto | null;
+}) {
+  if (meta.sticker === 'custom' && attachment) return <CustomSticker attachment={attachment} />;
   const sticker = STICKERS.find((s) => s.id === meta.sticker);
   return (
     <span

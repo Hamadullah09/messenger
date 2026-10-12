@@ -472,6 +472,43 @@ export class ConversationsService {
   }
 
   /** "Groups in common" for a direct chat: groups both people are active members of. */
+  /** Disappearing messages: anyone in a direct chat; in groups whoever may edit group info. */
+  async setDisappearing(
+    actor: Actor,
+    conversationId: string,
+    seconds: number | null,
+  ): Promise<ConversationDetailDto> {
+    const { conversation, member } = await this.access.requireMember(conversationId, actor.userId);
+    if (conversation.type !== 'DIRECT' && conversation.type !== 'GROUP')
+      throw ApiError.validation('Disappearing messages are for chats and groups.');
+    if (
+      conversation.type === 'GROUP' &&
+      conversation.editInfoPolicy === 'ADMINS_ONLY' &&
+      member.role !== 'ADMIN'
+    )
+      throw ApiError.forbidden('Only group admins can change this.');
+    const events = await this.prisma.$transaction(async (tx) => {
+      await tx.conversation.update({
+        where: { id: conversationId },
+        data: { disappearAfterSeconds: seconds },
+      });
+      const system = await this.writer.createSystem(tx, conversation, actor.userId, {
+        type: 'disappearing_changed',
+        actorId: actor.userId,
+        seconds,
+      });
+      const updated = await this.outbox.add(
+        tx,
+        'conversation.updated',
+        { conversationId },
+        conversation.businessId,
+      );
+      return [system.event, updated];
+    });
+    await this.outbox.dispatch(events);
+    return this.get(actor, conversationId);
+  }
+
   async commonGroups(actor: Actor, conversationId: string): Promise<CommonGroupDto[]> {
     const { conversation } = await this.access.requireMember(conversationId, actor.userId);
     if (conversation.type !== 'DIRECT') return [];

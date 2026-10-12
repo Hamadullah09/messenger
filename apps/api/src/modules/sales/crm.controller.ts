@@ -41,6 +41,15 @@ import {
   type UpdateDealRequest,
   type UpdateInvoiceRequest,
   type UpsertServiceRequest,
+  reviewPaymentClaimSchema,
+  setCommissionPlanRequestSchema,
+  updateCrmSettingsRequestSchema,
+  type CommissionPlanDto,
+  type CrmSettingsDto,
+  type PaymentClaimDto,
+  type ReviewPaymentClaimRequest,
+  type SetCommissionPlanRequest,
+  type UpdateCrmSettingsRequest,
 } from '@storeline/shared';
 import { z } from 'zod';
 import { ApiZodBody, ApiZodQuery, ZodPipe } from '../../infra/http/zod';
@@ -48,6 +57,7 @@ import { CurrentActor, type Actor } from '../auth/actor';
 import { CrmService } from './crm.service';
 
 const monthQuerySchema = z.object({ month: monthSchema.optional() });
+const claimsQuerySchema = z.object({ status: z.enum(['PENDING', 'CONFIRMED', 'REJECTED']).optional() });
 const voidSchema = z.object({ reason: z.string().trim().min(1).max(300) });
 
 function currentMonth(): string {
@@ -67,8 +77,63 @@ export class CrmController {
   }
 
   @Get('settings')
-  settings(): ReturnType<CrmService['invoiceSettings']> {
-    return this.crm.invoiceSettings();
+  settings(@CurrentActor() actor: Actor): Promise<CrmSettingsDto> {
+    return this.crm.getSettings(actor);
+  }
+
+  @Put('settings')
+  @ApiZodBody(updateCrmSettingsRequestSchema)
+  updateSettings(
+    @CurrentActor() actor: Actor,
+    @Body(new ZodPipe(updateCrmSettingsRequestSchema)) body: UpdateCrmSettingsRequest,
+  ): Promise<CrmSettingsDto> {
+    return this.crm.updateSettings(actor, body);
+  }
+
+  // ── Commission ──
+
+  @Get('commission-plans')
+  commissionPlans(@CurrentActor() actor: Actor): Promise<CommissionPlanDto[]> {
+    return this.crm.listCommissionPlans(actor);
+  }
+
+  @Put('commission-plans')
+  @ApiZodBody(setCommissionPlanRequestSchema)
+  setCommissionPlan(
+    @CurrentActor() actor: Actor,
+    @Body(new ZodPipe(setCommissionPlanRequestSchema)) body: SetCommissionPlanRequest,
+  ): Promise<CommissionPlanDto[]> {
+    return this.crm.setCommissionPlan(actor, body);
+  }
+
+  @Delete('commission-plans/:scope')
+  removeCommissionPlan(
+    @CurrentActor() actor: Actor,
+    @Param('scope', ParseUUIDPipe) scope: string,
+  ): Promise<CommissionPlanDto[]> {
+    return this.crm.removeCommissionPlan(actor, scope);
+  }
+
+  // ── Payment claims (customers' "I have paid") ──
+
+  @Get('payment-claims')
+  @ApiZodQuery(claimsQuerySchema)
+  claims(
+    @CurrentActor() actor: Actor,
+    @Query(new ZodPipe(claimsQuerySchema)) query: z.infer<typeof claimsQuerySchema>,
+  ): Promise<PaymentClaimDto[]> {
+    return this.crm.listClaims(actor, query.status);
+  }
+
+  @Post('payment-claims/:id/review')
+  @HttpCode(200)
+  @ApiZodBody(reviewPaymentClaimSchema)
+  reviewClaim(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodPipe(reviewPaymentClaimSchema)) body: ReviewPaymentClaimRequest,
+  ): Promise<PaymentClaimDto[]> {
+    return this.crm.reviewClaim(actor, id, body);
   }
 
   // ── Services ──

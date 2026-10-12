@@ -1,14 +1,7 @@
 'use client';
 
-import type { CallConfigDto, CallDto, CallSignal } from '@storeline/shared';
-import {
-  Mic,
-  MicOff,
-  Phone,
-  PhoneOff,
-  Video,
-  VideoOff,
-} from 'lucide-react';
+import type { CallConfigDto, CallDto, CallSignal, PublicUserDto } from '@storeline/shared';
+import { Mic, MicOff, Phone, PhoneOff, Users, Video, VideoOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import { Avatar, cx } from '@/components/ui';
@@ -21,13 +14,15 @@ type Phase = 'outgoing' | 'incoming' | 'connecting' | 'active' | 'ended';
 interface CallStore {
   call: CallDto | null;
   phase: Phase | null;
-  /** This device started or answered the call (other devices only see it ring). */
+  /** This device started or answered/joined the call (other devices only see it ring). */
   ownsCall: boolean;
   local: MediaStream | null;
-  remote: MediaStream | null;
+  /** Other people's audio/video, by user id. */
+  remotes: Record<string, MediaStream>;
+  /** Who turned their camera off, by user id. */
+  cameraOffBy: Record<string, boolean>;
   muted: boolean;
   cameraOff: boolean;
-  remoteCameraOff: boolean;
   connectedAt: number | null;
   message: string | null;
 }
@@ -37,21 +32,22 @@ const initial: CallStore = {
   phase: null,
   ownsCall: false,
   local: null,
-  remote: null,
+  remotes: {},
+  cameraOffBy: {},
   muted: false,
   cameraOff: false,
-  remoteCameraOff: false,
   connectedAt: null,
   message: null,
 };
 
 export const useCallStore = create<CallStore>(() => initial);
 
-let peer: RTCPeerConnection | null = null;
-let pendingIce: RTCIceCandidateInit[] = [];
+/** One peer connection per other person (one-to-one: one; group: up to 7). */
+const peers = new Map<string, { pc: RTCPeerConnection; pendingIce: RTCIceCandidateInit[] }>();
 let ringTimer: number | null = null;
 let config: CallConfigDto | null = null;
 let emitSignal: ((payload: CallSignal) => void) | null = null;
+let myUserId = '';
 
 async function callConfig(): Promise<CallConfigDto> {
   config ??= await api<CallConfigDto>('/calls/config');
@@ -62,15 +58,23 @@ function stopTracks(stream: MediaStream | null) {
   stream?.getTracks().forEach((t) => t.stop());
 }
 
+function closePeer(userId: string) {
+  peers.get(userId)?.pc.close();
+  peers.delete(userId);
+  const { remotes, cameraOffBy } = useCallStore.getState();
+  const nextRemotes = { ...remotes };
+  delete nextRemotes[userId];
+  const nextOff = { ...cameraOffBy };
+  delete nextOff[userId];
+  useCallStore.setState({ remotes: nextRemotes, cameraOffBy: nextOff });
+}
+
 function cleanup(message: string | null = null) {
   if (ringTimer) window.clearTimeout(ringTimer);
   ringTimer = null;
-  peer?.close();
-  peer = null;
-  pendingIce = [];
+  for (const id of [...peers.keys()]) closePeer(id);
   ringtone.stop();
-  const { local } = useCallStore.getState();
-  stopTracks(local);
+  stopTracks(useCallStore.getState().local);
   if (message) {
     useCallStore.setState({ ...initial, phase: 'ended', message, call: useCallStore.getState().call });
     window.setTimeout(() => {
@@ -98,49 +102,61 @@ async function getMedia(video: boolean): Promise<MediaStream> {
   }
 }
 
-async function createPeer(callId: string): Promise<RTCPeerConnection> {
+function send(callId: string, to: string, data: CallSignal['data']) {
+  emitSignal?.({ callId, to, data });
+}
+
+async function peerFor(callId: string, userId: string): Promise<RTCPeerConnection> {
+  const existing = peers.get(userId);
+  if (existing) return existing.pc;
   const { iceServers } = await callConfig();
   const pc = new RTCPeerConnection({ iceServers });
   const local = useCallStore.getState().local;
   local?.getTracks().forEach((track) => pc.addTrack(track, local));
-  const remote = new MediaStream();
-  useCallStore.setState({ remote });
   pc.ontrack = (event) => {
-    event.streams[0]?.getTracks().forEach((t) => {
-      if (!remote.getTracks().includes(t)) remote.addTrack(t);
-    });
-    useCallStore.setState({ remote: new MediaStream(remote.getTracks()) });
+    const stream = event.streams[0] ?? new MediaStream([event.track]);
+    useCallStore.setState({ remotes: { ...useCallStore.getState().remotes, [userId]: stream } });
   };
   pc.onicecandidate = (event) => {
     if (event.candidate)
-      emitSignal?.({
-        callId,
-        data: {
-          type: 'ice',
-          candidate: {
-            candidate: event.candidate.candidate,
-            sdpMid: event.candidate.sdpMid,
-            sdpMLineIndex: event.candidate.sdpMLineIndex,
-          },
+      send(callId, userId, {
+        type: 'ice',
+        candidate: {
+          candidate: event.candidate.candidate,
+          sdpMid: event.candidate.sdpMid,
+          sdpMLineIndex: event.candidate.sdpMLineIndex,
         },
       });
   };
   pc.onconnectionstatechange = () => {
+    const state = useCallStore.getState();
     if (pc.connectionState === 'connected')
-      useCallStore.setState({ phase: 'active', connectedAt: useCallStore.getState().connectedAt ?? Date.now() });
+      useCallStore.setState({ phase: 'active', connectedAt: state.connectedAt ?? Date.now() });
     if (pc.connectionState === 'failed') {
-      void api(`/calls/${callId}/end`, { method: 'POST', body: { reason: 'failed' } }).catch(() => undefined);
-      cleanup('The connection failed.');
+      if (state.call?.group) {
+        closePeer(userId);
+      } else if (state.call) {
+        void api(`/calls/${state.call.id}/end`, { method: 'POST', body: { reason: 'failed' } }).catch(() => undefined);
+        cleanup('The connection failed.');
+      }
     }
   };
-  peer = pc;
+  peers.set(userId, { pc, pendingIce: [] });
   return pc;
 }
 
-async function flushIce() {
-  if (!peer?.remoteDescription) return;
-  for (const c of pendingIce) await peer.addIceCandidate(c).catch(() => undefined);
-  pendingIce = [];
+async function offerTo(callId: string, userId: string) {
+  const pc = await peerFor(callId, userId);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  send(callId, userId, { type: 'offer', sdp: offer.sdp ?? '' });
+}
+
+async function flushIce(userId: string) {
+  const p = peers.get(userId);
+  if (!p?.pc.remoteDescription) return;
+  for (const c of p.pendingIce) await p.pc.addIceCandidate(c).catch(() => undefined);
+  p.pendingIce = [];
 }
 
 /** A soft repeating ring tone (generated; no sound file). */
@@ -187,12 +203,13 @@ export function useCallControls() {
   return { start: startCall };
 }
 
+/** Starts a call in a chat (one-to-one) or a group (others join). */
 export async function startCall(conversationId: string, media: 'audio' | 'video'): Promise<void> {
   if (useCallStore.getState().phase && useCallStore.getState().phase !== 'ended') return;
   let local: MediaStream | null = null;
   try {
     local = await getMedia(media === 'video');
-    useCallStore.setState({ ...initial, local, phase: 'outgoing', ownsCall: true, cameraOff: false });
+    useCallStore.setState({ ...initial, local, phase: 'outgoing', ownsCall: true });
     const call = await api<CallDto>('/calls', { method: 'POST', body: { conversationId, media } });
     if (call.state === 'ended') {
       stopTracks(local);
@@ -200,6 +217,12 @@ export async function startCall(conversationId: string, media: 'audio' | 'video'
       return;
     }
     useCallStore.setState({ call });
+    if (call.group) {
+      // Joined a call that was already running: connect to everyone in it.
+      useCallStore.setState({ phase: call.participants.length > 1 ? 'connecting' : 'active' });
+      for (const p of call.participants) if (p.id !== myUserId) await offerTo(call.id, p.id);
+      return;
+    }
     const { ringSeconds } = await callConfig();
     ringTimer = window.setTimeout(() => {
       if (useCallStore.getState().phase === 'outgoing') {
@@ -217,20 +240,28 @@ async function acceptCall() {
   const { call } = useCallStore.getState();
   if (!call) return;
   ringtone.stop();
+  if (ringTimer) window.clearTimeout(ringTimer);
   try {
     const local = await getMedia(call.media === 'video');
     useCallStore.setState({ local, phase: 'connecting', ownsCall: true });
-    await createPeer(call.id);
+    if (call.group) {
+      const joined = await api<CallDto>(`/calls/${call.id}/join`, { method: 'POST' });
+      useCallStore.setState({ call: joined });
+      for (const p of joined.participants) if (p.id !== myUserId) await offerTo(joined.id, p.id);
+      if (joined.participants.length <= 1) useCallStore.setState({ phase: 'active' });
+      return;
+    }
+    await peerFor(call.id, call.caller.id);
     await api<CallDto>(`/calls/${call.id}/accept`, { method: 'POST' });
   } catch (error) {
-    void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
+    if (!call.group) void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
     cleanup(errorMessage(error));
   }
 }
 
 async function declineCall() {
   const { call } = useCallStore.getState();
-  if (call) void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
+  if (call && !call.group) void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
   cleanup();
 }
 
@@ -250,84 +281,88 @@ function toggleCamera() {
   const { local, cameraOff, call } = useCallStore.getState();
   local?.getVideoTracks().forEach((t) => (t.enabled = cameraOff));
   useCallStore.setState({ cameraOff: !cameraOff });
-  if (call) emitSignal?.({ callId: call.id, data: { type: 'media', audio: true, video: cameraOff } });
+  if (call) for (const id of peers.keys()) send(call.id, id, { type: 'media', audio: true, video: cameraOff });
 }
 
 /** Listens for calls on the live connection and shows the call screen. Mount once. */
 export function CallHost() {
   const socket = useSocket();
   const myId = useAuth((s) => s.me?.user.id);
+  myUserId = myId ?? '';
   useEffect(() => {
     if (!socket) return;
     emitSignal = (payload) => socket.emit('call.signal', payload, () => undefined);
     const onIncoming = (call: CallDto) => {
       const state = useCallStore.getState();
-      if (state.phase && state.phase !== 'ended') {
-        // Busy on this device: let the other devices ring; nothing to do here.
-        return;
-      }
+      if (state.phase && state.phase !== 'ended') return; // busy on this device
       useCallStore.setState({ ...initial, call, phase: 'incoming' });
       ringtone.start();
+      // Group calls keep going; stop ringing here after a while.
+      void callConfig().then(({ ringSeconds }) => {
+        ringTimer = window.setTimeout(() => {
+          if (useCallStore.getState().phase === 'incoming') cleanup();
+        }, ringSeconds * 1000);
+      });
     };
     const onUpdated = async (call: CallDto) => {
       const state = useCallStore.getState();
       if (!state.call || state.call.id !== call.id) return;
       if (call.state === 'ended') {
-        const outcome = call.outcome;
         cleanup(
           state.phase === 'incoming'
             ? null
-            : outcome === 'declined'
+            : call.outcome === 'declined'
               ? 'Call declined.'
-              : outcome === 'answered'
-                ? 'Call ended.'
-                : outcome === 'busy'
-                  ? 'Busy.'
-                  : 'Call ended.',
+              : call.outcome === 'busy'
+                ? 'Busy.'
+                : 'Call ended.',
         );
         return;
       }
+      useCallStore.setState({ call });
+      if (call.group) {
+        // People who left: drop their connection.
+        const present = new Set(call.participants.map((p) => p.id));
+        for (const id of [...peers.keys()]) if (!present.has(id)) closePeer(id);
+        return;
+      }
       if (call.state === 'active') {
-        useCallStore.setState({ call });
         if (state.phase === 'incoming' && !state.ownsCall) {
-          // Answered on another device.
-          cleanup();
+          cleanup(); // answered on another device
           return;
         }
         if (state.phase === 'outgoing' && call.caller.id === myId && state.ownsCall) {
           if (ringTimer) window.clearTimeout(ringTimer);
           useCallStore.setState({ phase: 'connecting' });
-          const pc = await createPeer(call.id);
-          const offer = await pc.createOffer();
-          await pc.setLocalDescription(offer);
-          emitSignal?.({ callId: call.id, data: { type: 'offer', sdp: offer.sdp ?? '' } });
+          await offerTo(call.id, call.callee.id);
         }
       }
     };
-    const onSignal = async (event: { callId: string; data: CallSignal['data'] }) => {
+    const onSignal = async (event: { callId: string; fromUserId: string; data: CallSignal['data'] }) => {
       const state = useCallStore.getState();
       if (!state.call || state.call.id !== event.callId || !state.ownsCall) return;
-      const data = event.data;
+      const { data, fromUserId: from } = event;
       if (data.type === 'offer') {
-        const pc = peer ?? (await createPeer(event.callId));
+        const pc = await peerFor(event.callId, from);
         await pc.setRemoteDescription({ type: 'offer', sdp: data.sdp });
-        await flushIce();
+        await flushIce(from);
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        emitSignal?.({ callId: event.callId, data: { type: 'answer', sdp: answer.sdp ?? '' } });
+        send(event.callId, from, { type: 'answer', sdp: answer.sdp ?? '' });
       } else if (data.type === 'answer') {
-        await peer?.setRemoteDescription({ type: 'answer', sdp: data.sdp });
-        await flushIce();
+        await peers.get(from)?.pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
+        await flushIce(from);
       } else if (data.type === 'ice') {
         const candidate = {
           candidate: data.candidate.candidate,
           sdpMid: data.candidate.sdpMid ?? null,
           sdpMLineIndex: data.candidate.sdpMLineIndex ?? null,
         };
-        if (peer?.remoteDescription) await peer.addIceCandidate(candidate).catch(() => undefined);
-        else pendingIce.push(candidate);
+        const p = peers.get(from);
+        if (p?.pc.remoteDescription) await p.pc.addIceCandidate(candidate).catch(() => undefined);
+        else if (p) p.pendingIce.push(candidate);
       } else if (data.type === 'media') {
-        useCallStore.setState({ remoteCameraOff: !data.video });
+        useCallStore.setState({ cameraOffBy: { ...useCallStore.getState().cameraOffBy, [from]: !data.video } });
       }
     };
     socket.on('call.incoming', onIncoming);
@@ -404,6 +439,24 @@ function RoundButton({
   );
 }
 
+/** One person in a group call: their video, or their picture when the camera is off. */
+function Tile({ user, stream, video, cameraOff }: { user: PublicUserDto; stream: MediaStream | null; video: boolean; cameraOff: boolean }) {
+  return (
+    <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-neutral-800">
+      {video && stream && !cameraOff ? (
+        <VideoView stream={stream} className="h-full w-full object-cover" />
+      ) : (
+        <>
+          <Avatar name={user.displayName} size={72} />
+          <AudioOut stream={stream} />
+        </>
+      )}
+      <span className="absolute bottom-2 left-2 rounded-full bg-black/50 px-2.5 py-0.5 text-sm">{user.displayName}</span>
+      {!stream && <span className="absolute top-2 right-2 rounded-full bg-black/50 px-2 py-0.5 text-xs">Connecting…</span>}
+    </div>
+  );
+}
+
 function CallScreen({ myId }: { myId: string }) {
   const s = useCallStore();
   if (!s.phase || !s.call) {
@@ -416,11 +469,70 @@ function CallScreen({ myId }: { myId: string }) {
     return null;
   }
   const call = s.call;
-  const peerUser = call.caller.id === myId ? call.callee : call.caller;
   const video = call.media === 'video';
+  const controls =
+    s.phase === 'incoming' ? (
+      <>
+        <RoundButton label={call.group ? 'Ignore' : 'Decline'} tone="danger" onClick={() => void declineCall()}>
+          <PhoneOff className="size-7" aria-hidden />
+        </RoundButton>
+        <RoundButton label={call.group ? 'Join' : 'Accept'} tone="success" onClick={() => void acceptCall()}>
+          {video ? <Video className="size-7" aria-hidden /> : <Phone className="size-7" aria-hidden />}
+        </RoundButton>
+      </>
+    ) : (
+      <>
+        <RoundButton label={s.muted ? 'Unmute' : 'Mute'} tone={s.muted ? 'active' : 'neutral'} onClick={toggleMute}>
+          {s.muted ? <MicOff className="size-7" aria-hidden /> : <Mic className="size-7" aria-hidden />}
+        </RoundButton>
+        {video && (
+          <RoundButton label={s.cameraOff ? 'Turn camera on' : 'Turn camera off'} tone={s.cameraOff ? 'active' : 'neutral'} onClick={toggleCamera}>
+            {s.cameraOff ? <VideoOff className="size-7" aria-hidden /> : <Video className="size-7" aria-hidden />}
+          </RoundButton>
+        )}
+        <RoundButton label={call.group ? 'Leave' : 'Hang up'} tone="danger" onClick={() => void hangUp()}>
+          <PhoneOff className="size-7" aria-hidden />
+        </RoundButton>
+      </>
+    );
+
+  if (call.group && s.phase !== 'incoming') {
+    const others = call.participants.filter((p) => p.id !== myId);
+    return (
+      <div role="dialog" aria-modal="true" aria-label={`Group call: ${call.title ?? 'Group'}`} className="fixed inset-0 z-[80] flex flex-col bg-neutral-950 text-white">
+        <header className="flex items-center gap-2 px-4 py-3">
+          <Users className="size-5" aria-hidden />
+          <p className="flex-1 truncate font-semibold">{call.title ?? 'Group call'}</p>
+          <p className="text-sm text-white/70">
+            {call.participants.length} in the call {s.connectedAt && <>· <Elapsed since={s.connectedAt} /></>}
+          </p>
+        </header>
+        <div className={cx('grid flex-1 content-center gap-3 overflow-y-auto p-3', others.length <= 1 ? 'grid-cols-1' : others.length <= 4 ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-3')}>
+          {others.length === 0 && <p className="text-center text-white/70">Waiting for others to join…</p>}
+          {others.map((p) => (
+            <Tile key={p.id} user={p} stream={s.remotes[p.id] ?? null} video={video} cameraOff={!!s.cameraOffBy[p.id]} />
+          ))}
+        </div>
+        {video && s.local && !s.cameraOff && (
+          <VideoView stream={s.local} muted className="absolute right-4 bottom-32 z-20 h-36 w-24 rounded-2xl border-2 border-white/40 object-cover shadow-xl" />
+        )}
+        <div className="relative z-20 flex items-center justify-center gap-5 pb-8">{controls}</div>
+      </div>
+    );
+  }
+
+  const peerUser = call.group
+    ? { ...call.caller, displayName: call.title ?? 'Group call' }
+    : call.caller.id === myId
+      ? call.callee
+      : call.caller;
+  const remote = s.remotes[peerUser.id] ?? Object.values(s.remotes)[0] ?? null;
+  const remoteCameraOff = !!s.cameraOffBy[peerUser.id];
   const status =
     s.phase === 'incoming'
-      ? `Incoming ${video ? 'video' : 'voice'} call`
+      ? call.group
+        ? `${call.caller.displayName} started a ${video ? 'video' : 'voice'} call`
+        : `Incoming ${video ? 'video' : 'voice'} call`
       : s.phase === 'outgoing'
         ? 'Calling…'
         : s.phase === 'connecting'
@@ -429,71 +541,30 @@ function CallScreen({ myId }: { myId: string }) {
             ? (s.message ?? 'Call ended')
             : null;
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Call with ${peerUser.displayName}`}
-      className="fixed inset-0 z-[80] flex flex-col bg-neutral-950 text-white"
-    >
-      {video && s.phase === 'active' && !s.remoteCameraOff ? (
-        <VideoView stream={s.remote} className="absolute inset-0 h-full w-full object-cover" />
+    <div role="dialog" aria-modal="true" aria-label={`Call with ${peerUser.displayName}`} className="fixed inset-0 z-[80] flex flex-col bg-neutral-950 text-white">
+      {video && s.phase === 'active' && !remoteCameraOff ? (
+        <VideoView stream={remote} className="absolute inset-0 h-full w-full object-cover" />
       ) : (
-        <AudioOut stream={s.remote} />
+        <AudioOut stream={remote} />
       )}
-      {video && s.phase === 'active' && <AudioOut stream={null} />}
       <div className="relative z-10 flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-        {(!video || s.phase !== 'active' || s.remoteCameraOff) && (
+        {(!video || s.phase !== 'active' || remoteCameraOff) && (
           <>
             <Avatar name={peerUser.displayName} size={120} />
             <p className="text-2xl font-semibold">{peerUser.displayName}</p>
-            <p className="text-white/70">
-              {status ?? (s.connectedAt ? <Elapsed since={s.connectedAt} /> : null)}
-            </p>
+            <p className="text-white/70">{status ?? (s.connectedAt ? <Elapsed since={s.connectedAt} /> : null)}</p>
           </>
         )}
-        {video && s.phase === 'active' && !s.remoteCameraOff && (
+        {video && s.phase === 'active' && !remoteCameraOff && (
           <p className="absolute top-6 rounded-full bg-black/40 px-4 py-1 text-sm">
             {peerUser.displayName} · {s.connectedAt && <Elapsed since={s.connectedAt} />}
           </p>
         )}
       </div>
       {video && s.local && s.phase !== 'incoming' && !s.cameraOff && (
-        <VideoView
-          stream={s.local}
-          muted
-          className="absolute right-4 bottom-32 z-20 h-40 w-28 rounded-2xl border-2 border-white/40 object-cover shadow-xl sm:h-48 sm:w-36"
-        />
+        <VideoView stream={s.local} muted className="absolute right-4 bottom-32 z-20 h-40 w-28 rounded-2xl border-2 border-white/40 object-cover shadow-xl sm:h-48 sm:w-36" />
       )}
-      <div className="relative z-20 flex items-center justify-center gap-5 pb-10">
-        {s.phase === 'incoming' ? (
-          <>
-            <RoundButton label="Decline" tone="danger" onClick={() => void declineCall()}>
-              <PhoneOff className="size-7" aria-hidden />
-            </RoundButton>
-            <RoundButton label="Accept" tone="success" onClick={() => void acceptCall()}>
-              {video ? <Video className="size-7" aria-hidden /> : <Phone className="size-7" aria-hidden />}
-            </RoundButton>
-          </>
-        ) : (
-          <>
-            <RoundButton label={s.muted ? 'Unmute' : 'Mute'} tone={s.muted ? 'active' : 'neutral'} onClick={toggleMute}>
-              {s.muted ? <MicOff className="size-7" aria-hidden /> : <Mic className="size-7" aria-hidden />}
-            </RoundButton>
-            {video && (
-              <RoundButton
-                label={s.cameraOff ? 'Turn camera on' : 'Turn camera off'}
-                tone={s.cameraOff ? 'active' : 'neutral'}
-                onClick={toggleCamera}
-              >
-                {s.cameraOff ? <VideoOff className="size-7" aria-hidden /> : <Video className="size-7" aria-hidden />}
-              </RoundButton>
-            )}
-            <RoundButton label="Hang up" tone="danger" onClick={() => void hangUp()}>
-              <PhoneOff className="size-7" aria-hidden />
-            </RoundButton>
-          </>
-        )}
-      </div>
+      <div className="relative z-20 flex items-center justify-center gap-5 pb-10">{controls}</div>
     </div>
   );
 }

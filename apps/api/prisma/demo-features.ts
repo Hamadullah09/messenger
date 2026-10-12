@@ -1,5 +1,6 @@
 /**
- * Demo data for store tasks, shifts, status updates, and a poll and an event in group chats
+ * Demo data for store tasks, shifts, status updates, a poll and an event in group chats, store
+ * locations, daily checklists, attendance and leave requests
  * (development only). Uses the ABC Retail Group demo business.
  *
  *   npm run db:demo-features -w @storeline/api
@@ -8,7 +9,7 @@
  */
 import '../src/load-env';
 import { randomUUID } from 'node:crypto';
-import { Prisma, PrismaClient, type TaskPriority } from '@prisma/client';
+import { type Prisma, PrismaClient, type LeaveStatus, type LeaveType, type TaskPriority } from '@prisma/client';
 
 const prisma = new PrismaClient();
 const now = new Date();
@@ -194,6 +195,129 @@ async function main(): Promise<void> {
     }
     console.log('Group chat: added a poll and an event in "Regional Managers".');
   } else console.log('Poll/event: already present or group missing, skipped.');
+
+  // 5. Store locations (made-up spots in Lahore) for check-in.
+  const spots: Array<[number, number]> = [
+    [31.5204, 74.3587],
+    [31.4697, 74.2728],
+    [31.5497, 74.3436],
+    [31.4805, 74.3239],
+  ];
+  let located = 0;
+  for (const [i, store] of stores.entries()) {
+    const spot = spots[i % spots.length]!;
+    const updated = await prisma.store.updateMany({
+      where: { id: store.id, latitude: null },
+      data: { latitude: spot[0], longitude: spot[1], geofenceMeters: 200 },
+    });
+    located += updated.count;
+  }
+  console.log(`Store locations: set ${located}.`);
+
+  // 6. Daily checklists.
+  if ((await prisma.checklistTemplate.count({ where: { businessId: business.id, deletedAt: null } })) === 0) {
+    const list = (labels: Array<[string, boolean]>) =>
+      labels.map(([label, photo], i) => ({ key: `i${i + 1}`, label, photo }));
+    await prisma.checklistTemplate.createMany({
+      data: [
+        {
+          businessId: business.id,
+          name: 'Opening',
+          items: list([
+            ['Unlock and switch off the alarm', false],
+            ['Lights, music and AC on', false],
+            ['Shop floor clean and tidy', true],
+            ['Cash float counted', false],
+            ['Front display set up', true],
+          ]),
+          createdById: manager,
+        },
+        {
+          businessId: business.id,
+          name: 'Closing',
+          items: list([
+            ['Cash counted and in the safe', false],
+            ['Fridges and freezers closed', true],
+            ['Floor swept and bins emptied', false],
+            ['Shutters down and alarm on', true],
+          ]),
+          createdById: manager,
+        },
+      ],
+    });
+    console.log('Checklists: added Opening and Closing.');
+  } else console.log('Checklists: already present, skipped.');
+
+  // 7. Today's check-ins for people whose shift has started.
+  if ((await prisma.attendanceRecord.count({ where: { businessId: business.id } })) === 0) {
+    const started = await prisma.shift.findMany({
+      where: { businessId: business.id, startsAt: { gte: at(0, 0), lte: now } },
+      select: { id: true, storeId: true, userId: true, startsAt: true },
+    });
+    const places = new Map(
+      (
+        await prisma.store.findMany({
+          where: { businessId: business.id },
+          select: { id: true, latitude: true, longitude: true },
+        })
+      ).map((st) => [st.id, st] as const),
+    );
+    let checked = 0;
+    for (const [i, shift] of started.entries()) {
+      if (i % 4 === 3) continue; // someone has not come in yet
+      const place = places.get(shift.storeId);
+      const lateBy = i % 3 === 1 ? 12 : -4; // minutes after the shift start
+      await prisma.attendanceRecord.create({
+        data: {
+          businessId: business.id,
+          storeId: shift.storeId,
+          userId: shift.userId,
+          shiftId: shift.id,
+          checkInAt: new Date(shift.startsAt.getTime() + lateBy * 60_000),
+          checkInLat: place?.latitude ?? null,
+          checkInLng: place?.longitude ?? null,
+          checkInAccuracy: 15,
+          checkInDistance: place?.latitude == null ? null : 20 + i * 7,
+        },
+      });
+      checked += 1;
+    }
+    console.log(`Attendance: added ${checked} check-ins for today.`);
+  } else console.log('Attendance: already present, skipped.');
+
+  // 8. Leave requests.
+  if ((await prisma.leaveRequest.count({ where: { businessId: business.id } })) === 0) {
+    const day = (offset: number) => new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + offset));
+    const plan: Array<[number, number, LeaveType, number, number, LeaveStatus, string]> = [
+      [0, 1, 'ANNUAL', 7, 9, 'PENDING', 'Family wedding in Faisalabad.'],
+      [1, 0, 'SICK', -1, -1, 'APPROVED', 'Fever.'],
+      [0, 2, 'CASUAL', 3, 3, 'PENDING', 'Bank work.'],
+      [2, 1, 'UNPAID', 14, 16, 'REJECTED', 'Short trip.'],
+    ];
+    let added = 0;
+    for (const [s, member, type, from, to, status, reason] of plan) {
+      const store = stores[s % stores.length];
+      const userId = store?.memberships[member]?.user.id;
+      if (!store || !userId) continue;
+      await prisma.leaveRequest.create({
+        data: {
+          businessId: business.id,
+          storeId: store.id,
+          userId,
+          type,
+          startDate: day(from),
+          endDate: day(to),
+          reason,
+          status,
+          decidedById: status === 'PENDING' ? null : manager,
+          decidedAt: status === 'PENDING' ? null : new Date(now.getTime() - 86_400_000),
+          decisionNote: status === 'REJECTED' ? 'Stock count that week — please pick other dates.' : null,
+        },
+      });
+      added += 1;
+    }
+    console.log(`Leave: added ${added} requests.`);
+  } else console.log('Leave: already present, skipped.');
 }
 
 main()

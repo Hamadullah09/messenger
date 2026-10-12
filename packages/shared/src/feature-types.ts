@@ -13,8 +13,15 @@ export interface CallDto {
   id: string;
   conversationId: string;
   media: 'audio' | 'video';
+  /** Group call (everyone in the group is invited; people join and leave). */
+  group: boolean;
+  /** Group name for group calls. */
+  title: string | null;
   caller: PublicUserDto;
+  /** For one-to-one calls the person called; for group calls the starter again. */
   callee: PublicUserDto;
+  /** Group calls: who is in the call now. */
+  participants: PublicUserDto[];
   state: CallState;
   startedAt: string;
   answeredAt: string | null;

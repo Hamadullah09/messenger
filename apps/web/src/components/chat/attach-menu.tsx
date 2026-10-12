@@ -437,22 +437,209 @@ export function ContactDialog({
 
 // ───────────────────────────── Stickers ─────────────────────────────
 
-export function StickerDialog({ onClose, onSend }: { onClose: () => void; onSend: (c: RichContent) => void }) {
+const MY_STICKERS_KEY = 'sma.myStickers';
+const MY_STICKERS_MAX = 12;
+
+function loadMyStickers(): string[] {
+  try {
+    const raw = window.localStorage.getItem(MY_STICKERS_KEY);
+    return raw ? (JSON.parse(raw) as string[]).filter((s) => s.startsWith('data:image/')) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveMyStickers(list: string[]): void {
+  try {
+    window.localStorage.setItem(MY_STICKERS_KEY, JSON.stringify(list.slice(0, MY_STICKERS_MAX)));
+  } catch {
+    // Storage full or private mode: the sticker is still sent.
+  }
+}
+
+function dataUrlToFile(dataUrl: string): File {
+  const [head, body] = dataUrl.split(',') as [string, string];
+  const mime = /data:([^;]+)/.exec(head)?.[1] ?? 'image/webp';
+  const bin = atob(body);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new File([bytes], `sticker.${mime === 'image/png' ? 'png' : 'webp'}`, { type: mime });
+}
+
+/** Square crop with a white sticker outline, 512 × 512 (WebP, or PNG where WebP is unsupported). */
+function makeSticker(image: HTMLImageElement, zoom: number, dx: number, dy: number, round: boolean): string {
+  const size = 512;
+  const border = 18;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const side = Math.min(image.naturalWidth, image.naturalHeight) / zoom;
+  const sx = (image.naturalWidth - side) / 2 + dx * (image.naturalWidth - side) / 2;
+  const sy = (image.naturalHeight - side) / 2 + dy * (image.naturalHeight - side) / 2;
+  const shape = (inset: number) => {
+    ctx.beginPath();
+    if (round) ctx.arc(size / 2, size / 2, size / 2 - inset, 0, Math.PI * 2);
+    else ctx.roundRect(inset, inset, size - inset * 2, size - inset * 2, 64 - inset);
+  };
+  ctx.fillStyle = '#ffffff';
+  shape(4);
+  ctx.fill();
+  ctx.save();
+  shape(border);
+  ctx.clip();
+  ctx.drawImage(image, sx, sy, side, side, border, border, size - border * 2, size - border * 2);
+  ctx.restore();
+  const webp = canvas.toDataURL('image/webp', 0.85);
+  return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/png');
+}
+
+export function StickerDialog({
+  onClose,
+  onSend,
+  onSendCustom,
+}: {
+  onClose: () => void;
+  onSend: (c: RichContent) => void;
+  /** Sends a picture as a sticker; missing where files cannot be shared. */
+  onSendCustom?: (file: File) => void;
+}) {
+  const [tab, setTab] = useState<'pack' | 'mine'>('pack');
+  const [mine, setMine] = useState<string[]>(() => (typeof window === 'undefined' ? [] : loadMyStickers()));
+  const [source, setSource] = useState<HTMLImageElement | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [dx, setDx] = useState(0);
+  const [dy, setDy] = useState(0);
+  const [round, setRound] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const preview = source ? makeSticker(source, zoom, dx, dy, round) : null;
   return (
     <Dialog open onClose={onClose} title="Stickers">
-      <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
-        {STICKERS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            title={s.label}
-            aria-label={`Send sticker: ${s.label}`}
-            onClick={() => onSend({ kind: 'STICKER', sticker: s.id })}
-            className="flex aspect-square items-center justify-center rounded-2xl text-5xl hover:bg-surface-2"
-          >
-            {s.emoji}
-          </button>
-        ))}
+      <div className="flex flex-col gap-3">
+        {onSendCustom && (
+          <div className="flex gap-1 rounded-xl bg-surface-2 p-1" role="tablist">
+            {(['pack', 'mine'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                role="tab"
+                aria-selected={tab === t}
+                onClick={() => setTab(t)}
+                className={cx('min-h-10 flex-1 rounded-lg text-sm font-semibold', tab === t ? 'bg-surface shadow-card' : 'text-muted')}
+              >
+                {t === 'pack' ? 'SMA stickers' : 'My stickers'}
+              </button>
+            ))}
+          </div>
+        )}
+        {tab === 'pack' ? (
+          <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+            {STICKERS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                title={s.label}
+                aria-label={`Send sticker: ${s.label}`}
+                onClick={() => onSend({ kind: 'STICKER', sticker: s.id })}
+                className="flex aspect-square items-center justify-center rounded-2xl text-5xl hover:bg-surface-2"
+              >
+                {s.emoji}
+              </button>
+            ))}
+          </div>
+        ) : source && preview ? (
+          <div className="flex flex-col items-center gap-3">
+            <img src={preview} alt="Sticker preview" className="size-44 drop-shadow-lg" />
+            <label className="flex w-full items-center gap-3 text-sm">
+              Zoom
+              <input type="range" min={1} max={3} step={0.05} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="flex-1" />
+            </label>
+            <label className="flex w-full items-center gap-3 text-sm">
+              Left / right
+              <input type="range" min={-1} max={1} step={0.02} value={dx} onChange={(e) => setDx(Number(e.target.value))} className="flex-1" />
+            </label>
+            <label className="flex w-full items-center gap-3 text-sm">
+              Up / down
+              <input type="range" min={-1} max={1} step={0.02} value={dy} onChange={(e) => setDy(Number(e.target.value))} className="flex-1" />
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" className="size-4 accent-[var(--color-brand)]" checked={round} onChange={(e) => setRound(e.target.checked)} />
+              Round
+            </label>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setSource(null)}>
+                Back
+              </Button>
+              <Button
+                onClick={() => {
+                  const next = [preview, ...mine.filter((m) => m !== preview)];
+                  setMine(next);
+                  saveMyStickers(next);
+                  setSource(null);
+                  onSendCustom?.(dataUrlToFile(preview));
+                }}
+              >
+                Save and send
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (!file) return;
+                const img = new Image();
+                img.onload = () => {
+                  setZoom(1);
+                  setDx(0);
+                  setDy(0);
+                  setSource(img);
+                };
+                img.src = URL.createObjectURL(file);
+              }}
+            />
+            <div className="grid grid-cols-4 gap-2 sm:grid-cols-6">
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                className="flex aspect-square flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-line text-sm font-semibold text-brand hover:bg-surface-2"
+              >
+                <Plus className="size-6" aria-hidden /> Create
+              </button>
+              {mine.map((m, i) => (
+                <span key={i} className="group relative">
+                  <button
+                    type="button"
+                    aria-label="Send this sticker"
+                    onClick={() => onSendCustom?.(dataUrlToFile(m))}
+                    className="flex aspect-square w-full items-center justify-center rounded-2xl hover:bg-surface-2"
+                  >
+                    <img src={m} alt="" className="size-full object-contain p-1" />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Remove from my stickers"
+                    onClick={() => {
+                      const next = mine.filter((x) => x !== m);
+                      setMine(next);
+                      saveMyStickers(next);
+                    }}
+                    className="absolute -top-1 -right-1 hidden size-6 items-center justify-center rounded-full bg-surface text-muted shadow group-hover:inline-flex"
+                  >
+                    <Trash2 className="size-3.5" aria-hidden />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <p className="text-sm text-muted">Make a sticker from any photo. Your stickers are kept on this device.</p>
+          </>
+        )}
       </div>
     </Dialog>
   );

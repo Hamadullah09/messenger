@@ -100,6 +100,8 @@ export const sendMessageRequestSchema = z
     audio: audioDetailsSchema.optional(),
     /** Location, contact card, poll, event or sticker (instead of text). */
     content: richContentSchema.optional(),
+    /** Send the image as a sticker (no bubble). */
+    asSticker: z.boolean().optional(),
     replyToId: idSchema.optional(),
   })
   .refine((v) => v.body !== undefined || v.mediaId !== undefined || v.content !== undefined, {
@@ -112,6 +114,13 @@ export const sendMessageRequestSchema = z
   })
   .refine((v) => !v.audio || v.mediaId, { message: 'Audio details need a file', path: ['audio'] });
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
+
+/** Disappearing messages timer: off, 24 hours, 7 days or 90 days (WhatsApp's choices). */
+export const DISAPPEARING_TIMERS = [86_400, 604_800, 7_776_000] as const;
+export const setDisappearingRequestSchema = z.object({
+  seconds: z.union([z.literal(86_400), z.literal(604_800), z.literal(7_776_000)]).nullable(),
+});
+export type SetDisappearingRequest = z.infer<typeof setDisappearingRequestSchema>;
 
 export const editMessageRequestSchema = z.object({ body: messageBodySchema });
 export type EditMessageRequest = z.infer<typeof editMessageRequestSchema>;

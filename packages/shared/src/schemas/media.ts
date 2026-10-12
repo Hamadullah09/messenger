@@ -71,6 +71,8 @@ export const createUploadRequestSchema = z
     conversationId: idSchema.optional(),
     campaignId: idSchema.optional(),
     statusBusinessId: idSchema.optional(),
+    /** Operations photo (checklist proof) for a store you work at. */
+    opsStoreId: idSchema.optional(),
     fileName: z.string().trim().min(1).max(255),
     mimeType: z
       .string()
@@ -78,8 +80,10 @@ export const createUploadRequestSchema = z
     sizeBytes: z.number().int().positive(),
   })
   .refine(
-    (r) => [r.conversationId, r.campaignId, r.statusBusinessId].filter(Boolean).length === 1,
-    'Upload to a conversation, a campaign or a status update',
+    (r) =>
+      [r.conversationId, r.campaignId, r.statusBusinessId, r.opsStoreId].filter(Boolean).length ===
+      1,
+    'Upload to a conversation, a campaign, a status update or a store checklist',
   );
 export type CreateUploadRequest = z.infer<typeof createUploadRequestSchema>;
 

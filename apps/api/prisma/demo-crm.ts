@@ -4,11 +4,17 @@
  *
  *   npm run db:demo-crm -w @storeline/api
  *
+ * Also: CRM settings (tax, pay-to accounts marked as demo), a team commission plan, quotes and a
+ * monthly subscription.
+ *
  * Run after db:demo-sales (it uses its sales users and leads). Idempotent: each part is skipped
  * when it already exists. All amounts are made up.
  */
 import '../src/load-env';
-import { PrismaClient, type DealStatus, type DealType, type ServiceBilling } from '@prisma/client';
+import { randomBytes } from 'node:crypto';
+import { PrismaClient, type DealStatus, type DealType, type QuoteStatus, type ServiceBilling } from '@prisma/client';
+import type { AppConfig } from '../src/infra/config/config';
+import { CryptoService } from '../src/infra/crypto/crypto.service';
 
 const prisma = new PrismaClient();
 const CURRENCY = (process.env.CRM_CURRENCY ?? 'USD').toUpperCase();
@@ -429,6 +435,125 @@ async function main(): Promise<void> {
     }
   }
   console.log(`Targets: added ${targets}.`);
+
+  // 4. CRM settings (only the ones not set yet). Pay-to accounts are clearly marked as demo.
+  const crypto = new CryptoService({ DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY ?? '' } as AppConfig);
+  const settings: Record<string, string> = {
+    CRM_USD_PKR_RATE: '280',
+    CRM_TAX_NAME: 'GST',
+    CRM_TAX_RATE: '18',
+    INVOICE_COMPANY_NAME: 'SMA Technology',
+    INVOICE_COMPANY_ADDRESS: 'Lahore, Pakistan',
+    PAY_JAZZCASH_ACCOUNT: 'DEMO — set the real JazzCash number in Sales → Settings',
+    PAY_EASYPAISA_ACCOUNT: 'DEMO — set the real Easypaisa number in Sales → Settings',
+    PAY_BANK_ACCOUNT: 'DEMO — set the real bank account in Sales → Settings',
+    REMINDER_DAYS: '-3,1,7,14',
+    REMINDER_CHANNELS: 'EMAIL',
+  };
+  let settingsAdded = 0;
+  for (const [key, value] of Object.entries(settings)) {
+    if (await prisma.platformSetting.findUnique({ where: { key }, select: { key: true } })) continue;
+    await prisma.platformSetting.create({ data: { key, valueEnc: crypto.encrypt(value, `setting:${key}`) } });
+    settingsAdded += 1;
+  }
+  console.log(`CRM settings: added ${settingsAdded}.`);
+
+  // 5. Commission: 3% up to the target, 6% above it, on deals won.
+  if (!(await prisma.commissionPlan.findUnique({ where: { scope: 'team' } }))) {
+    await prisma.commissionPlan.create({
+      data: { scope: 'team', baseRate: 3, bonusRate: 6, basis: 'WON', updatedById: manager },
+    });
+    console.log('Commission: team plan added (3% up to target, 6% above).');
+  } else console.log('Commission: already present, skipped.');
+
+  // 6. Quotes.
+  const QUOTES: Array<{ key: string; lead: string; status: QuoteStatus; lines: Line[]; days: number }> = [
+    { key: 'q-sent', lead: 'Green Valley Pharmacy', status: 'SENT', lines: [['SMA Business', 3], ['Setup & onboarding', 1]], days: 2 },
+    { key: 'q-draft', lead: 'Hyperstar Express', status: 'DRAFT', lines: [['SMA Starter', 2], ['SMS campaigns', 1]], days: 0 },
+    { key: 'q-declined', lead: 'Metro Bakers', status: 'DECLINED', lines: [['SMA Enterprise', 1]], days: 12 },
+  ];
+  let quotes = 0;
+  for (const q of QUOTES) {
+    const marker = `${DEMO} ${q.key}`;
+    if (await prisma.quote.findFirst({ where: { notes: { startsWith: marker } }, select: { id: true } })) continue;
+    const lead = await prisma.lead.findFirst({
+      where: { companyName: q.lead, deletedAt: null },
+      select: { id: true, companyName: true, email: true, phone: true },
+    });
+    if (!lead) {
+      console.log(`  skipped ${q.key}: lead "${q.lead}" not found`);
+      continue;
+    }
+    const items = q.lines.map(([name, quantity], position) => {
+      const svc = services.get(name);
+      if (!svc) throw new Error(`Unknown service ${name}`);
+      const unitPrice = Number(svc.price);
+      return { serviceId: svc.id, name, quantity, unitPrice, total: round2(unitPrice * quantity), billing: svc.billing, position };
+    });
+    const subtotal = round2(items.reduce((a, i) => a + i.total, 0));
+    const taxAmount = round2(subtotal * 0.18);
+    const issued = daysAgo(q.days);
+    const seq = await prisma.$queryRaw<Array<{ n: bigint }>>`SELECT nextval('quote_number_seq') AS n`;
+    await prisma.quote.create({
+      data: {
+        number: `QT-${issued.getFullYear()}-${String(seq[0]!.n).padStart(5, '0')}`,
+        leadId: lead.id,
+        billToName: lead.companyName,
+        billToEmail: lead.email,
+        billToPhone: lead.phone,
+        status: q.status,
+        issueDate: dateOnly(issued),
+        validUntil: dateOnly(new Date(issued.getTime() + 30 * 86_400_000)),
+        currency: CURRENCY,
+        subtotal,
+        taxRate: 18,
+        taxAmount,
+        total: round2(subtotal + taxAmount),
+        notes: `${marker} — demo data`,
+        terms: 'Prices are per month unless marked one-time. Valid for 30 days.',
+        publicToken: randomBytes(24).toString('base64url'),
+        sentAt: q.status === 'DRAFT' ? null : issued,
+        viewedAt: q.status === 'DRAFT' ? null : new Date(issued.getTime() + 3_600_000),
+        respondedAt: q.status === 'DECLINED' ? new Date(issued.getTime() + 2 * 86_400_000) : null,
+        responseNote: q.status === 'DECLINED' ? 'Too expensive for us this year.' : null,
+        createdById: manager,
+        createdAt: issued,
+        items: { create: items },
+      },
+    });
+    quotes += 1;
+  }
+  console.log(`Quotes: added ${quotes}.`);
+
+  // 7. Monthly billing for ABC Retail Group.
+  const abc = await prisma.business.findFirst({
+    where: { name: 'ABC Retail Group', deletedAt: null, internal: false },
+    select: { id: true },
+  });
+  const plan = services.get('SMA Enterprise');
+  const addon = services.get('Priority support');
+  if (abc && plan && addon && (await prisma.subscription.count({ where: { businessId: abc.id } })) === 0) {
+    await prisma.subscription.create({
+      data: {
+        businessId: abc.id,
+        name: 'SMA Enterprise — monthly',
+        currency: CURRENCY,
+        interval: 'MONTHLY',
+        nextInvoiceAt: dateOnly(new Date(now.getFullYear(), now.getMonth() + 1, 1)),
+        dueDays: 14,
+        taxRate: 18,
+        autoEmail: false,
+        createdById: manager,
+        items: {
+          create: [
+            { serviceId: plan.id, name: plan.name, quantity: 1, unitPrice: Number(plan.price), position: 0 },
+            { serviceId: addon.id, name: addon.name, quantity: 1, unitPrice: Number(addon.price), position: 1 },
+          ],
+        },
+      },
+    });
+    console.log('Monthly billing: added for ABC Retail Group (first invoice on the 1st of next month).');
+  } else console.log('Monthly billing: already present or customer missing, skipped.');
 }
 
 main()

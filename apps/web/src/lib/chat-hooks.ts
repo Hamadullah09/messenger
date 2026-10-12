@@ -153,6 +153,7 @@ export function useSendMessage(conversationId: string) {
         meta: null,
         pollVotes: [],
         eventResponses: [],
+        expiresAt: null,
         local: 'sending',
       };
       void sendExisting(local);
@@ -194,6 +195,7 @@ export function useSendMessage(conversationId: string) {
         meta: preview.meta,
         pollVotes: [],
         eventResponses: [],
+        expiresAt: null,
         local: 'sending',
         pendingContent: content,
       };
@@ -316,6 +318,8 @@ interface UploadJob extends UploadItem {
   mimeType: string | null;
   /** Voice note / audio details sent with the file. */
   audio: AudioDetails | null;
+  /** Send the picture as a sticker. */
+  asSticker: boolean;
   clientMessageId: string;
   mediaId: string | null;
   controller: AbortController;
@@ -362,6 +366,7 @@ export function useMediaSend(conversationId: string) {
             mediaId,
             body: job.caption.trim() || undefined,
             ...(job.audio ? { audio: job.audio } : {}),
+            ...(job.asSticker ? { asSticker: true } : {}),
           },
         });
         upsertMessages(client, conversationId, [saved]);
@@ -390,7 +395,7 @@ export function useMediaSend(conversationId: string) {
   );
 
   const send = useCallback(
-    (file: File, caption: string, audio: AudioDetails | null = null) => {
+    (file: File, caption: string, audio: AudioDetails | null = null, asSticker = false) => {
       const type = file.type.split(';')[0]!.trim();
       const declared = isMediaMimeType(type) ? type : mimeTypeFromFileName(file.name);
       const job: UploadJob = {
@@ -402,6 +407,7 @@ export function useMediaSend(conversationId: string) {
         error: null,
         mimeType: declared,
         audio,
+        asSticker,
         clientMessageId: uuid(),
         mediaId: null,
         controller: new AbortController(),

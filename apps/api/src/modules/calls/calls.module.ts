@@ -40,6 +40,13 @@ export class CallsController {
     return this.calls.start(actor, body);
   }
 
+  /** Group calls: join a running call. */
+  @Post(':id/join')
+  @HttpCode(200)
+  join(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<CallDto> {
+    return this.calls.join(actor, id);
+  }
+
   @Post(':id/accept')
   @HttpCode(200)
   accept(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<CallDto> {

@@ -89,6 +89,7 @@ export function toMessageDto(row: MessageRow): MessageDto {
     pinned: !deleted && row.pins.length > 0,
     attachment: !deleted && row.attachments[0] ? toAttachmentDto(row.attachments[0].media) : null,
     meta: deleted ? null : ((row.meta as MessageMeta | null) ?? null),
+    expiresAt: row.expiresAt?.toISOString() ?? null,
     pollVotes: deleted ? [] : row.pollVotes,
     eventResponses: deleted ? [] : row.eventResponses,
   };
@@ -207,6 +208,7 @@ export function toConversationSummary(
     fileSharingPolicy: conversation.fileSharingPolicy,
     editInfoPolicy: conversation.editInfoPolicy,
     addMembersPolicy: conversation.addMembersPolicy,
+    disappearAfterSeconds: conversation.disappearAfterSeconds,
     counterpart: conversation.type === 'DIRECT' ? counterpart : null,
     lastSeq: conversation.lastSeq,
     lastMessage,

@@ -28,6 +28,7 @@ import { CallsModule } from './modules/calls/calls.module';
 import { OperationsModule } from './modules/operations/operations.module';
 import { ReportsModule } from './modules/reports/reports.module';
 import { IntegrationsModule } from './modules/platform/integrations.module';
+import { MapsModule } from './modules/maps/maps.module';
 import { UsersModule } from './modules/users/users.module';
 
 /** Shared infrastructure for both process types (api and worker). */
@@ -61,6 +62,7 @@ export const CORE_IMPORTS = [
     OperationsModule,
     ReportsModule,
     IntegrationsModule,
+    MapsModule,
     EmergencyModule,
     CampaignsModule,
     DevicesModule,

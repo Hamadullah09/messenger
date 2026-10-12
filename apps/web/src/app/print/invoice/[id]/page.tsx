@@ -16,6 +16,9 @@ interface InvoiceSettings {
   companyEmail: string | null;
   companyPhone: string | null;
   paymentDetails: string | null;
+  taxName: string;
+  taxNumber: string | null;
+  payTo: { jazzcash: string | null; easypaisa: string | null; bank: string | null };
 }
 
 /**
@@ -101,6 +104,11 @@ export default function PrintInvoicePage() {
             <p className="text-neutral-600">
               {[s.companyEmail, s.companyPhone].filter(Boolean).join(' · ')}
             </p>
+            {s.taxNumber && (
+              <p className="text-neutral-600">
+                {s.taxName} no. {s.taxNumber}
+              </p>
+            )}
           </div>
           <div className="text-right">
             <h1 className="text-3xl font-black tracking-tight text-[#ea580c]">INVOICE</h1>
@@ -156,7 +164,7 @@ export default function PrintInvoicePage() {
         <div className="mt-4 ml-auto w-72">
           <Row label="Subtotal" value={money2(i.subtotal, i.currency)} />
           {i.discount > 0 && <Row label="Discount" value={`−${money2(i.discount, i.currency)}`} />}
-          {i.taxAmount > 0 && <Row label={`Tax (${i.taxRate}%)`} value={money2(i.taxAmount, i.currency)} />}
+          {i.taxAmount > 0 && <Row label={`${s.taxName} (${i.taxRate}%)`} value={money2(i.taxAmount, i.currency)} />}
           <div className="my-1 border-t-2 border-neutral-900" />
           <Row label="Total" value={money2(i.total, i.currency)} strong />
           {i.amountPaid > 0 && <Row label="Paid" value={`−${money2(i.amountPaid, i.currency)}`} />}
@@ -178,10 +186,18 @@ export default function PrintInvoicePage() {
             </ul>
           </section>
         )}
-        {s.paymentDetails && i.balance > 0 && (
+        {i.balance > 0 && (s.paymentDetails || s.payTo.jazzcash || s.payTo.easypaisa || s.payTo.bank) && (
           <section className="mt-6 rounded-lg bg-neutral-100 p-4">
             <p className="font-bold">How to pay</p>
-            <p className="whitespace-pre-line text-neutral-700">{s.paymentDetails}</p>
+            {s.payTo.jazzcash && <p className="text-neutral-700">JazzCash: {s.payTo.jazzcash}</p>}
+            {s.payTo.easypaisa && <p className="text-neutral-700">Easypaisa: {s.payTo.easypaisa}</p>}
+            {s.payTo.bank && <p className="whitespace-pre-line text-neutral-700">Bank: {s.payTo.bank}</p>}
+            {s.paymentDetails && <p className="whitespace-pre-line text-neutral-700">{s.paymentDetails}</p>}
+            {i.payUrl && (
+              <p className="mt-1 text-neutral-700">
+                Pay online or tell us you paid: {typeof window === 'undefined' ? i.payUrl : `${window.location.origin}${i.payUrl}`}
+              </p>
+            )}
           </section>
         )}
         {i.notes && <p className="mt-6 whitespace-pre-line text-neutral-700">{i.notes}</p>}

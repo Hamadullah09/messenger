@@ -57,7 +57,7 @@ export function primaryNav(me: MeDto | null): NavItem[] {
   if (hasPermission(me, 'task.work') || hasPermission(me, 'task.manage')) {
     items.push({
       href: '/tasks',
-      label: 'Tasks & shifts',
+      label: 'Store work',
       Icon: ClipboardList,
       match: (p) => p.startsWith('/tasks'),
     });

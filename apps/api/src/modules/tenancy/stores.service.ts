@@ -18,6 +18,9 @@ const storeSelect = {
   createdAt: true,
   ...placeDetailsSelect,
   _count: { select: { memberships: { where: { status: 'ACTIVE' } } } },
+  latitude: true,
+  longitude: true,
+  geofenceMeters: true,
   roleAssignments: {
     where: {
       revokedAt: null,
@@ -43,6 +46,9 @@ function toDto(row: StoreRow): StoreDto {
     timeZone: row.timeZone,
     memberCount: row._count.memberships,
     managers: [...new Map(row.roleAssignments.map((a) => [a.user.id, a.user])).values()],
+    latitude: row.latitude,
+    longitude: row.longitude,
+    geofenceMeters: row.geofenceMeters,
     createdAt: row.createdAt.toISOString(),
   };
 }

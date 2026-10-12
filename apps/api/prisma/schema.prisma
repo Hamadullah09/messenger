@@ -84,6 +84,7 @@ model User {
   eventResponses        EventResponse[]
   broadcastRecipientOf  BroadcastRecipient[]
   statusPosts           StatusPost[]
+  checklistItems        ChecklistRunItem[]
   statusViews           StatusView[]
   assignedTasks         StoreTask[]                  @relation("taskAssignee")
   createdTasks          StoreTask[]                  @relation("taskCreator")
@@ -95,6 +96,9 @@ model User {
   createdInvoices       Invoice[]                    @relation("invoiceCreator")
   recordedPayments      Payment[]                    @relation("paymentRecorder")
   salesTargets          SalesTarget[]                @relation("salesTargets")
+  attendance            AttendanceRecord[]           @relation("attendanceUser")
+  leaveRequests         LeaveRequest[]               @relation("leaveUser")
+  leaveDecisions        LeaveRequest[]               @relation("leaveDecider")
 }
 
 /// Private contact details. Only read by explicitly authorized, audited flows (ADR-0006).
@@ -223,6 +227,8 @@ model Business {
   /// CRM: what SMA sold to this customer and billed them.
   deals           Deal[]                @relation("customerDeals")
   invoices        Invoice[]             @relation("customerInvoices")
+  quotes          Quote[]               @relation("customerQuotes")
+  subscriptions   Subscription[]        @relation("customerSubscriptions")
 }
 
 model TenantQuota {
@@ -263,6 +269,11 @@ model Store {
   deletedAt                  DateTime? @db.Timestamptz(3)
   /// Seconds an emergency alert waits for acknowledgement before escalating (15-1800).
   emergencyAckTimeoutSeconds Int       @default(120)
+  /// Store location for attendance (check-in distance) and location sharing.
+  latitude                   Float?
+  longitude                  Float?
+  /// Check-ins farther than this from the store are flagged.
+  geofenceMeters             Int       @default(200)
 
   business          Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
   memberships       StoreMembership[]
@@ -275,6 +286,8 @@ model Store {
   tasks             StoreTask[]
   shifts            Shift[]
   statusPosts       StatusPost[]
+  attendance        AttendanceRecord[]
+  leaveRequests     LeaveRequest[]
 
   @@unique([businessId, code])
   /// Lets child tables reference (businessId, storeId) so a store can never be paired with another tenant.
@@ -418,32 +431,34 @@ enum MemberRole {
 }
 
 model Conversation {
-  id                String            @id @default(uuid()) @db.Uuid
-  businessId        String            @db.Uuid
-  storeId           String?           @db.Uuid
-  type              ConversationType
-  title             String?           @db.VarChar(100)
-  description       String?           @db.VarChar(500)
-  category          GroupCategory?
-  postingPolicy     PostingPolicy     @default(ALL_MEMBERS)
-  fileSharingPolicy FileSharingPolicy @default(ALL_MEMBERS)
+  id                    String            @id @default(uuid()) @db.Uuid
+  businessId            String            @db.Uuid
+  storeId               String?           @db.Uuid
+  type                  ConversationType
+  title                 String?           @db.VarChar(100)
+  description           String?           @db.VarChar(500)
+  category              GroupCategory?
+  postingPolicy         PostingPolicy     @default(ALL_MEMBERS)
+  fileSharingPolicy     FileSharingPolicy @default(ALL_MEMBERS)
   /// Who may change the group name and description (WhatsApp "Edit group info").
-  editInfoPolicy    PostingPolicy     @default(ADMINS_ONLY)
+  editInfoPolicy        PostingPolicy     @default(ADMINS_ONLY)
   /// Who may add people to the group (WhatsApp "Add other members").
-  addMembersPolicy  PostingPolicy     @default(ADMINS_ONLY)
+  addMembersPolicy      PostingPolicy     @default(ADMINS_ONLY)
   /// "businessId:userA:userB" with sorted user ids; dedupes direct conversations.
-  directKey         String?           @unique @db.VarChar(120)
+  directKey             String?           @unique @db.VarChar(120)
+  /// Disappearing messages: new messages are removed this many seconds after they are sent.
+  disappearAfterSeconds Int?
   /// "businessId:userId" for BROADCAST channels; dedupes the per-recipient announcements channel.
-  channelKey        String?           @unique @db.VarChar(80)
+  channelKey            String?           @unique @db.VarChar(80)
   /// Gap-free per-conversation message counter (ADR-0003).
-  lastSeq           Int               @default(0)
-  lastMessageId     String?           @unique @db.Uuid
-  lastActivityAt    DateTime          @default(now()) @db.Timestamptz(3)
-  memberCount       Int               @default(0)
-  createdById       String?           @db.Uuid
-  createdAt         DateTime          @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime          @updatedAt @db.Timestamptz(3)
-  archivedAt        DateTime?         @db.Timestamptz(3)
+  lastSeq               Int               @default(0)
+  lastMessageId         String?           @unique @db.Uuid
+  lastActivityAt        DateTime          @default(now()) @db.Timestamptz(3)
+  memberCount           Int               @default(0)
+  createdById           String?           @db.Uuid
+  createdAt             DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt             DateTime          @updatedAt @db.Timestamptz(3)
+  archivedAt            DateTime?         @db.Timestamptz(3)
 
   business            Business             @relation(fields: [businessId], references: [id], onDelete: Restrict)
   store               Store?               @relation(fields: [storeId], references: [id], onDelete: Restrict)
@@ -529,6 +544,8 @@ model Message {
   editedAt        DateTime?    @db.Timestamptz(3)
   deletedAt       DateTime?    @db.Timestamptz(3)
   deletedById     String?      @db.Uuid
+  /// Disappearing messages: removed for everyone after this time.
+  expiresAt       DateTime?    @db.Timestamptz(3)
   createdAt       DateTime     @default(now()) @db.Timestamptz(3)
 
   conversation   Conversation        @relation("messages", fields: [conversationId], references: [id], onDelete: Restrict)
@@ -549,6 +566,7 @@ model Message {
 
   @@unique([conversationId, seq])
   @@unique([senderId, clientMessageId])
+  @@index([expiresAt])
 }
 
 /// "Delete for me": the message disappears for this person only.
@@ -682,6 +700,8 @@ model MediaAsset {
   conversationId    String?     @db.Uuid
   campaignId        String?     @db.Uuid
   forStatus         Boolean     @default(false)
+  /// Operations photos (checklist proof) for a store.
+  forOps            Boolean     @default(false)
   uploaderId        String      @db.Uuid
   kind              MediaKind
   status            MediaStatus @default(PENDING_UPLOAD)
@@ -708,13 +728,14 @@ model MediaAsset {
   updatedAt         DateTime    @updatedAt @db.Timestamptz(3)
   readyAt           DateTime?   @db.Timestamptz(3)
 
-  business     Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
-  conversation Conversation?       @relation(fields: [conversationId], references: [id], onDelete: Restrict)
-  campaign     BulkCampaign?       @relation("campaignUploads", fields: [campaignId], references: [id], onDelete: Restrict)
-  uploader     User                @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
-  attachments  MessageAttachment[]
-  campaigns    BulkCampaign[]      @relation("campaignAttachment")
-  statusPosts  StatusPost[]
+  business          Business            @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  conversation      Conversation?       @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  campaign          BulkCampaign?       @relation("campaignUploads", fields: [campaignId], references: [id], onDelete: Restrict)
+  uploader          User                @relation(fields: [uploaderId], references: [id], onDelete: Restrict)
+  attachments       MessageAttachment[]
+  campaigns         BulkCampaign[]      @relation("campaignAttachment")
+  statusPosts       StatusPost[]
+  checklistRunItems ChecklistRunItem[]
 
   @@index([businessId, status])
   @@index([status, uploadExpiresAt])
@@ -1171,21 +1192,22 @@ model StoreTask {
 
 /// A planned work shift of one person in one store.
 model Shift {
-  id          String   @id @default(uuid()) @db.Uuid
-  businessId  String   @db.Uuid
-  storeId     String   @db.Uuid
-  userId      String   @db.Uuid
-  startsAt    DateTime @db.Timestamptz(3)
-  endsAt      DateTime @db.Timestamptz(3)
+  id          String             @id @default(uuid()) @db.Uuid
+  businessId  String             @db.Uuid
+  storeId     String             @db.Uuid
+  userId      String             @db.Uuid
+  startsAt    DateTime           @db.Timestamptz(3)
+  endsAt      DateTime           @db.Timestamptz(3)
   /// e.g. "Morning", "Cashier", "Stock room"
-  title       String?  @db.VarChar(60)
-  notes       String?  @db.VarChar(300)
-  createdById String?  @db.Uuid
-  createdAt   DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
-  store       Store    @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
-  user        User     @relation("shiftUser", fields: [userId], references: [id], onDelete: Restrict)
-  createdBy   User?    @relation("shiftCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  title       String?            @db.VarChar(60)
+  notes       String?            @db.VarChar(300)
+  createdById String?            @db.Uuid
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime           @updatedAt @db.Timestamptz(3)
+  store       Store              @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
+  user        User               @relation("shiftUser", fields: [userId], references: [id], onDelete: Restrict)
+  createdBy   User?              @relation("shiftCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  attendance  AttendanceRecord[]
 
   @@index([storeId, startsAt])
   @@index([userId, startsAt])
@@ -1302,6 +1324,7 @@ model Lead {
   activities        LeadActivity[]
   deals             Deal[]
   invoices          Invoice[]
+  quotes            Quote[]
 
   @@index([stage, deletedAt])
   @@index([ownerId, stage])
@@ -1434,6 +1457,8 @@ model CrmService {
   description  String?        @db.VarChar(1000)
   category     String?        @db.VarChar(60)
   price        Decimal        @db.Decimal(12, 2)
+  /// Currency of the price (PKR or USD).
+  currency     String         @default("USD") @db.VarChar(3)
   billing      ServiceBilling @default(ONE_TIME)
   active       Boolean        @default(true)
   createdAt    DateTime       @default(now()) @db.Timestamptz(3)
@@ -1458,33 +1483,35 @@ enum DealStatus {
 
 /// A sale: which services, to whom, for how much. Won deals count towards the owner's target.
 model Deal {
-  id              String     @id @default(uuid()) @db.Uuid
-  title           String     @db.VarChar(160)
+  id              String         @id @default(uuid()) @db.Uuid
+  title           String         @db.VarChar(160)
   type            DealType
-  status          DealStatus @default(OPEN)
+  status          DealStatus     @default(OPEN)
   /// New business: the lead it comes from.
-  leadId          String?    @db.Uuid
+  leadId          String?        @db.Uuid
   /// The SMA customer (always set for upsells; set for new business once the lead converts).
-  businessId      String?    @db.Uuid
-  ownerId         String?    @db.Uuid
+  businessId      String?        @db.Uuid
+  ownerId         String?        @db.Uuid
   /// Sum of the items.
-  amount          Decimal    @default(0) @db.Decimal(12, 2)
-  currency        String     @db.VarChar(3)
-  expectedCloseAt DateTime?  @db.Timestamptz(3)
+  amount          Decimal        @default(0) @db.Decimal(12, 2)
+  currency        String         @db.VarChar(3)
+  expectedCloseAt DateTime?      @db.Timestamptz(3)
   /// When it was marked WON or LOST.
-  closedAt        DateTime?  @db.Timestamptz(3)
-  lostReason      String?    @db.VarChar(300)
-  notes           String?    @db.VarChar(2000)
-  createdById     String?    @db.Uuid
-  createdAt       DateTime   @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime   @updatedAt @db.Timestamptz(3)
-  deletedAt       DateTime?  @db.Timestamptz(3)
-  lead            Lead?      @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  business        Business?  @relation("customerDeals", fields: [businessId], references: [id], onDelete: Restrict)
-  owner           User?      @relation("dealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  createdBy       User?      @relation("dealCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  closedAt        DateTime?      @db.Timestamptz(3)
+  lostReason      String?        @db.VarChar(300)
+  notes           String?        @db.VarChar(2000)
+  createdById     String?        @db.Uuid
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+  deletedAt       DateTime?      @db.Timestamptz(3)
+  lead            Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  business        Business?      @relation("customerDeals", fields: [businessId], references: [id], onDelete: Restrict)
+  owner           User?          @relation("dealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdBy       User?          @relation("dealCreator", fields: [createdById], references: [id], onDelete: SetNull)
   items           DealItem[]
   invoices        Invoice[]
+  quotes          Quote[]
+  subscriptions   Subscription[]
 
   @@index([ownerId, status])
   @@index([status, closedAt])
@@ -1521,41 +1548,53 @@ enum InvoiceStatus {
 /// A bill to an SMA customer (or a lead before conversion). Totals are kept in sync with items
 /// and payments by the API; "overdue" = issued, unpaid and past the due date.
 model Invoice {
-  id            String        @id @default(uuid()) @db.Uuid
+  id             String         @id @default(uuid()) @db.Uuid
   /// INV-2026-00001
-  number        String        @unique @db.VarChar(20)
-  dealId        String?       @db.Uuid
-  businessId    String?       @db.Uuid
-  leadId        String?       @db.Uuid
-  billToName    String        @db.VarChar(160)
-  billToEmail   String?       @db.VarChar(254)
-  billToPhone   String?       @db.VarChar(16)
-  billToAddress String?       @db.VarChar(500)
-  status        InvoiceStatus @default(DRAFT)
-  issueDate     DateTime      @db.Date
-  dueDate       DateTime      @db.Date
-  currency      String        @db.VarChar(3)
-  subtotal      Decimal       @default(0) @db.Decimal(12, 2)
-  discount      Decimal       @default(0) @db.Decimal(12, 2)
-  taxRate       Decimal       @default(0) @db.Decimal(5, 2)
-  taxAmount     Decimal       @default(0) @db.Decimal(12, 2)
-  total         Decimal       @default(0) @db.Decimal(12, 2)
-  amountPaid    Decimal       @default(0) @db.Decimal(12, 2)
-  notes         String?       @db.VarChar(2000)
-  createdById   String?       @db.Uuid
-  issuedAt      DateTime?     @db.Timestamptz(3)
-  paidAt        DateTime?     @db.Timestamptz(3)
-  voidedAt      DateTime?     @db.Timestamptz(3)
-  voidReason    String?       @db.VarChar(300)
-  lastEmailedAt DateTime?     @db.Timestamptz(3)
-  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
-  deal          Deal?         @relation(fields: [dealId], references: [id], onDelete: SetNull)
-  business      Business?     @relation("customerInvoices", fields: [businessId], references: [id], onDelete: Restrict)
-  lead          Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  createdBy     User?         @relation("invoiceCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  items         InvoiceItem[]
-  payments      Payment[]
+  number         String         @unique @db.VarChar(20)
+  dealId         String?        @db.Uuid
+  businessId     String?        @db.Uuid
+  leadId         String?        @db.Uuid
+  billToName     String         @db.VarChar(160)
+  billToEmail    String?        @db.VarChar(254)
+  billToPhone    String?        @db.VarChar(16)
+  billToAddress  String?        @db.VarChar(500)
+  status         InvoiceStatus  @default(DRAFT)
+  issueDate      DateTime       @db.Date
+  dueDate        DateTime       @db.Date
+  currency       String         @db.VarChar(3)
+  subtotal       Decimal        @default(0) @db.Decimal(12, 2)
+  discount       Decimal        @default(0) @db.Decimal(12, 2)
+  taxRate        Decimal        @default(0) @db.Decimal(5, 2)
+  taxAmount      Decimal        @default(0) @db.Decimal(12, 2)
+  total          Decimal        @default(0) @db.Decimal(12, 2)
+  amountPaid     Decimal        @default(0) @db.Decimal(12, 2)
+  notes          String?        @db.VarChar(2000)
+  createdById    String?        @db.Uuid
+  issuedAt       DateTime?      @db.Timestamptz(3)
+  paidAt         DateTime?      @db.Timestamptz(3)
+  voidedAt       DateTime?      @db.Timestamptz(3)
+  voidReason     String?        @db.VarChar(300)
+  lastEmailedAt  DateTime?      @db.Timestamptz(3)
+  /// Recurring invoices: the subscription and the period billed.
+  subscriptionId String?        @db.Uuid
+  periodStart    DateTime?      @db.Date
+  periodEnd      DateTime?      @db.Date
+  /// Overdue reminders sent so far.
+  reminderCount  Int            @default(0)
+  lastReminderAt DateTime?      @db.Timestamptz(3)
+  /// Secret for the customer's pay page.
+  payToken       String?        @unique @db.VarChar(64)
+  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+  deal           Deal?          @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  business       Business?      @relation("customerInvoices", fields: [businessId], references: [id], onDelete: Restrict)
+  lead           Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  createdBy      User?          @relation("invoiceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  items          InvoiceItem[]
+  payments       Payment[]
+  subscription   Subscription?  @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  claims         PaymentClaim[]
+  quote          Quote?         @relation("quoteInvoice")
 
   @@index([status, dueDate])
   @@index([businessId])
@@ -1620,4 +1659,293 @@ model SalesTarget {
   user      User     @relation("salesTargets", fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, month])
+}
+
+// ───────────────────────────── CRM: quotes, subscriptions, payment claims, commission ─────────────────────────────
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+
+/// A price offer. The customer accepts it on a public link; accepting wins the deal and
+/// creates the invoice.
+model Quote {
+  id            String      @id @default(uuid()) @db.Uuid
+  /// QT-2026-00001
+  number        String      @unique @db.VarChar(20)
+  dealId        String?     @db.Uuid
+  businessId    String?     @db.Uuid
+  leadId        String?     @db.Uuid
+  billToName    String      @db.VarChar(160)
+  billToEmail   String?     @db.VarChar(254)
+  billToPhone   String?     @db.VarChar(16)
+  billToAddress String?     @db.VarChar(500)
+  status        QuoteStatus @default(DRAFT)
+  issueDate     DateTime    @db.Date
+  validUntil    DateTime    @db.Date
+  currency      String      @db.VarChar(3)
+  subtotal      Decimal     @default(0) @db.Decimal(12, 2)
+  discount      Decimal     @default(0) @db.Decimal(12, 2)
+  taxRate       Decimal     @default(0) @db.Decimal(5, 2)
+  taxAmount     Decimal     @default(0) @db.Decimal(12, 2)
+  total         Decimal     @default(0) @db.Decimal(12, 2)
+  notes         String?     @db.VarChar(2000)
+  terms         String?     @db.VarChar(2000)
+  /// Secret for the customer's accept/decline link (only its hash would be needed, but the
+  /// link must be re-sendable; it grants no access beyond this quote).
+  publicToken   String      @unique @db.VarChar(64)
+  sentAt        DateTime?   @db.Timestamptz(3)
+  viewedAt      DateTime?   @db.Timestamptz(3)
+  respondedAt   DateTime?   @db.Timestamptz(3)
+  responseName  String?     @db.VarChar(120)
+  responseNote  String?     @db.VarChar(500)
+  invoiceId     String?     @unique @db.Uuid
+  createdById   String?     @db.Uuid
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @db.Timestamptz(3)
+  deal          Deal?       @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  business      Business?   @relation("customerQuotes", fields: [businessId], references: [id], onDelete: Restrict)
+  lead          Lead?       @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  invoice       Invoice?    @relation("quoteInvoice", fields: [invoiceId], references: [id], onDelete: SetNull)
+  items         QuoteItem[]
+
+  @@index([status, validUntil])
+  @@index([dealId])
+}
+
+model QuoteItem {
+  id          String         @id @default(uuid()) @db.Uuid
+  quoteId     String         @db.Uuid
+  serviceId   String?        @db.Uuid
+  name        String         @db.VarChar(160)
+  description String?        @db.VarChar(500)
+  quantity    Int
+  unitPrice   Decimal        @db.Decimal(12, 2)
+  total       Decimal        @db.Decimal(12, 2)
+  billing     ServiceBilling @default(ONE_TIME)
+  position    Int            @default(0)
+  quote       Quote          @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAUSED
+  CANCELLED
+}
+
+/// A customer's plan billed automatically every month (or year).
+model Subscription {
+  id            String             @id @default(uuid()) @db.Uuid
+  businessId    String             @db.Uuid
+  dealId        String?            @db.Uuid
+  name          String             @db.VarChar(160)
+  currency      String             @db.VarChar(3)
+  interval      ServiceBilling
+  status        SubscriptionStatus @default(ACTIVE)
+  /// The next invoice is created on this day.
+  nextInvoiceAt DateTime           @db.Date
+  dueDays       Int                @default(14)
+  taxRate       Decimal            @default(0) @db.Decimal(5, 2)
+  /// Email each new invoice to the customer.
+  autoEmail     Boolean            @default(true)
+  createdById   String?            @db.Uuid
+  createdAt     DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime           @updatedAt @db.Timestamptz(3)
+  cancelledAt   DateTime?          @db.Timestamptz(3)
+  business      Business           @relation("customerSubscriptions", fields: [businessId], references: [id], onDelete: Restrict)
+  deal          Deal?              @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  items         SubscriptionItem[]
+  invoices      Invoice[]
+
+  @@index([status, nextInvoiceAt])
+  @@index([businessId])
+}
+
+model SubscriptionItem {
+  id             String       @id @default(uuid()) @db.Uuid
+  subscriptionId String       @db.Uuid
+  serviceId      String?      @db.Uuid
+  name           String       @db.VarChar(160)
+  quantity       Int
+  unitPrice      Decimal      @db.Decimal(12, 2)
+  position       Int          @default(0)
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([subscriptionId])
+}
+
+enum PaymentClaimStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+/// "I have paid": a customer reports a JazzCash/Easypaisa/bank payment on the invoice's pay
+/// page; a manager confirms it (which records the payment) or rejects it.
+model PaymentClaim {
+  id           String             @id @default(uuid()) @db.Uuid
+  invoiceId    String             @db.Uuid
+  amount       Decimal            @db.Decimal(12, 2)
+  method       PaymentMethod
+  reference    String             @db.VarChar(120)
+  payerName    String?            @db.VarChar(120)
+  note         String?            @db.VarChar(500)
+  status       PaymentClaimStatus @default(PENDING)
+  paymentId    String?            @unique @db.Uuid
+  reviewedById String?            @db.Uuid
+  reviewedAt   DateTime?          @db.Timestamptz(3)
+  reviewNote   String?            @db.VarChar(300)
+  /// Keyed hash of the submitter's IP (abuse control; no raw IPs).
+  ipHash       String?            @db.VarChar(64)
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+  invoice      Invoice            @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([invoiceId])
+}
+
+enum CommissionBasis {
+  /// Value of deals won in the month.
+  WON
+  /// Payments received in the month on the person's deals.
+  COLLECTED
+}
+
+/// How a sales person earns commission: base % up to the target, bonus % above it.
+/// scope = "team" (default for everyone) or a user id (override).
+model CommissionPlan {
+  scope       String          @id @db.VarChar(40)
+  baseRate    Decimal         @db.Decimal(5, 2)
+  bonusRate   Decimal         @db.Decimal(5, 2)
+  basis       CommissionBasis @default(WON)
+  updatedById String?         @db.Uuid
+  updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
+}
+
+// ───────────────────────────── Attendance, checklists, leave ─────────────────────────────
+
+/// A check-in (and later check-out) at a store, with where the phone was.
+model AttendanceRecord {
+  id               String    @id @default(uuid()) @db.Uuid
+  businessId       String    @db.Uuid
+  storeId          String    @db.Uuid
+  userId           String    @db.Uuid
+  /// The shift it belongs to (if any matched).
+  shiftId          String?   @db.Uuid
+  checkInAt        DateTime  @db.Timestamptz(3)
+  checkInLat       Float?
+  checkInLng       Float?
+  checkInAccuracy  Int?
+  /// Metres from the store (null when the store has no location set).
+  checkInDistance  Int?
+  checkOutAt       DateTime? @db.Timestamptz(3)
+  checkOutLat      Float?
+  checkOutLng      Float?
+  checkOutDistance Int?
+  note             String?   @db.VarChar(300)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  store            Store     @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
+  user             User      @relation("attendanceUser", fields: [userId], references: [id], onDelete: Restrict)
+  shift            Shift?    @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, checkInAt])
+  @@index([userId, checkInAt])
+}
+
+/// A list of things to do at a store every day (e.g. opening and closing checks).
+model ChecklistTemplate {
+  id          String         @id @default(uuid()) @db.Uuid
+  businessId  String         @db.Uuid
+  /// null = every store of the business.
+  storeId     String?        @db.Uuid
+  name        String         @db.VarChar(80)
+  /// [{ key, label, photo }]
+  items       Json
+  active      Boolean        @default(true)
+  createdById String?        @db.Uuid
+  createdAt   DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime       @updatedAt @db.Timestamptz(3)
+  deletedAt   DateTime?      @db.Timestamptz(3)
+  runs        ChecklistRun[]
+
+  @@index([businessId])
+}
+
+/// One store's checklist for one day.
+model ChecklistRun {
+  id            String             @id @default(uuid()) @db.Uuid
+  templateId    String             @db.Uuid
+  businessId    String             @db.Uuid
+  storeId       String             @db.Uuid
+  day           DateTime           @db.Date
+  completedAt   DateTime?          @db.Timestamptz(3)
+  completedById String?            @db.Uuid
+  createdAt     DateTime           @default(now()) @db.Timestamptz(3)
+  template      ChecklistTemplate  @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  items         ChecklistRunItem[]
+
+  @@unique([templateId, storeId, day])
+  @@index([storeId, day])
+}
+
+model ChecklistRunItem {
+  id          String       @id @default(uuid()) @db.Uuid
+  runId       String       @db.Uuid
+  itemKey     String       @db.VarChar(40)
+  checked     Boolean      @default(false)
+  checkedById String?      @db.Uuid
+  checkedAt   DateTime?    @db.Timestamptz(3)
+  note        String?      @db.VarChar(300)
+  /// Photo proof (a READY media asset uploaded for operations).
+  mediaId     String?      @db.Uuid
+  run         ChecklistRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  media       MediaAsset?  @relation(fields: [mediaId], references: [id], onDelete: SetNull)
+  user        User?        @relation(fields: [userId], references: [id])
+  userId      String?      @db.Uuid
+
+  @@unique([runId, itemKey])
+}
+
+enum LeaveType {
+  ANNUAL
+  SICK
+  CASUAL
+  UNPAID
+  OTHER
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id           String      @id @default(uuid()) @db.Uuid
+  businessId   String      @db.Uuid
+  storeId      String      @db.Uuid
+  userId       String      @db.Uuid
+  type         LeaveType
+  startDate    DateTime    @db.Date
+  endDate      DateTime    @db.Date
+  reason       String?     @db.VarChar(500)
+  status       LeaveStatus @default(PENDING)
+  decidedById  String?     @db.Uuid
+  decidedAt    DateTime?   @db.Timestamptz(3)
+  decisionNote String?     @db.VarChar(300)
+  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime    @updatedAt @db.Timestamptz(3)
+  store        Store       @relation(fields: [businessId, storeId], references: [businessId, id], onDelete: Restrict)
+  user         User        @relation("leaveUser", fields: [userId], references: [id], onDelete: Restrict)
+  decidedBy    User?       @relation("leaveDecider", fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@index([storeId, status])
+  @@index([userId, startDate])
 }

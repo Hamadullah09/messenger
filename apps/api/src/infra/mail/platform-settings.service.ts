@@ -1,5 +1,13 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
-import { INTEGRATION_KEYS, type IntegrationKey } from '@storeline/shared';
+import {
+  CRM_SETTING_KEYS,
+  INTEGRATION_KEYS,
+  type CrmSettingKey,
+  type IntegrationKey,
+} from '@storeline/shared';
+
+export type SettingKey = IntegrationKey | CrmSettingKey;
+const ALL_KEYS: readonly SettingKey[] = [...INTEGRATION_KEYS, ...CRM_SETTING_KEYS];
 import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -14,7 +22,7 @@ const REFRESH_MS = 30_000;
 @Injectable()
 export class PlatformSettingsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PlatformSettingsService.name);
-  private values = new Map<IntegrationKey, string>();
+  private values = new Map<SettingKey, string>();
   private timer: NodeJS.Timeout | null = null;
   private version = 0;
 
@@ -40,18 +48,18 @@ export class PlatformSettingsService implements OnModuleInit, OnModuleDestroy {
     return this.version;
   }
 
-  get(key: IntegrationKey): string | undefined {
+  get(key: SettingKey): string | undefined {
     return this.values.get(key);
   }
 
   async refresh(): Promise<void> {
     const rows = await this.prisma.platformSetting.findMany({
-      where: { key: { in: [...INTEGRATION_KEYS] } },
+      where: { key: { in: [...ALL_KEYS] } },
     });
-    const next = new Map<IntegrationKey, string>();
+    const next = new Map<SettingKey, string>();
     for (const row of rows) {
       try {
-        next.set(row.key as IntegrationKey, this.crypto.decrypt(row.valueEnc, `setting:${row.key}`));
+        next.set(row.key as SettingKey, this.crypto.decrypt(row.valueEnc, `setting:${row.key}`));
       } catch {
         this.logger.warn(`Setting ${row.key} could not be decrypted; ignoring it`);
       }
@@ -64,7 +72,7 @@ export class PlatformSettingsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async set(key: IntegrationKey, value: string | null, userId: string): Promise<void> {
+  async set(key: SettingKey, value: string | null, userId: string): Promise<void> {
     if (value === null || value === '') {
       await this.prisma.platformSetting.deleteMany({ where: { key } });
     } else {
