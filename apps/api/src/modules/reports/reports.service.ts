@@ -97,6 +97,8 @@ export class ReportsService {
     ]);
 
     const businessWhere = businessId ? { businessId } : { business: { internal: false } };
+    // Store tasks only link to their business through the store.
+    const taskWhere = businessId ? { businessId } : { store: { business: { internal: false } } };
     const [incidents, tasksCreated, tasksCompleted, overdue, campaigns, customers] =
       await Promise.all([
         this.prisma.emergencyIncident.findMany({
@@ -104,13 +106,13 @@ export class ReportsService {
           select: { createdAt: true, acknowledgedAt: true },
         }),
         this.prisma.storeTask.count({
-          where: { ...businessWhere, deletedAt: null, createdAt: { gte: from, lt: to } },
+          where: { ...taskWhere, deletedAt: null, createdAt: { gte: from, lt: to } },
         }),
         this.prisma.storeTask.count({
-          where: { ...businessWhere, deletedAt: null, completedAt: { gte: from, lt: to } },
+          where: { ...taskWhere, deletedAt: null, completedAt: { gte: from, lt: to } },
         }),
         this.prisma.storeTask.count({
-          where: { ...businessWhere, deletedAt: null, status: 'OPEN', dueAt: { lt: new Date() } },
+          where: { ...taskWhere, deletedAt: null, status: 'OPEN', dueAt: { lt: new Date() } },
         }),
         this.prisma.customerCampaign.findMany({
           where: { ...businessWhere, createdAt: { gte: from, lt: to } },

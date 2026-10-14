@@ -364,6 +364,7 @@ export class CallsService {
           messageId: r.id,
           conversationId: r.conversationId,
           peer,
+          group: r.conversation.type === 'GROUP',
           media: meta.media,
           outcome: meta.outcome,
           outgoing: meta.callerId === actor.userId,

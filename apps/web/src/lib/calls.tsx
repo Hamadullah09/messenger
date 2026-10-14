@@ -79,27 +79,52 @@ function cleanup(message: string | null = null) {
     useCallStore.setState({ ...initial, phase: 'ended', message, call: useCallStore.getState().call });
     window.setTimeout(() => {
       if (useCallStore.getState().phase === 'ended') useCallStore.setState(initial);
-    }, 2500);
+    }, 6000);
   } else {
     useCallStore.setState(initial);
   }
 }
 
+/** Why the camera or microphone could not be used, in words the person can act on. */
+class MediaError extends Error {}
+
 async function getMedia(video: boolean): Promise<MediaStream> {
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia)
-    throw new Error('Calls need a secure (https) address. Open SMA with https to call.');
+    throw new MediaError('Calls need a secure (https) address. Open SMA with https to call.');
+  const audio = { echoCancellation: true, noiseSuppression: true };
   try {
     return await navigator.mediaDevices.getUserMedia({
-      audio: { echoCancellation: true, noiseSuppression: true },
+      audio,
       video: video ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } } : false,
     });
-  } catch {
-    throw new Error(
-      video
-        ? 'Allow the camera and microphone in your browser to make video calls.'
-        : 'Allow the microphone in your browser to make calls.',
-    );
+  } catch (error) {
+    const name = error instanceof DOMException ? error.name : '';
+    if (name === 'NotAllowedError' || name === 'SecurityError')
+      throw new MediaError(
+        video
+          ? 'The camera or microphone is blocked. Allow them for this site in the browser (the lock icon next to the address), then try again.'
+          : 'The microphone is blocked. Allow it for this site in the browser (the lock icon next to the address), then try again.',
+      );
+    if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+      // No camera on this device: a video call can still go ahead with voice only.
+      if (video) {
+        try {
+          return await navigator.mediaDevices.getUserMedia({ audio, video: false });
+        } catch {
+          // fall through to the message below
+        }
+      }
+      throw new MediaError('No microphone was found on this device. Connect one (or use a phone) to call.');
+    }
+    if (name === 'NotReadableError' || name === 'AbortError')
+      throw new MediaError('The microphone or camera is being used by another app. Close it and try again.');
+    throw new MediaError('The microphone or camera could not be started. Check the browser permissions and try again.');
   }
+}
+
+/** The person-facing reason a call failed. */
+function callError(error: unknown): string {
+  return error instanceof MediaError ? error.message : errorMessage(error);
 }
 
 function send(callId: string, to: string, data: CallSignal['data']) {
@@ -232,7 +257,7 @@ export async function startCall(conversationId: string, media: 'audio' | 'video'
     }, ringSeconds * 1000);
   } catch (error) {
     stopTracks(local);
-    cleanup(errorMessage(error));
+    cleanup(callError(error));
   }
 }
 
@@ -255,7 +280,7 @@ async function acceptCall() {
     await api<CallDto>(`/calls/${call.id}/accept`, { method: 'POST' });
   } catch (error) {
     if (!call.group) void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
-    cleanup(errorMessage(error));
+    cleanup(callError(error));
   }
 }
 
@@ -462,7 +487,7 @@ function CallScreen({ myId }: { myId: string }) {
   if (!s.phase || !s.call) {
     if (s.phase === 'ended' && s.message)
       return (
-        <div role="status" className="fixed inset-x-0 top-4 z-[80] mx-auto w-max rounded-full bg-neutral-900 px-5 py-2 text-white shadow-xl">
+        <div role="status" className="fixed inset-x-0 top-4 z-[80] mx-auto w-max max-w-[calc(100%-2rem)] rounded-2xl bg-neutral-900 px-5 py-2.5 text-center text-white shadow-xl">
           {s.message}
         </div>
       );

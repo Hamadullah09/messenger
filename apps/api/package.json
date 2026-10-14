@@ -23,7 +23,8 @@
     "accounts:apply": "tsx prisma/apply-accounts.ts",
     "db:demo-sales": "tsx prisma/demo-sales.ts",
     "db:demo-crm": "tsx prisma/demo-crm.ts",
-    "db:demo-features": "tsx prisma/demo-features.ts"
+    "db:demo-features": "tsx prisma/demo-features.ts",
+    "db:demo-business-crm": "tsx prisma/demo-business-crm.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1149.0",

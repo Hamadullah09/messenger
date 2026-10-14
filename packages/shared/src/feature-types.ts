@@ -41,8 +41,9 @@ export interface CallConfigDto {
 export interface CallLogEntryDto {
   messageId: string;
   conversationId: string;
-  /** The other person. */
+  /** The other person (a group call: the group, by name). */
   peer: PublicUserDto;
+  group: boolean;
   media: 'audio' | 'video';
   outcome: CallOutcome;
   outgoing: boolean;
