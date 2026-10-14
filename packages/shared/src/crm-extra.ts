@@ -3,7 +3,7 @@
  * reminders, the customer's pay page (payment claims), commission and lead import.
  */
 import { z } from 'zod';
-import type { PaymentMethod, ServiceBilling } from './crm';
+import type { CrmCustomerRef, PaymentMethod, ServiceBilling } from './crm';
 import type { PublicUserDto } from './dto';
 import { idSchema } from './schemas/common';
 import { createLeadRequestSchema } from './schemas/sales';
@@ -134,7 +134,7 @@ export interface QuoteDto {
   number: string;
   status: QuoteStatus;
   deal: { id: string; title: string } | null;
-  customer: { id: string; name: string } | null;
+  customer: CrmCustomerRef | null;
   lead: { id: string; companyName: string } | null;
   billToName: string;
   billToEmail: string | null;
@@ -203,7 +203,9 @@ export type RespondToQuoteRequest = z.infer<typeof respondToQuoteRequestSchema>;
 // ── Subscriptions (monthly / yearly billing) ──
 
 export const createSubscriptionRequestSchema = z.object({
-  businessId: idSchema,
+  /** An SMA customer business, or (a business's own CRM) the won lead. */
+  businessId: idSchema.nullable().optional(),
+  leadId: idSchema.nullable().optional(),
   dealId: idSchema.nullable().optional(),
   name: text(160).min(1, 'Name the plan'),
   currency: currencySchema.optional(),
@@ -224,7 +226,7 @@ export const createSubscriptionRequestSchema = z.object({
     )
     .min(1, 'Add at least one item')
     .max(50),
-});
+}).refine((d) => !!d.businessId || !!d.leadId, { message: 'Choose the customer', path: ['businessId'] });
 export type CreateSubscriptionRequest = z.infer<typeof createSubscriptionRequestSchema>;
 
 export const updateSubscriptionRequestSchema = z.object({
@@ -238,7 +240,7 @@ export type UpdateSubscriptionRequest = z.infer<typeof updateSubscriptionRequest
 
 export interface SubscriptionDto {
   id: string;
-  customer: { id: string; name: string };
+  customer: CrmCustomerRef | null;
   deal: { id: string; title: string } | null;
   name: string;
   currency: string;

@@ -13,6 +13,7 @@ import type {
 import type { IncidentDto } from './emergency-types';
 import type { CallDto } from './feature-types';
 import type { CallSignal } from './schemas/rich-messages';
+import type { FollowUpKind } from './schemas/sales';
 import { idSchema } from './schemas/common';
 
 export const REALTIME_NAMESPACE = '/v1';
@@ -102,4 +103,16 @@ export interface ServerToClientEvents {
   'status.changed': (event: { businessId: string }) => void;
   /** Your store tasks changed (assigned to you, completed, edited). */
   'task.changed': (event: { businessId: string; storeId: string }) => void;
+  /** A planned meeting or other follow-up with one of your leads starts soon. */
+  'sales.reminder': (event: SalesReminderEvent) => void;
+}
+
+export interface SalesReminderEvent {
+  leadId: string;
+  companyName: string;
+  contactName: string;
+  phone: string | null;
+  kind: FollowUpKind | null;
+  note: string | null;
+  at: string;
 }

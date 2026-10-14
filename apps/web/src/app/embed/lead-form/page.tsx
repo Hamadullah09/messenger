@@ -11,7 +11,11 @@ import { DemoRequestForm } from '@/components/sales/demo-request-form';
  */
 export default function EmbeddedLeadForm() {
   const [page, setPage] = useState<string | undefined>(undefined);
+  // ?business=<short name>: a business's own form (its leads land in its own Sales & Marketing).
+  const [business, setBusiness] = useState<string | undefined>(undefined);
   useEffect(() => {
+    const slug = new URLSearchParams(window.location.search).get('business')?.trim();
+    if (slug) setBusiness(slug.slice(0, 64));
     // The website page that embeds the form (sent by the browser as the referrer).
     if (document.referrer) {
       try {
@@ -27,11 +31,13 @@ export default function EmbeddedLeadForm() {
   return (
     <main id="main" className="min-h-dvh bg-surface p-4 text-fg sm:p-6">
       <div className="mx-auto max-w-lg">
-        <h1 className="text-2xl font-bold">Request a demo</h1>
+        <h1 className="text-2xl font-bold">{business ? 'Contact us' : 'Request a demo'}</h1>
         <p className="mt-1 mb-5 text-muted">
-          Tell us about your business and our team will contact you.
+          {business
+            ? 'Leave your details and our team will contact you.'
+            : 'Tell us about your business and our team will contact you.'}
         </p>
-        <DemoRequestForm sourceDetail={page} />
+        <DemoRequestForm sourceDetail={page} business={business} />
       </div>
     </main>
   );

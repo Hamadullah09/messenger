@@ -4,6 +4,7 @@ import {
   LEAD_DIRECTIONS,
   LEAD_SOURCES,
   OUTBOUND_SOURCES,
+  type FollowUpKind,
   type LeadDirection,
   type LeadDetailDto,
   type LeadDto,
@@ -16,6 +17,7 @@ import { useState } from 'react';
 import { api, ApiRequestError, errorMessage } from '@/lib/api';
 import { countries } from '@/lib/countries';
 import { Alert, Button, Dialog, SelectField, TextArea, TextField } from '../ui';
+import { FollowUpKindField, toLocalInput } from './follow-up';
 import { DIRECTION_LABEL, SOURCE_LABEL } from './labels';
 
 /** Create a lead, or edit one's details. */
@@ -49,7 +51,9 @@ export function LeadFormDialog({
     direction: (lead?.direction ?? 'OUTBOUND') as LeadDirection,
     sourceDetail: lead?.sourceDetail ?? '',
     notes: lead?.notes ?? '',
-    nextFollowUpAt: lead?.nextFollowUpAt?.slice(0, 16) ?? '',
+    nextFollowUpAt: toLocalInput(lead?.nextFollowUpAt),
+    nextFollowUpKind: (lead?.nextFollowUpKind ?? '') as FollowUpKind | '',
+    nextFollowUpNote: lead?.nextFollowUpNote ?? '',
     ownerId: lead?.owner?.id ?? '',
   });
   const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
@@ -75,6 +79,9 @@ export function LeadFormDialog({
         sourceDetail: nullable(form.sourceDetail),
         notes: nullable(form.notes),
         nextFollowUpAt: form.nextFollowUpAt ? new Date(form.nextFollowUpAt).toISOString() : null,
+        ...(form.nextFollowUpAt
+          ? { nextFollowUpKind: form.nextFollowUpKind || null, nextFollowUpNote: nullable(form.nextFollowUpNote) }
+          : {}),
         ...(!lead && canAssign ? { ownerId: form.ownerId || null } : {}),
       };
       return lead
@@ -264,6 +271,18 @@ export function LeadFormDialog({
             value={form.nextFollowUpAt}
             onChange={(e) => set({ nextFollowUpAt: e.target.value })}
           />
+          {form.nextFollowUpAt && (
+            <FollowUpKindField value={form.nextFollowUpKind} onChange={(v) => set({ nextFollowUpKind: v })} />
+          )}
+          {form.nextFollowUpAt && (
+            <TextField
+              label="Follow-up note (optional)"
+              maxLength={300}
+              placeholder="e.g. At their office, bring the price list"
+              value={form.nextFollowUpNote}
+              onChange={(e) => set({ nextFollowUpNote: e.target.value })}
+            />
+          )}
           {!lead && canAssign && (
             <SelectField
               label="Assign to"

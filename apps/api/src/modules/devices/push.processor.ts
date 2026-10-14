@@ -144,6 +144,18 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
     }));
   }
 
+  /**
+   * A reminder (e.g. a meeting with a lead in 15 minutes) to all of a person's devices, online
+   * or not: it is about time, not about unread messages. Respects their push preferences.
+   */
+  reminder(
+    userIds: string[],
+    build: (preview: 'NONE' | 'SENDER' | 'CONTENT') => PushPayload,
+  ): Promise<{ sent: number; skipped: number }> {
+    // Useless once the meeting has started: dropped by the push service after 15 minutes.
+    return this.deliver(userIds, false, build, { urgency: 'high', ttlSeconds: 15 * 60 });
+  }
+
   /** Users with no live socket on any API instance (presence is advisory, not a guarantee). */
   private async offline(userIds: string[]): Promise<string[]> {
     if (userIds.length === 0) return [];
@@ -161,6 +173,7 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
     userIds: string[],
     emergency: boolean,
     build: (preview: 'NONE' | 'SENDER' | 'CONTENT') => PushPayload,
+    options?: { urgency: 'normal' | 'high'; ttlSeconds: number },
   ): Promise<{ sent: number; skipped: number }> {
     if (userIds.length === 0) return { sent: 0, skipped: 0 };
     const devices = await this.prisma.device.findMany({
@@ -197,7 +210,7 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
             token: this.crypto.decrypt(device.pushTokenEnc!, pushTokenAad(device.id)),
           },
           payload,
-          { urgency: emergency ? 'high' : 'normal', ttlSeconds: emergency ? 3600 : 24 * 3600 },
+          options ?? { urgency: emergency ? 'high' : 'normal', ttlSeconds: emergency ? 3600 : 24 * 3600 },
         );
         if (outcome === 'gone') {
           await this.prisma.device.update({

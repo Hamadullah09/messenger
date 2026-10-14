@@ -64,13 +64,15 @@ export interface NotificationConfigDto {
 
 /** Push payload contract shared with clients' service workers / native handlers. */
 export interface PushPayload {
-  type: 'message' | 'emergency';
+  /** reminder: a meeting or other follow-up with a lead starts soon. */
+  type: 'message' | 'emergency' | 'reminder';
   title: string;
   body: string;
   /** Where to open on tap. */
   url: string;
   conversationId?: string;
   incidentId?: string;
+  leadId?: string;
   /** Collapse key: newer notifications for the same conversation replace older ones. */
   tag: string;
 }

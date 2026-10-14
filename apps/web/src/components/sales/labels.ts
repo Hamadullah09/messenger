@@ -1,5 +1,6 @@
 import type {
   ActivityOutcome,
+  FollowUpKind,
   LeadActivityType,
   LeadDirection,
   LeadSource,
@@ -97,4 +98,23 @@ export const OUTCOME_TONE: Record<ActivityOutcome, string> = {
   NO_ANSWER: 'text-warning',
   CALL_BACK_LATER: 'text-warning',
   NEEDS_MORE_INFO: 'text-muted',
+};
+
+export const FOLLOW_UP_LABEL: Record<FollowUpKind, string> = {
+  MEETING: 'Meeting',
+  CALL: 'Call',
+  VISIT: 'Visit',
+  WHATSAPP: 'WhatsApp',
+  EMAIL: 'Email',
+  OTHER: 'Follow-up',
+};
+
+/** The activity to log when a planned follow-up is done. */
+export const FOLLOW_UP_ACTIVITY: Record<FollowUpKind, 'CALL' | 'MEETING' | 'WHATSAPP' | 'EMAIL' | 'NOTE'> = {
+  MEETING: 'MEETING',
+  VISIT: 'MEETING',
+  CALL: 'CALL',
+  WHATSAPP: 'WHATSAPP',
+  EMAIL: 'EMAIL',
+  OTHER: 'NOTE',
 };

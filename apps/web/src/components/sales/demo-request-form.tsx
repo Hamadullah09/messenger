@@ -11,10 +11,13 @@ import { api, errorMessage } from '@/lib/api';
  */
 export function DemoRequestForm({
   sourceDetail,
+  business,
   afterSent,
 }: {
   /** Where it was filled in (shown on the lead). */
   sourceDetail?: string;
+  /** Short name of the business whose form this is (empty: SMA's own). */
+  business?: string;
   afterSent?: ReactNode;
 }) {
   const [form, setForm] = useState({
@@ -49,6 +52,7 @@ export function DemoRequestForm({
           ...(form.message.trim() ? { message: form.message.trim() } : {}),
           ...(sourceDetail ? { sourceDetail: sourceDetail.slice(0, 160) } : {}),
           country: 'PK',
+          ...(business ? { business } : {}),
           website: form.website,
         },
       });
@@ -134,9 +138,13 @@ export function DemoRequestForm({
         disabled={!form.companyName.trim() || !form.contactName.trim() || !form.email.trim()}
         icon={<Send className="size-5" aria-hidden />}
       >
-        Request a demo
+        {business ? 'Send' : 'Request a demo'}
       </Button>
-      <p className="text-sm text-muted">We use these details only to contact you about SMA.</p>
+      <p className="text-sm text-muted">
+        {business
+          ? 'We use these details only to contact you about your request.'
+          : 'We use these details only to contact you about SMA.'}
+      </p>
     </form>
   );
 }

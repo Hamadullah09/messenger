@@ -59,7 +59,7 @@ export function configureApp(app: NestExpressApplication): INestApplication {
     origin: (origin, done) => done(null, !origin || isAllowedOrigin(config, origin)),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-Storeline-CSRF'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-Storeline-CSRF', 'X-Business-Id'],
     exposedHeaders: ['X-Request-Id', 'Retry-After'],
     maxAge: 600,
   });

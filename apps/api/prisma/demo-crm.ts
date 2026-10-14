@@ -238,17 +238,38 @@ const TARGETS: Record<string, number[]> = {
   'sales.hira': [1500, 1500, 2000, 2000, 2000, 2000],
 };
 
+/** Counter-based running numbers (same as the app). */
+async function nextNumber(tenantId: string, kind: 'invoice' | 'quote'): Promise<number> {
+  const rows = await prisma.$queryRaw<Array<{ value: number }>>`
+    INSERT INTO "CrmCounter" ("businessId", "kind", "value") VALUES (${tenantId}::uuid, ${kind}, 1)
+    ON CONFLICT ("businessId", "kind") DO UPDATE SET "value" = "CrmCounter"."value" + 1
+    RETURNING "value"`;
+  return Number(rows[0]!.value);
+}
+
 async function main(): Promise<void> {
+  // SMA's own CRM belongs to the internal sales team business.
+  const team = await prisma.business.findFirst({
+    where: { internal: true, deletedAt: null },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  if (!team) {
+    console.log('No SMA sales team yet. Run npm run db:demo-sales first.');
+    return;
+  }
+  const tenantId = team.id;
+
   // 1. Services catalog.
-  const existingServices = await prisma.crmService.count();
+  const existingServices = await prisma.crmService.count({ where: { tenantId } });
   if (existingServices === 0) {
-    await prisma.crmService.createMany({ data: SERVICES });
+    await prisma.crmService.createMany({ data: SERVICES.map((svc) => ({ ...svc, tenantId })) });
     console.log(`Services: added ${SERVICES.length}.`);
   } else {
     console.log('Services: already present, skipped.');
   }
   const services = new Map(
-    (await prisma.crmService.findMany()).map((s) => [s.name, s] as const),
+    (await prisma.crmService.findMany({ where: { tenantId } })).map((s) => [s.name, s] as const),
   );
 
   const users = new Map(
@@ -314,6 +335,7 @@ async function main(): Promise<void> {
       : daysAgo(8);
     const deal = await prisma.deal.create({
       data: {
+        tenantId,
         title: demo.title,
         type: demo.type,
         status: demo.status,
@@ -348,8 +370,7 @@ async function main(): Promise<void> {
           })
         : null;
       const issued = demo.invoice.issued;
-      const seq = await prisma.$queryRaw<Array<{ n: bigint }>>`SELECT nextval('invoice_number_seq') AS n`;
-      const n = seq[0]!.n;
+      const n = await nextNumber(tenantId, 'invoice');
       const total = amount;
       const paidAmounts = (demo.invoice.payments ?? []).map((p) => round2(total * p.fraction));
       const paid = round2(paidAmounts.reduce((a, b) => a + b, 0));
@@ -362,6 +383,7 @@ async function main(): Promise<void> {
             : 'PARTIALLY_PAID';
       const invoice = await prisma.invoice.create({
         data: {
+          tenantId,
           number: `INV-${issued.getFullYear()}-${String(n).padStart(5, '0')}`,
           dealId: deal.id,
           businessId,
@@ -424,12 +446,12 @@ async function main(): Promise<void> {
       const d = new Date(now.getFullYear(), now.getMonth() - (amounts.length - 1 - i), 1);
       const month = new Date(Date.UTC(d.getFullYear(), d.getMonth(), 1));
       const exists = await prisma.salesTarget.findUnique({
-        where: { userId_month: { userId, month } },
+        where: { tenantId_userId_month: { tenantId, userId, month } },
         select: { id: true },
       });
       if (exists) continue;
       await prisma.salesTarget.create({
-        data: { userId, month, amount: amounts[i]!, currency: CURRENCY, setById: manager },
+        data: { tenantId, userId, month, amount: amounts[i]!, currency: CURRENCY, setById: manager },
       });
       targets += 1;
     }
@@ -447,7 +469,7 @@ async function main(): Promise<void> {
     PAY_JAZZCASH_ACCOUNT: 'DEMO — set the real JazzCash number in Sales → Settings',
     PAY_EASYPAISA_ACCOUNT: 'DEMO — set the real Easypaisa number in Sales → Settings',
     PAY_BANK_ACCOUNT: 'DEMO — set the real bank account in Sales → Settings',
-    REMINDER_DAYS: '-3,1,7,14',
+    REMINDER_DAYS: '1,7,14',
     REMINDER_CHANNELS: 'EMAIL',
   };
   let settingsAdded = 0;
@@ -459,9 +481,9 @@ async function main(): Promise<void> {
   console.log(`CRM settings: added ${settingsAdded}.`);
 
   // 5. Commission: 3% up to the target, 6% above it, on deals won.
-  if (!(await prisma.commissionPlan.findUnique({ where: { scope: 'team' } }))) {
+  if (!(await prisma.commissionPlan.findUnique({ where: { tenantId_scope: { tenantId, scope: 'team' } } }))) {
     await prisma.commissionPlan.create({
-      data: { scope: 'team', baseRate: 3, bonusRate: 6, basis: 'WON', updatedById: manager },
+      data: { tenantId, scope: 'team', baseRate: 3, bonusRate: 6, basis: 'WON', updatedById: manager },
     });
     console.log('Commission: team plan added (3% up to target, 6% above).');
   } else console.log('Commission: already present, skipped.');
@@ -493,10 +515,11 @@ async function main(): Promise<void> {
     const subtotal = round2(items.reduce((a, i) => a + i.total, 0));
     const taxAmount = round2(subtotal * 0.18);
     const issued = daysAgo(q.days);
-    const seq = await prisma.$queryRaw<Array<{ n: bigint }>>`SELECT nextval('quote_number_seq') AS n`;
+    const n = await nextNumber(tenantId, 'quote');
     await prisma.quote.create({
       data: {
-        number: `QT-${issued.getFullYear()}-${String(seq[0]!.n).padStart(5, '0')}`,
+        tenantId,
+        number: `QT-${issued.getFullYear()}-${String(n).padStart(5, '0')}`,
         leadId: lead.id,
         billToName: lead.companyName,
         billToEmail: lead.email,
@@ -535,6 +558,7 @@ async function main(): Promise<void> {
   if (abc && plan && addon && (await prisma.subscription.count({ where: { businessId: abc.id } })) === 0) {
     await prisma.subscription.create({
       data: {
+        tenantId,
         businessId: abc.id,
         name: 'SMA Enterprise — monthly',
         currency: CURRENCY,

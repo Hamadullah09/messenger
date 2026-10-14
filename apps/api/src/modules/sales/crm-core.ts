@@ -12,7 +12,7 @@ import { APP_CONFIG, type AppConfig } from '../../infra/config/config';
 import { MailService } from '../../infra/mail/mail.service';
 import { MarketingChannelsService } from '../../infra/mail/marketing-channels.service';
 import { PlatformSettingsService } from '../../infra/mail/platform-settings.service';
-import type { Tx } from '../../infra/prisma/prisma.service';
+import { PrismaService, type Tx } from '../../infra/prisma/prisma.service';
 
 export const num = (v: Prisma.Decimal | number | null | undefined): number =>
   v == null ? 0 : Number(v);
@@ -35,52 +35,98 @@ export function newPublicToken(): string {
 
 export type CrmSettings = Omit<CrmSettingsDto, 'canManage'>;
 
+const CACHE_MS = 30_000;
+
+interface TenantCache {
+  at: number;
+  values: Map<string, string>;
+  business: { name: string; email: string | null; phone: string | null; address: string | null; internal: boolean };
+}
+
 /**
- * CRM settings: currency, tax, company details, where customers pay, reminders. Stored in
- * PlatformSetting (changed in the app); the server's environment gives the defaults.
+ * CRM settings per business: currency, tax, company details on invoices, where customers pay,
+ * reminders. Stored in CrmSetting (changed in the app). SMA's own sales team falls back to the
+ * platform settings and the server's environment; other businesses to their own profile.
+ * Loaded per request (`load`) and kept for 30 seconds.
  */
 @Injectable()
 export class CrmSettingsService {
+  private readonly cache = new Map<string, TenantCache>();
+
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    private readonly prisma: PrismaService,
     private readonly settings: PlatformSettingsService,
     private readonly mail: MailService,
     private readonly channels: MarketingChannelsService,
   ) {}
 
-  private get(key: CrmSettingKey): string | undefined {
-    const v = this.settings.get(key);
-    return v === undefined || v === '' ? undefined : v;
+  private async entry(tenantId: string): Promise<TenantCache> {
+    const cached = this.cache.get(tenantId);
+    if (cached && Date.now() - cached.at < CACHE_MS) return cached;
+    const [rows, business] = await Promise.all([
+      this.prisma.crmSetting.findMany({ where: { businessId: tenantId }, select: { key: true, value: true } }),
+      this.prisma.business.findUnique({
+        where: { id: tenantId },
+        select: { name: true, email: true, phone: true, address: true, internal: true },
+      }),
+    ]);
+    const a = (business?.address ?? {}) as Record<string, string | undefined>;
+    const entry: TenantCache = {
+      at: Date.now(),
+      values: new Map(rows.filter((r) => r.value !== '').map((r) => [r.key, r.value])),
+      business: {
+        name: business?.name ?? '',
+        email: business?.email ?? null,
+        phone: business?.phone ?? null,
+        address: [a.line1, a.line2, a.city, a.region, a.country].filter(Boolean).join(', ') || null,
+        internal: business?.internal ?? false,
+      },
+    };
+    this.cache.set(tenantId, entry);
+    return entry;
   }
 
-  current(): CrmSettings {
+  /** The settings of one business's CRM. */
+  async load(tenantId: string): Promise<CrmSettings> {
+    const e = await this.entry(tenantId);
     const c = this.config;
-    const currency = (this.get('CRM_DEFAULT_CURRENCY') ?? c.CRM_CURRENCY) as Currency;
-    const days = (this.get('REMINDER_DAYS') ?? '1,7,14')
+    const platform = e.business.internal;
+    const get = (key: CrmSettingKey): string | undefined => {
+      const own = e.values.get(key);
+      if (own !== undefined) return own;
+      if (!platform) return undefined;
+      const v = this.settings.get(key);
+      return v === undefined || v === '' ? undefined : v;
+    };
+    const currency = (get('CRM_DEFAULT_CURRENCY') ?? c.CRM_CURRENCY) as Currency;
+    const days = (get('REMINDER_DAYS') ?? '1,7,14')
       .split(',')
       .map((d) => Number(d.trim()))
       .filter((d) => Number.isInteger(d) && d >= 0)
-      .sort((a, b) => a - b);
-    const reminderChannels = (this.get('REMINDER_CHANNELS') ?? 'EMAIL')
+      .sort((x, y) => x - y);
+    const reminderChannels = (get('REMINDER_CHANNELS') ?? 'EMAIL')
       .split(',')
       .map((v) => v.trim())
       .filter((v): v is 'EMAIL' | 'WHATSAPP' | 'SMS' => ['EMAIL', 'WHATSAPP', 'SMS'].includes(v));
+    const valid = (CURRENCIES as readonly string[]).includes(currency) ? currency : 'USD';
     return {
-      defaultCurrency: (CURRENCIES as readonly string[]).includes(currency) ? currency : 'USD',
-      currency: (CURRENCIES as readonly string[]).includes(currency) ? currency : 'USD',
-      usdToPkr: Number(this.get('CRM_USD_PKR_RATE') ?? 280) || 280,
-      taxName: this.get('CRM_TAX_NAME') ?? 'GST',
-      taxRate: Number(this.get('CRM_TAX_RATE') ?? 0) || 0,
-      taxNumber: this.get('CRM_TAX_NUMBER') ?? null,
-      companyName: this.get('INVOICE_COMPANY_NAME') ?? c.INVOICE_COMPANY_NAME,
-      companyAddress: this.get('INVOICE_COMPANY_ADDRESS') ?? (c.INVOICE_COMPANY_ADDRESS || null),
-      companyEmail: this.get('INVOICE_COMPANY_EMAIL') ?? (c.INVOICE_COMPANY_EMAIL || null),
-      companyPhone: this.get('INVOICE_COMPANY_PHONE') ?? (c.INVOICE_COMPANY_PHONE || null),
-      paymentDetails: this.get('INVOICE_PAYMENT_DETAILS') ?? (c.INVOICE_PAYMENT_DETAILS || null),
+      defaultCurrency: valid,
+      currency: valid,
+      usdToPkr: Number(get('CRM_USD_PKR_RATE') ?? 280) || 280,
+      taxName: get('CRM_TAX_NAME') ?? 'GST',
+      taxRate: Number(get('CRM_TAX_RATE') ?? 0) || 0,
+      taxNumber: get('CRM_TAX_NUMBER') ?? null,
+      companyName: get('INVOICE_COMPANY_NAME') ?? (platform ? c.INVOICE_COMPANY_NAME : e.business.name),
+      companyAddress:
+        get('INVOICE_COMPANY_ADDRESS') ?? (platform ? c.INVOICE_COMPANY_ADDRESS || null : e.business.address),
+      companyEmail: get('INVOICE_COMPANY_EMAIL') ?? (platform ? c.INVOICE_COMPANY_EMAIL || null : e.business.email),
+      companyPhone: get('INVOICE_COMPANY_PHONE') ?? (platform ? c.INVOICE_COMPANY_PHONE || null : e.business.phone),
+      paymentDetails: get('INVOICE_PAYMENT_DETAILS') ?? (platform ? c.INVOICE_PAYMENT_DETAILS || null : null),
       payTo: {
-        jazzcash: this.get('PAY_JAZZCASH_ACCOUNT') ?? null,
-        easypaisa: this.get('PAY_EASYPAISA_ACCOUNT') ?? null,
-        bank: this.get('PAY_BANK_ACCOUNT') ?? null,
+        jazzcash: get('PAY_JAZZCASH_ACCOUNT') ?? null,
+        easypaisa: get('PAY_EASYPAISA_ACCOUNT') ?? null,
+        bank: get('PAY_BANK_ACCOUNT') ?? null,
       },
       reminderDays: days.length > 0 ? days : [1, 7, 14],
       reminderChannels: reminderChannels.length > 0 ? reminderChannels : ['EMAIL'],
@@ -89,7 +135,7 @@ export class CrmSettingsService {
     };
   }
 
-  async update(request: UpdateCrmSettingsRequest, userId: string): Promise<void> {
+  async update(tenantId: string, request: UpdateCrmSettingsRequest, userId: string): Promise<void> {
     const values: Array<[CrmSettingKey, string | null | undefined]> = [
       ['CRM_DEFAULT_CURRENCY', request.defaultCurrency],
       ['CRM_USD_PKR_RATE', request.usdToPkr?.toString()],
@@ -109,14 +155,20 @@ export class CrmSettingsService {
     ];
     for (const [key, value] of values) {
       if (value === undefined) continue;
-      await this.settings.set(key, value, userId);
+      // An empty value is stored too, so a cleared field does not fall back to SMA's settings.
+      await this.prisma.crmSetting.upsert({
+        where: { businessId_key: { businessId: tenantId, key } },
+        create: { businessId: tenantId, key, value: value ?? '', updatedById: userId },
+        update: { value: value ?? '', updatedById: userId },
+      });
     }
+    this.cache.delete(tenantId);
   }
 
-  /** Converts between USD and PKR with the configured rate. */
-  convert(amount: number, from: string, to: string): number {
+  /** Converts between USD and PKR with the business's rate. */
+  convert(amount: number, from: string, to: string, settings: CrmSettings): number {
     if (from === to) return amount;
-    const rate = this.current().usdToPkr;
+    const rate = settings.usdToPkr;
     if (from === 'USD' && to === 'PKR') return round2(amount * rate);
     if (from === 'PKR' && to === 'USD') return round2(amount / rate);
     return amount;
@@ -131,14 +183,23 @@ export class CrmSettingsService {
 /** Shared invoice/quote mechanics for the API and the worker. */
 @Injectable()
 export class InvoiceFactory {
-  async nextInvoiceNumber(tx: Tx): Promise<string> {
-    const rows = await tx.$queryRaw<Array<{ n: bigint }>>`SELECT nextval('invoice_number_seq') AS n`;
-    return `INV-${new Date().getFullYear()}-${String(rows[0]!.n).padStart(5, '0')}`;
+  /** The business's next running number (no gaps from other businesses). */
+  private async next(tx: Tx, tenantId: string, kind: 'invoice' | 'quote'): Promise<number> {
+    const rows = await tx.$queryRaw<Array<{ value: number }>>`
+      INSERT INTO "CrmCounter" ("businessId", "kind", "value") VALUES (${tenantId}::uuid, ${kind}, 1)
+      ON CONFLICT ("businessId", "kind") DO UPDATE SET "value" = "CrmCounter"."value" + 1
+      RETURNING "value"`;
+    return Number(rows[0]!.value);
   }
 
-  async nextQuoteNumber(tx: Tx): Promise<string> {
-    const rows = await tx.$queryRaw<Array<{ n: bigint }>>`SELECT nextval('quote_number_seq') AS n`;
-    return `QT-${new Date().getFullYear()}-${String(rows[0]!.n).padStart(5, '0')}`;
+  async nextInvoiceNumber(tx: Tx, tenantId: string): Promise<string> {
+    const n = await this.next(tx, tenantId, 'invoice');
+    return `INV-${new Date().getFullYear()}-${String(n).padStart(5, '0')}`;
+  }
+
+  async nextQuoteNumber(tx: Tx, tenantId: string): Promise<string> {
+    const n = await this.next(tx, tenantId, 'quote');
+    return `QT-${new Date().getFullYear()}-${String(n).padStart(5, '0')}`;
   }
 
   /** Recomputes an invoice's totals from items and payments, and its paid status. */

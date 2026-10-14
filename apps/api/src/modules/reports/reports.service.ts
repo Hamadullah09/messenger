@@ -89,7 +89,7 @@ export class ReportsService {
           SELECT extract(epoch FROM ("createdAt" - prev_at)) / 60.0 AS minutes
             FROM ordered
            WHERE prev_sender IS NOT NULL AND prev_sender <> "senderId"
-             AND "createdAt" - prev_at < make_interval(hours => ${REPLY_WINDOW_HOURS})
+             AND "createdAt" - prev_at < make_interval(hours => ${REPLY_WINDOW_HOURS}::int)
         )
         SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY minutes) AS median,
                avg(CASE WHEN minutes <= 15 THEN 1.0 ELSE 0.0 END) AS within15
@@ -183,19 +183,27 @@ export class ReportsService {
         byChannel: [...byChannel.values()],
       },
       customers: { total: customers[0], newInPeriod: customers[1], optedIn: customers[2] },
-      leads: platform && !businessId ? await this.leads(from, to) : null,
+      // SMA's own sales funnel on the platform report; a business's own funnel on its report.
+      leads: platform && !businessId ? await this.leads(from, to, null) : businessId && (await this.authz.can(actor, 'sales.lead.read_all', { businessId }))
+          ? await this.leads(from, to, businessId)
+          : null,
     };
   }
 
-  private async leads(from: Date, to: Date): Promise<NonNullable<ReportDto['leads']>> {
+  private async leads(
+    from: Date,
+    to: Date,
+    businessId: string | null,
+  ): Promise<NonNullable<ReportDto['leads']>> {
+    const tenant: Prisma.LeadWhereInput = businessId ? { tenantId: businessId } : { tenant: { internal: true } };
     const [created, closed] = await Promise.all([
       this.prisma.lead.findMany({
-        where: { deletedAt: null, createdAt: { gte: from, lt: to } },
+        where: { ...tenant, deletedAt: null, createdAt: { gte: from, lt: to } },
         select: { stage: true, source: true },
       }),
       this.prisma.lead.groupBy({
         by: ['stage'],
-        where: { deletedAt: null, closedAt: { gte: from, lt: to }, stage: { in: ['WON', 'LOST'] } },
+        where: { ...tenant, deletedAt: null, closedAt: { gte: from, lt: to }, stage: { in: ['WON', 'LOST'] } },
         _count: { _all: true },
       }),
     ]);

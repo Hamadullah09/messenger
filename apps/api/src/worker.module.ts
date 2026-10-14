@@ -14,6 +14,7 @@ import { MediaProcessor } from './modules/media/media.processor';
 import { BillingRunner, BillingScheduler } from './modules/sales/billing-scheduler';
 import { CrmSettingsService, InvoiceFactory } from './modules/sales/crm-core';
 import { MessageExpirySweeper } from './modules/messaging/message-expiry-sweeper';
+import { FollowUpReminders } from './modules/sales/follow-up-reminders';
 import { ConversationQueryService } from './modules/messaging/conversation-query.service';
 import { MessageWriter } from './modules/messaging/message-writer.service';
 import { DeliveryProcessor } from './modules/outbox/delivery.processor';
@@ -45,6 +46,7 @@ import { OutboxRelayService } from './modules/outbox/outbox-relay.service';
     BillingRunner,
     BillingScheduler,
     MessageExpirySweeper,
+    FollowUpReminders,
   ],
   exports: [
     OutboxRelayService,

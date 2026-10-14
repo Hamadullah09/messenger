@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import {
+  type CrmCustomerRef,
   type CreateQuoteRequest,
   type PublicQuoteDto,
   type QuoteDto,
@@ -15,6 +16,7 @@ import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
 import {
+  type CrmSettings,
   CrmSettingsService,
   dateOnly,
   documentHtml,
@@ -38,6 +40,14 @@ type QuoteRow = Prisma.QuoteGetPayload<{ include: typeof quoteInclude }>;
 
 const PUBLIC_LIMIT = { name: 'public:quote', limit: 30, windowSeconds: 3600 } as const;
 
+interface QuoteAccess {
+  tenantId: string;
+  platform: boolean;
+  settings: CrmSettings;
+  billing: boolean;
+  seeAll: boolean;
+}
+
 /**
  * Quotations: a priced offer sent before the sale. The customer opens a link, then accepts or
  * declines; accepting marks the deal won and issues the invoice.
@@ -56,23 +66,30 @@ export class QuotesService {
     private readonly rateLimiter: RateLimiterService,
   ) {}
 
-  private async access(actor: Actor) {
-    const { businessId } = await this.sales.team();
+  private async access(actor: Actor): Promise<QuoteAccess> {
+    const tenant = await this.sales.tenant(actor);
+    const businessId = tenant.businessId;
     await this.authz.require(actor, 'sales.access', { businessId });
-    const [billing, seeAll] = await Promise.all([
+    const [billing, seeAll, settings] = await Promise.all([
       this.authz.can(actor, 'sales.billing.manage', { businessId }),
       this.authz.can(actor, 'sales.lead.read_all', { businessId }),
+      this.settings.load(businessId),
     ]);
-    return { billing, seeAll };
+    return { tenantId: businessId, platform: tenant.platform, settings, billing, seeAll };
   }
 
-  private toDto(row: QuoteRow, canManage: boolean): QuoteDto {
+  private toDto(row: QuoteRow, a: QuoteAccess, canManage: boolean): QuoteDto {
+    const customer: CrmCustomerRef | null = row.business
+      ? { ...row.business, kind: 'BUSINESS' }
+      : !a.platform && row.lead
+        ? { id: row.lead.id, name: row.lead.companyName, kind: 'LEAD' }
+        : null;
     return {
       id: row.id,
       number: row.number,
       status: row.status,
       deal: row.deal,
-      customer: row.business,
+      customer,
       lead: row.lead,
       billToName: row.billToName,
       billToEmail: row.billToEmail,
@@ -110,10 +127,10 @@ export class QuotesService {
   }
 
   /** Sales managers see all quotes; agents see quotes of their own deals. */
-  private visibleWhere(actor: Actor, a: { billing: boolean; seeAll: boolean }): Prisma.QuoteWhereInput {
+  private visibleWhere(actor: Actor, a: QuoteAccess): Prisma.QuoteWhereInput {
     return a.billing || a.seeAll
-      ? {}
-      : { OR: [{ createdById: actor.userId }, { deal: { ownerId: actor.userId } }] };
+      ? { tenantId: a.tenantId }
+      : { tenantId: a.tenantId, OR: [{ createdById: actor.userId }, { deal: { ownerId: actor.userId } }] };
   }
 
   async list(actor: Actor, query: { status?: string; dealId?: string }): Promise<QuoteDto[]> {
@@ -131,7 +148,7 @@ export class QuotesService {
       orderBy: { createdAt: 'desc' },
       take: 300,
     });
-    return rows.map((r) => this.toDto(r, a.billing || r.createdById === actor.userId));
+    return rows.map((r) => this.toDto(r, a, a.billing || r.createdById === actor.userId));
   }
 
   async get(actor: Actor, quoteId: string): Promise<QuoteDto> {
@@ -141,23 +158,24 @@ export class QuotesService {
       include: quoteInclude,
     });
     if (!row) throw ApiError.notFound('Quote');
-    return this.toDto(row, a.billing || row.createdById === actor.userId);
+    return this.toDto(row, a, a.billing || row.createdById === actor.userId);
   }
 
-  private async billTo(businessId: string | null, leadId: string | null) {
+  private async billTo(a: QuoteAccess, businessId: string | null, leadId: string | null) {
     if (businessId) {
+      if (!a.platform) throw ApiError.validation('Choose the customer from your leads.', 'businessId');
       const b = await this.prisma.business.findFirst({
         where: { id: businessId, internal: false, deletedAt: null },
         select: { name: true, email: true, phone: true, address: true },
       });
       if (!b) throw ApiError.validation('Choose an SMA customer.', 'businessId');
-      const a = (b.address ?? {}) as Record<string, string | undefined>;
-      const address = [a.line1, a.line2, a.city, a.region, a.country].filter(Boolean).join(', ');
+      const addr = (b.address ?? {}) as Record<string, string | undefined>;
+      const address = [addr.line1, addr.line2, addr.city, addr.region, addr.country].filter(Boolean).join(', ');
       return { name: b.name, email: b.email, phone: b.phone, address: address || null };
     }
     if (leadId) {
       const l = await this.prisma.lead.findFirst({
-        where: { id: leadId, deletedAt: null },
+        where: { id: leadId, tenantId: a.tenantId, deletedAt: null },
         select: { companyName: true, email: true, phone: true, city: true, country: true },
       });
       if (!l) throw ApiError.validation('Lead not found.', 'leadId');
@@ -173,7 +191,7 @@ export class QuotesService {
 
   async create(actor: Actor, request: CreateQuoteRequest): Promise<QuoteDto> {
     const a = await this.access(actor);
-    const settings = this.settings.current();
+    const settings = a.settings;
     let businessId = request.businessId ?? null;
     let leadId = request.leadId ?? null;
     let currency: string = request.currency ?? settings.defaultCurrency;
@@ -189,7 +207,7 @@ export class QuotesService {
     }> = [];
     if (request.dealId) {
       const deal = await this.prisma.deal.findFirst({
-        where: { id: request.dealId, deletedAt: null },
+        where: { id: request.dealId, tenantId: a.tenantId, deletedAt: null },
         include: { items: { orderBy: { position: 'asc' } } },
       });
       if (!deal) throw ApiError.notFound('Deal');
@@ -228,7 +246,12 @@ export class QuotesService {
       }));
     }
     if (items.length === 0) throw ApiError.validation('Add at least one item.', 'items');
-    const party = await this.billTo(businessId, leadId);
+    if (items.some((i) => i.serviceId)) {
+      const ids = [...new Set(items.map((i) => i.serviceId).filter((v): v is string => !!v))];
+      const found = await this.prisma.crmService.count({ where: { id: { in: ids }, tenantId: a.tenantId } });
+      if (found !== ids.length) throw ApiError.validation('A chosen service was not found.', 'items');
+    }
+    const party = await this.billTo(a, businessId, leadId);
     const name = request.billToName ?? party.name;
     if (!name) throw ApiError.validation('Who is the quote for?', 'billToName');
     const issueDate = today();
@@ -237,7 +260,8 @@ export class QuotesService {
     const id = await this.prisma.$transaction(async (tx) => {
       const quote = await tx.quote.create({
         data: {
-          number: await this.factory.nextQuoteNumber(tx),
+          tenantId: a.tenantId,
+          number: await this.factory.nextQuoteNumber(tx, a.tenantId),
           dealId: request.dealId ?? null,
           businessId,
           leadId,
@@ -274,7 +298,7 @@ export class QuotesService {
     if (email) {
       if (!quote.billToEmail) throw ApiError.validation('Add the customer’s email address first.', 'billToEmail');
       if (!this.mail.enabled) throw ApiError.conflict('Email is not set up yet. Add the mail server in Integrations.');
-      const settings = this.settings.current();
+      const settings = (await this.access(actor)).settings;
       const doc = {
         kind: 'Quotation' as const,
         number: quote.number,
@@ -315,7 +339,7 @@ export class QuotesService {
     await this.prisma.quote.delete({ where: { id: quoteId } });
   }
 
-  /** Sent quotes past their date become EXPIRED. */
+  /** Sent quotes past their date become EXPIRED (every business's). */
   async expireOld(): Promise<number> {
     const result = await this.prisma.quote.updateMany({
       where: { status: { in: ['DRAFT', 'SENT'] }, validUntil: { lt: today() } },
@@ -335,8 +359,8 @@ export class QuotesService {
     return row;
   }
 
-  private publicDto(row: Awaited<ReturnType<QuotesService['byToken']>>): PublicQuoteDto {
-    const s = this.settings.current();
+  private async publicDto(row: Awaited<ReturnType<QuotesService['byToken']>>): Promise<PublicQuoteDto> {
+    const s = await this.settings.load(row.tenantId);
     return {
       number: row.number,
       status: row.status,
@@ -400,8 +424,8 @@ export class QuotesService {
       if (claimed.count === 0) throw ApiError.conflict('This quote was already answered.');
       if (!request.accept) return;
       if (quote.dealId) {
-        const deal = await tx.deal.findUnique({
-          where: { id: quote.dealId },
+        const deal = await tx.deal.findFirst({
+          where: { id: quote.dealId, tenantId: quote.tenantId },
           select: { status: true, leadId: true, type: true, title: true },
         });
         if (deal && deal.status === 'OPEN') {
@@ -428,7 +452,8 @@ export class QuotesService {
       const issue = today();
       const invoice = await tx.invoice.create({
         data: {
-          number: await this.factory.nextInvoiceNumber(tx),
+          tenantId: quote.tenantId,
+          number: await this.factory.nextInvoiceNumber(tx, quote.tenantId),
           dealId: quote.dealId,
           businessId: quote.businessId,
           leadId: quote.leadId,
@@ -464,6 +489,7 @@ export class QuotesService {
     });
     await this.audit.record(null, {
       action: request.accept ? 'crm.quote_accepted' : 'crm.quote_declined',
+      businessId: quote.tenantId,
       targetType: 'Quote',
       targetId: quote.id,
       metadata: { number: quote.number },

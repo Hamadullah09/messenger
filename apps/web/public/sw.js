@@ -11,15 +11,17 @@ self.addEventListener('push', (event) => {
     data = {};
   }
   const emergency = data.type === 'emergency';
+  // A meeting starting soon: stays on screen until seen.
+  const reminder = data.type === 'reminder';
   event.waitUntil(
     self.registration.showNotification(data.title || 'SMA', {
       body: data.body || 'New message',
       tag: data.tag,
-      renotify: emergency,
-      requireInteraction: emergency,
+      renotify: emergency || reminder,
+      requireInteraction: emergency || reminder,
       icon: '/brand/icon-192.png',
       badge: '/brand/icon-192.png',
-      vibrate: emergency ? [300, 150, 300, 150, 300] : undefined,
+      vibrate: emergency ? [300, 150, 300, 150, 300] : reminder ? [200, 100, 200] : undefined,
       data: { url: typeof data.url === 'string' && data.url.startsWith('/') ? data.url : '/chats' },
     }),
   );

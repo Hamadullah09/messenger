@@ -7,6 +7,7 @@ import {
   STUCK_AFTER_DAYS_IN_STAGE,
   type ActivityOutcome,
   LEAD_STAGES,
+  type FollowUpKind,
   type LeadActivityKind,
   type LeadDetailDto,
   type LeadStage,
@@ -47,6 +48,7 @@ import {
 import {
   ACTIVITY_LABEL,
   DIRECTION_LABEL,
+  FOLLOW_UP_LABEL,
   money,
   OUTCOME_LABEL,
   OUTCOME_TONE,
@@ -54,6 +56,7 @@ import {
   STAGE_LABEL,
   STAGE_TONE,
 } from './labels';
+import { FollowUpKindField } from './follow-up';
 import { LeadFormDialog } from './lead-form';
 
 export function StageChip({ stage }: { stage: LeadStage }) {
@@ -98,8 +101,12 @@ export function LeadPanel({
     type: LeadActivityKind;
     body: string;
     next: string;
+    nextKind: FollowUpKind | '';
+    nextNote: string;
     outcome: ActivityOutcome | '';
-  }>({ type: 'CALL', body: '', next: '', outcome: '' });
+    /** null: decide from whether the planned follow-up is due. */
+    completes: boolean | null;
+  }>({ type: 'CALL', body: '', next: '', nextKind: '', nextNote: '', outcome: '', completes: null });
   const done = (data: LeadDetailDto) => {
     client.setQueryData(['lead', leadId], data);
     void client.invalidateQueries({ queryKey: ['leads'] });
@@ -124,6 +131,11 @@ export function LeadPanel({
     mutationFn: () => api<LeadDetailDto>(`/sales/leads/${leadId}/claim`, { method: 'POST' }),
     onSuccess: done,
   });
+  // Logging a call/meeting on the day of a planned follow-up usually is that follow-up.
+  const plannedAt = lead.data?.nextFollowUpAt ? new Date(lead.data.nextFollowUpAt) : null;
+  const followUpDue =
+    !!plannedAt && plannedAt.getTime() < new Date(new Date().setHours(24, 0, 0, 0)).getTime();
+  const completesFollowUp = !!plannedAt && activity.type !== 'NOTE' && (activity.completes ?? followUpDue);
   const log = useMutation({
     mutationFn: () =>
       api<LeadDetailDto>(`/sales/leads/${leadId}/activities`, {
@@ -132,11 +144,18 @@ export function LeadPanel({
           type: activity.type,
           body: activity.body.trim(),
           ...(activity.outcome && activity.type !== 'NOTE' ? { outcome: activity.outcome } : {}),
-          ...(activity.next ? { nextFollowUpAt: new Date(activity.next).toISOString() } : {}),
+          ...(activity.next
+            ? {
+                nextFollowUpAt: new Date(activity.next).toISOString(),
+                nextFollowUpKind: activity.nextKind || null,
+                nextFollowUpNote: activity.nextNote.trim() || null,
+              }
+            : {}),
+          ...(completesFollowUp ? { completeFollowUp: true } : {}),
         },
       }),
     onSuccess: (data) => {
-      setActivity({ type: activity.type, body: '', next: '', outcome: '' });
+      setActivity({ type: activity.type, body: '', next: '', nextKind: '', nextNote: '', outcome: '', completes: null });
       done(data);
     },
   });
@@ -452,6 +471,18 @@ export function LeadPanel({
                 value={activity.body}
                 onChange={(e) => setActivity({ ...activity, body: e.target.value })}
               />
+              {l.nextFollowUpAt && activity.type !== 'NOTE' && (
+                <label className="mt-3 flex items-center gap-2 text-sm font-semibold">
+                  <input
+                    type="checkbox"
+                    className="size-5 accent-[var(--color-brand)]"
+                    checked={completesFollowUp}
+                    onChange={(e) => setActivity({ ...activity, completes: e.target.checked })}
+                  />
+                  This was the planned {FOLLOW_UP_LABEL[l.nextFollowUpKind ?? 'OTHER'].toLowerCase()} (
+                  {formatDay(l.nextFollowUpAt)} {formatTime(l.nextFollowUpAt)})
+                </label>
+              )}
               <div className="mt-3 flex flex-wrap items-end gap-3">
                 <TextField
                   label="Next follow-up (optional)"
@@ -459,6 +490,21 @@ export function LeadPanel({
                   value={activity.next}
                   onChange={(e) => setActivity({ ...activity, next: e.target.value })}
                 />
+                {activity.next && (
+                  <FollowUpKindField
+                    value={activity.nextKind}
+                    onChange={(v) => setActivity({ ...activity, nextKind: v })}
+                  />
+                )}
+                {activity.next && (
+                  <TextField
+                    label="Note (optional)"
+                    maxLength={300}
+                    placeholder="Place or agenda"
+                    value={activity.nextNote}
+                    onChange={(e) => setActivity({ ...activity, nextNote: e.target.value })}
+                  />
+                )}
                 <Button
                   busy={log.isPending}
                   disabled={!activity.body.trim()}
@@ -475,7 +521,9 @@ export function LeadPanel({
                   )}
                 >
                   <CalendarClock className="size-4" aria-hidden />
-                  Follow up {formatDay(l.nextFollowUpAt)} {formatTime(l.nextFollowUpAt)}
+                  {FOLLOW_UP_LABEL[l.nextFollowUpKind ?? 'OTHER']} {formatDay(l.nextFollowUpAt)}{' '}
+                  {formatTime(l.nextFollowUpAt)}
+                  {l.nextFollowUpNote ? ` · ${l.nextFollowUpNote}` : ''}
                 </p>
               )}
             </section>

@@ -22,6 +22,7 @@ import {
   BadgeCheck,
   BarChart3,
   Briefcase,
+  CalendarCheck,
   CalendarClock,
   Download,
   FileText,
@@ -46,7 +47,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useState, type DragEvent } from 'react';
+import { Suspense, useEffect, useRef, useState, type DragEvent } from 'react';
 import {
   CrmCustomersTab,
   DealsTab,
@@ -62,10 +63,12 @@ import {
   QuotesTab,
   SubscriptionsTab,
 } from '@/components/sales/crm-more';
+import { AgendaTab } from '@/components/sales/agenda';
 import { LeadFormDialog } from '@/components/sales/lead-form';
 import { LeadPanel, OwnerBadge, StageChip } from '@/components/sales/lead-panel';
 import {
   DIRECTION_LABEL,
+  FOLLOW_UP_LABEL,
   money,
   OUTCOME_LABEL,
   OUTCOME_TONE,
@@ -98,16 +101,18 @@ type Tab =
   | 'invoices'
   | 'quotes'
   | 'billing'
+  | 'today'
   | 'targets'
   | 'services'
   | 'settings'
   | 'team';
 const TABS: Array<{ key: Tab; label: string; Icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', Icon: BarChart3 },
+  { key: 'today', label: 'Today', Icon: CalendarCheck },
   { key: 'pipeline', label: 'Pipeline', Icon: Kanban },
   { key: 'leads', label: 'Leads', Icon: List },
   { key: 'deals', label: 'Deals', Icon: Briefcase },
-  { key: 'customers', label: 'SMA customers', Icon: BadgeCheck },
+  { key: 'customers', label: 'Customers', Icon: BadgeCheck },
   { key: 'quotes', label: 'Quotes', Icon: FileText },
   { key: 'invoices', label: 'Invoices', Icon: Receipt },
   { key: 'billing', label: 'Monthly billing', Icon: CalendarClock },
@@ -125,7 +130,27 @@ function SalesScreen() {
   const [creating, setCreating] = useState(false);
   const [websiteForm, setWebsiteForm] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [openLead, setOpenLead] = useState<string | null>(null);
+  // ?lead=<id> (e.g. from a reminder) opens that lead.
+  const [openLead, setOpenLead] = useState<string | null>(params.get('lead'));
+  const leadParam = params.get('lead');
+  useEffect(() => {
+    if (leadParam) setOpenLead(leadParam);
+  }, [leadParam]);
+  // Each business has its own CRM: switching business drops what was loaded for the last one.
+  const activeBusinessId = useAuth((s) => s.activeBusinessId);
+  const queryClient = useQueryClient();
+  const shownFor = useRef(activeBusinessId);
+  useEffect(() => {
+    if (shownFor.current === activeBusinessId) return;
+    shownFor.current = activeBusinessId;
+    setOpenLead(null);
+    void queryClient.resetQueries({
+      predicate: (q) =>
+        ['sales-context', 'sales-team', 'sales-overview', 'crm', 'lead', 'leads', 'lead-duplicates'].includes(
+          String(q.queryKey[0]),
+        ),
+    });
+  }, [activeBusinessId, queryClient]);
   const context = useQuery({
     queryKey: ['sales-context'],
     queryFn: () => api<SalesContextDto>('/sales/context'),
@@ -151,8 +176,12 @@ function SalesScreen() {
     <div className="scroll-thin flex min-h-0 flex-1 flex-col overflow-y-auto">
       <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-5 p-4 sm:p-6">
         <PageHeader
-          title="Sales & Marketing"
-          subtitle="Leads for SMA, from first contact to SMA customer. Store customers of a business are not part of this."
+          title={ctx.platformTeam ? 'Sales & Marketing' : `Sales & Marketing · ${ctx.businessName}`}
+          subtitle={
+            ctx.platformTeam
+              ? 'Leads for SMA, from first contact to SMA customer. Store customers of a business are not part of this.'
+              : `${ctx.businessName}’s own leads, deals, quotes, invoices and customers. Only your business sees them.`
+          }
           actions={
             <>
               {ctx.teamGroupId && (
@@ -221,6 +250,7 @@ function SalesScreen() {
               <Overview context={ctx} onOpen={setOpenLead} />
             </div>
           )}
+          {tab === 'today' && <AgendaTab context={ctx} onOpenLead={setOpenLead} />}
           {tab === 'pipeline' && <Pipeline context={ctx} onOpen={setOpenLead} />}
           {tab === 'leads' && <Leads context={ctx} team={team.data ?? []} onOpen={setOpenLead} />}
           {tab === 'deals' && <DealsTab context={ctx} team={team.data ?? []} />}
@@ -247,7 +277,7 @@ function SalesScreen() {
           }}
         />
       )}
-      {websiteForm && <WebsiteFormDialog onClose={() => setWebsiteForm(false)} />}
+      {websiteForm && <WebsiteFormDialog context={ctx} onClose={() => setWebsiteForm(false)} />}
       {importing && (
         <LeadImportDialog
           team={team.data ?? []}
@@ -428,7 +458,9 @@ function Overview({ context, onOpen }: { context: SalesContextDto; onOpen: (id: 
                   >
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-semibold">{l.companyName}</span>
-                      <span className="block truncate text-sm text-muted">{l.contactName}</span>
+                      <span className="block truncate text-sm text-muted">
+                        {FOLLOW_UP_LABEL[l.nextFollowUpKind ?? 'OTHER']} · {l.contactName}
+                      </span>
                     </span>
                     <span
                       className={cx(
@@ -909,7 +941,7 @@ function Leads({
   );
 }
 
-// ───────────────────────────── SMA customers ─────────────────────────────
+// ───────────────────────────── Customers ─────────────────────────────
 
 function Customers({
   context,
@@ -922,13 +954,15 @@ function Customers({
 }) {
   const won = useLeads({ stage: 'WON' });
   const exporting = useMutation({
-    mutationFn: () => downloadFile('/sales/leads-export.csv?customers=true', 'sma-customers.csv'),
+    mutationFn: () => downloadFile('/sales/leads-export.csv?customers=true', 'customers.csv'),
   });
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted">
-          Businesses that buy SMA: what they bought, paid and owe. Use Upsell to sell them more.
+          {context.platformTeam
+            ? 'Businesses that buy SMA: what they bought, paid and owe. Use Upsell to sell them more.'
+            : 'Your won leads: what they bought, paid and owe. Use Upsell to sell them more.'}
         </p>
         {context.canSeeAll && (
           <Button
@@ -1016,7 +1050,14 @@ function TeamTab({
             <div className="min-w-0 flex-1">
               <p className="truncate font-bold">{p.displayName}</p>
               <p className="truncate text-sm text-muted">
-                @{p.username} · {p.roleKey === 'SALES_MANAGER' ? 'Sales Manager' : 'Sales Agent'}
+                @{p.username} ·{' '}
+                {p.roleKey === 'SALES_MANAGER'
+                  ? 'Sales Manager'
+                  : p.roleKey === 'BUSINESS_OWNER'
+                    ? 'Business Owner'
+                    : p.roleKey === 'BUSINESS_ADMIN'
+                      ? 'Business Admin'
+                      : 'Sales Agent'}
               </p>
             </div>
             <div className="text-right text-sm">

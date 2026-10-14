@@ -23,6 +23,7 @@ import {
   type UpdateInvoiceRequest,
   type UpsertServiceRequest,
   type CommissionPlanDto,
+  type CrmCustomerRef,
   type CrmSettingsDto,
   type PaymentClaimDto,
   type ReviewPaymentClaimRequest,
@@ -38,6 +39,7 @@ import type { Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { publicUserSelect, toPublicUser } from '../users/user.mapper';
 import {
+  type CrmSettings,
   CrmSettingsService,
   documentHtml,
   documentText,
@@ -46,7 +48,7 @@ import {
   num,
   round2,
 } from './crm-core';
-import { SalesService } from './sales.service';
+import { SALES_PEOPLE_ROLE_KEYS, SalesService } from './sales.service';
 
 /** "2026-10" → [first day of the month, first day of the next) in server time. */
 function monthRange(month: string): [Date, Date] {
@@ -104,7 +106,11 @@ const invoiceInclude = {
 type InvoiceRow = Prisma.InvoiceGetPayload<{ include: typeof invoiceInclude }>;
 
 interface Access {
+  /** The business whose CRM this is. */
   teamId: string;
+  /** SMA's own sales team (customers are businesses on SMA). */
+  platform: boolean;
+  settings: CrmSettings;
   seeAll: boolean;
   billing: boolean;
   catalog: boolean;
@@ -113,9 +119,10 @@ interface Access {
 }
 
 /**
- * SMA's CRM: the services it sells, deals (new customers and upsells), invoices, payments and
- * the sales team's monthly targets. Only Sales & Marketing users (and the Super Admin) use it:
- * agents work on their own deals; managers see everything, bill and set targets.
+ * A business's CRM (every business has its own; SMA's sales team uses it to sell SMA): the
+ * services it sells, deals (new customers and upsells), invoices, payments and the sales
+ * people's monthly targets. Agents work on their own deals; managers see everything, bill and
+ * set targets. Every query is limited to the business (`teamId`).
  */
 @Injectable()
 export class CrmService {
@@ -131,7 +138,8 @@ export class CrmService {
   ) {}
 
   private async access(actor: Actor): Promise<Access> {
-    const { businessId: teamId } = await this.sales.team();
+    const tenant = await this.sales.tenant(actor);
+    const teamId = tenant.businessId;
     await this.authz.require(actor, 'sales.access', { businessId: teamId });
     const can = (p: Permission) => this.authz.can(actor, p, { businessId: teamId });
     const [seeAll, billing, catalog, targets, assign] = await Promise.all([
@@ -141,7 +149,8 @@ export class CrmService {
       can('sales.target.manage'),
       can('sales.lead.assign'),
     ]);
-    return { teamId, seeAll, billing, catalog, targets, assign };
+    const settings = await this.crmSettings.load(teamId);
+    return { teamId, platform: tenant.platform, settings, seeAll, billing, catalog, targets, assign };
   }
 
   private async requireSalesUser(teamId: string, userId: string): Promise<void> {
@@ -150,33 +159,42 @@ export class CrmService {
         userId,
         businessId: teamId,
         revokedAt: null,
-        role: { key: { in: ['SALES_MANAGER', 'SALES_AGENT'] }, isSystem: true },
+        role: { key: { in: [...SALES_PEOPLE_ROLE_KEYS] }, isSystem: true },
         user: { status: 'ACTIVE', deletedAt: null },
       },
     });
     if (!ok) throw ApiError.validation('Choose someone from the sales team.', 'ownerId');
   }
 
-  get currency(): string {
-    return this.crmSettings.current().defaultCurrency;
+  /** Amount in the business's main currency (targets, totals). */
+  private main(access: Access, amount: number, currency: string): number {
+    return this.crmSettings.convert(amount, currency, access.settings.defaultCurrency, access.settings);
   }
 
-  /** Amount in the CRM's main currency (targets, totals). */
-  private main(amount: number, currency: string): number {
-    return this.crmSettings.convert(amount, currency, this.currency);
+  /** Who a row is for: a business on SMA, or (a business's own CRM) the lead. */
+  private customerOf(
+    access: Access,
+    business: { id: string; name: string } | null,
+    lead: { id: string; companyName: string; stage?: string } | null,
+  ): CrmCustomerRef | null {
+    if (business) return { ...business, kind: 'BUSINESS' };
+    if (!access.platform && lead && (lead.stage === undefined || lead.stage === 'WON'))
+      return { id: lead.id, name: lead.companyName, kind: 'LEAD' };
+    return null;
   }
 
   async getSettings(actor: Actor): Promise<CrmSettingsDto> {
     const access = await this.access(actor);
-    return { ...this.crmSettings.current(), canManage: access.billing };
+    return { ...access.settings, canManage: access.billing };
   }
 
   async updateSettings(actor: Actor, request: UpdateCrmSettingsRequest): Promise<CrmSettingsDto> {
     const access = await this.access(actor);
     if (!access.billing) throw ApiError.forbidden('Only sales managers can change these settings.');
-    await this.crmSettings.update(request, actor.userId);
+    await this.crmSettings.update(access.teamId, request, actor.userId);
     await this.audit.record(actor, {
       action: 'crm.settings_changed',
+      businessId: access.teamId,
       metadata: { fields: Object.keys(request) },
     });
     return this.getSettings(actor);
@@ -185,12 +203,18 @@ export class CrmService {
   // ───────────────────────────── Services catalog ─────────────────────────────
 
   async listServices(actor: Actor): Promise<CrmServiceDto[]> {
-    await this.access(actor);
+    const access = await this.access(actor);
     const [rows, sold] = await Promise.all([
-      this.prisma.crmService.findMany({ orderBy: [{ active: 'desc' }, { name: 'asc' }] }),
+      this.prisma.crmService.findMany({
+        where: { tenantId: access.teamId },
+        orderBy: [{ active: 'desc' }, { name: 'asc' }],
+      }),
       this.prisma.dealItem.groupBy({
         by: ['serviceId'],
-        where: { serviceId: { not: null }, deal: { status: 'WON', deletedAt: null } },
+        where: {
+          serviceId: { not: null },
+          deal: { tenantId: access.teamId, status: 'WON', deletedAt: null },
+        },
         _count: { _all: true },
       }),
     ]);
@@ -225,10 +249,13 @@ export class CrmService {
       ...(request.active !== undefined ? { active: request.active } : {}),
     };
     if (serviceId) {
-      const updated = await this.prisma.crmService.updateMany({ where: { id: serviceId }, data });
+      const updated = await this.prisma.crmService.updateMany({
+        where: { id: serviceId, tenantId: access.teamId },
+        data,
+      });
       if (updated.count === 0) throw ApiError.notFound('Service');
     } else {
-      await this.prisma.crmService.create({ data });
+      await this.prisma.crmService.create({ data: { ...data, tenantId: access.teamId } });
     }
     return this.listServices(actor);
   }
@@ -237,8 +264,12 @@ export class CrmService {
 
   private dealWhere(actor: Actor, access: Access): Prisma.DealWhereInput {
     return access.seeAll
-      ? { deletedAt: null }
-      : { deletedAt: null, OR: [{ ownerId: actor.userId }, { createdById: actor.userId }] };
+      ? { tenantId: access.teamId, deletedAt: null }
+      : {
+          tenantId: access.teamId,
+          deletedAt: null,
+          OR: [{ ownerId: actor.userId }, { createdById: actor.userId }],
+        };
   }
 
   private toDeal(row: DealRow, actor: Actor, access: Access): DealDto {
@@ -248,7 +279,7 @@ export class CrmService {
       type: row.type,
       status: row.status,
       lead: row.lead,
-      customer: row.business,
+      customer: this.customerOf(access, row.business, row.lead),
       owner: row.owner ? toPublicUser(row.owner) : null,
       amount: num(row.amount),
       currency: row.currency,
@@ -315,7 +346,9 @@ export class CrmService {
     return this.toDeal(row, actor, access);
   }
 
-  private async requireCustomer(businessId: string): Promise<{ id: string; name: string }> {
+  private async requireCustomer(access: Access, businessId: string): Promise<{ id: string; name: string }> {
+    if (!access.platform)
+      throw ApiError.validation('Choose the customer from your won leads.', 'businessId');
     const business = await this.prisma.business.findFirst({
       where: { id: businessId, internal: false, deletedAt: null },
       select: { id: true, name: true },
@@ -333,15 +366,20 @@ export class CrmService {
       const lead = await this.prisma.lead.findFirst({
         where: {
           id: leadId,
+          tenantId: access.teamId,
           deletedAt: null,
           ...(access.seeAll ? {} : { OR: [{ ownerId: actor.userId }, { ownerId: null }] }),
         },
-        select: { id: true, convertedBusinessId: true },
+        select: { id: true, convertedBusinessId: true, stage: true },
       });
       if (!lead) throw ApiError.validation('Lead not found.', 'leadId');
+      if (request.type === 'UPSELL' && !access.platform && lead.stage !== 'WON')
+        throw ApiError.validation('Upsells are for customers: choose a won lead.', 'leadId');
       businessId = businessId ?? lead.convertedBusinessId;
     }
-    if (businessId) await this.requireCustomer(businessId);
+    if (businessId) await this.requireCustomer(access, businessId);
+    if (request.type === 'UPSELL' && !businessId && !leadId)
+      throw ApiError.validation('Choose the customer.', 'businessId');
     if (request.type !== 'NEW_BUSINESS') leadId = leadId ?? null;
     let ownerId: string | null = actor.userId;
     if (request.ownerId !== undefined && request.ownerId !== actor.userId) {
@@ -349,17 +387,19 @@ export class CrmService {
       if (request.ownerId) await this.requireSalesUser(access.teamId, request.ownerId);
       ownerId = request.ownerId;
     }
-    await this.requireServices(request.items);
+    await this.requireServices(access, request.items);
     const { rows, amount } = lineTotals(request.items);
+    const currency = request.currency ?? access.settings.defaultCurrency;
     const deal = await this.prisma.deal.create({
       data: {
+        tenantId: access.teamId,
         title: request.title,
         type: request.type,
         leadId,
         businessId,
         ownerId,
         amount,
-        currency: request.currency ?? this.currency,
+        currency,
         expectedCloseAt: request.expectedCloseAt ?? null,
         notes: request.notes ?? null,
         createdById: actor.userId,
@@ -372,7 +412,7 @@ export class CrmService {
         data: {
           leadId,
           type: 'NOTE',
-          body: `Deal created: ${request.title} (${amount.toFixed(2)} ${request.currency ?? this.currency})`,
+          body: `Deal created: ${request.title} (${amount.toFixed(2)} ${currency})`,
           actorId: actor.userId,
         },
       });
@@ -380,10 +420,12 @@ export class CrmService {
     return this.getDeal(actor, deal.id);
   }
 
-  private async requireServices(items: LineItemInput[]): Promise<void> {
+  private async requireServices(access: Access, items: LineItemInput[]): Promise<void> {
     const ids = [...new Set(items.map((i) => i.serviceId).filter((v): v is string => !!v))];
     if (ids.length === 0) return;
-    const found = await this.prisma.crmService.count({ where: { id: { in: ids } } });
+    const found = await this.prisma.crmService.count({
+      where: { id: { in: ids }, tenantId: access.teamId },
+    });
     if (found !== ids.length) throw ApiError.validation('A chosen service was not found.', 'items');
   }
 
@@ -398,6 +440,7 @@ export class CrmService {
         leadId: true,
         title: true,
         amount: true,
+        currency: true,
         type: true,
       },
     });
@@ -417,7 +460,7 @@ export class CrmService {
     if (request.items) {
       if (deal.status !== 'OPEN' && !access.seeAll)
         throw ApiError.conflict('A closed deal can only be changed by a sales manager.');
-      await this.requireServices(request.items);
+      await this.requireServices(access, request.items);
       items = lineTotals(request.items);
     }
     await this.prisma.$transaction(async (tx) => {
@@ -486,7 +529,7 @@ export class CrmService {
           ...(winLead ? { fromStage: lead!.stage, toStage: 'WON' as const } : {}),
           body:
             request.status === 'WON'
-              ? `Deal won: ${deal.title} (${num(deal.amount).toFixed(2)} ${this.currency})`
+              ? `Deal won: ${deal.title} (${num(deal.amount).toFixed(2)} ${deal.currency})`
               : request.status === 'LOST'
                 ? `Deal lost: ${deal.title} — ${request.lostReason ?? ''}`
                 : `Deal reopened: ${deal.title}`,
@@ -515,7 +558,9 @@ export class CrmService {
   // ───────────────────────────── Invoices and payments ─────────────────────────────
 
   private invoiceWhere(actor: Actor, access: Access): Prisma.InvoiceWhereInput {
-    return access.billing || access.seeAll ? {} : { deal: { ownerId: actor.userId } };
+    return access.billing || access.seeAll
+      ? { tenantId: access.teamId }
+      : { tenantId: access.teamId, deal: { ownerId: actor.userId } };
   }
 
   private toInvoice(row: InvoiceRow, access: Access): InvoiceDto {
@@ -528,7 +573,7 @@ export class CrmService {
       status: row.status,
       overdue: open && isoDate(row.dueDate) < isoDate(dateOnly(new Date())),
       deal: row.deal ? { id: row.deal.id, title: row.deal.title, type: row.deal.type } : null,
-      customer: row.business,
+      customer: this.customerOf(access, row.business, row.lead),
       lead: row.lead,
       billToName: row.billToName,
       billToEmail: row.billToEmail,
@@ -631,10 +676,13 @@ export class CrmService {
   }
 
   private async billTo(
+    access: Access,
     businessId: string | null,
     leadId: string | null,
   ): Promise<{ name: string; email: string | null; phone: string | null; address: string | null }> {
     if (businessId) {
+      if (!access.platform)
+        throw ApiError.validation('Choose the customer from your won leads.', 'businessId');
       const b = await this.prisma.business.findFirst({
         where: { id: businessId, internal: false, deletedAt: null },
         select: { name: true, email: true, phone: true, address: true },
@@ -648,7 +696,7 @@ export class CrmService {
     }
     if (leadId) {
       const l = await this.prisma.lead.findFirst({
-        where: { id: leadId, deletedAt: null },
+        where: { id: leadId, tenantId: access.teamId, deletedAt: null },
         select: { companyName: true, email: true, phone: true, city: true, country: true },
       });
       if (!l) throw ApiError.validation('Lead not found.', 'leadId');
@@ -663,10 +711,10 @@ export class CrmService {
   }
 
   async createInvoice(actor: Actor, request: CreateInvoiceRequest): Promise<InvoiceDto> {
-    await this.requireBilling(actor);
+    const access = await this.requireBilling(actor);
     let businessId = request.businessId ?? null;
     let leadId = request.leadId ?? null;
-    let currency = request.currency ?? this.currency;
+    let currency: string = request.currency ?? access.settings.defaultCurrency;
     let items: Array<{
       serviceId: string | null;
       name: string;
@@ -678,7 +726,7 @@ export class CrmService {
     }> = [];
     if (request.dealId) {
       const deal = await this.prisma.deal.findFirst({
-        where: { id: request.dealId, deletedAt: null },
+        where: { id: request.dealId, tenantId: access.teamId, deletedAt: null },
         include: { items: { orderBy: { position: 'asc' } } },
       });
       if (!deal) throw ApiError.notFound('Deal');
@@ -707,6 +755,7 @@ export class CrmService {
     }
     if (request.items?.length) {
       await this.requireServices(
+        access,
         request.items.map((i) => ({ ...i, discountPct: 0, billing: 'ONE_TIME' as const })),
       );
       items = request.items.map((i, position) => ({
@@ -720,7 +769,7 @@ export class CrmService {
       }));
     }
     if (items.length === 0) throw ApiError.validation('Add at least one item.', 'items');
-    const party = await this.billTo(businessId, leadId);
+    const party = await this.billTo(access, businessId, leadId);
     const name = request.billToName ?? party.name;
     if (!name) throw ApiError.validation('Who is the invoice for?', 'billToName');
     const issueDate = dateOnly(request.issueDate ?? new Date());
@@ -732,7 +781,8 @@ export class CrmService {
     const id = await this.prisma.$transaction(async (tx) => {
       const invoice = await tx.invoice.create({
         data: {
-          number: await this.factory.nextInvoiceNumber(tx),
+          tenantId: access.teamId,
+          number: await this.factory.nextInvoiceNumber(tx, access.teamId),
           dealId: request.dealId ?? null,
           businessId,
           leadId,
@@ -745,7 +795,7 @@ export class CrmService {
           dueDate,
           currency,
           discount: request.discount ?? 0,
-          taxRate: request.taxRate ?? this.crmSettings.current().taxRate,
+          taxRate: request.taxRate ?? access.settings.taxRate,
           notes: request.notes ?? null,
           createdById: actor.userId,
           items: { create: items },
@@ -763,9 +813,9 @@ export class CrmService {
     invoiceId: string,
     request: UpdateInvoiceRequest,
   ): Promise<InvoiceDto> {
-    await this.requireBilling(actor);
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: invoiceId },
+    const access = await this.requireBilling(actor);
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId: access.teamId },
       select: { status: true, issueDate: true, dueDate: true },
     });
     if (!invoice) throw ApiError.notFound('Invoice');
@@ -811,9 +861,9 @@ export class CrmService {
   }
 
   async issueInvoice(actor: Actor, invoiceId: string): Promise<InvoiceDto> {
-    await this.requireBilling(actor);
+    const access = await this.requireBilling(actor);
     const updated = await this.prisma.invoice.updateMany({
-      where: { id: invoiceId, status: 'DRAFT' },
+      where: { id: invoiceId, tenantId: access.teamId, status: 'DRAFT' },
       data: { status: 'ISSUED', issuedAt: new Date(), payToken: newPublicToken() },
     });
     if (updated.count === 0) throw ApiError.conflict('Only draft invoices can be issued.');
@@ -822,9 +872,9 @@ export class CrmService {
   }
 
   async voidInvoice(actor: Actor, invoiceId: string, reason: string): Promise<InvoiceDto> {
-    await this.requireBilling(actor);
-    const invoice = await this.prisma.invoice.findUnique({
-      where: { id: invoiceId },
+    const access = await this.requireBilling(actor);
+    const invoice = await this.prisma.invoice.findFirst({
+      where: { id: invoiceId, tenantId: access.teamId },
       select: {
         status: true,
         number: true,
@@ -841,6 +891,7 @@ export class CrmService {
     });
     await this.audit.record(actor, {
       action: 'crm.invoice_voided',
+      businessId: access.teamId,
       targetType: 'Invoice',
       targetId: invoiceId,
       metadata: { number: invoice.number },
@@ -853,12 +904,12 @@ export class CrmService {
     invoiceId: string,
     request: RecordPaymentRequest,
   ): Promise<InvoiceDto> {
-    await this.requireBilling(actor);
+    const access = await this.requireBilling(actor);
     await this.prisma.$transaction(async (tx) => {
       // Lock the invoice row so two payments cannot overshoot the total together.
       await tx.$executeRaw`SELECT 1 FROM "Invoice" WHERE "id" = ${invoiceId}::uuid FOR UPDATE`;
-      const invoice = await tx.invoice.findUnique({
-        where: { id: invoiceId },
+      const invoice = await tx.invoice.findFirst({
+        where: { id: invoiceId, tenantId: access.teamId },
         select: { status: true, total: true, amountPaid: true, number: true },
       });
       if (!invoice) throw ApiError.notFound('Invoice');
@@ -892,6 +943,7 @@ export class CrmService {
         actor,
         {
           action: 'crm.payment_recorded',
+          businessId: access.teamId,
           targetType: 'Invoice',
           targetId: invoiceId,
           metadata: { number: invoice.number, amount: request.amount, method: request.method },
@@ -903,10 +955,10 @@ export class CrmService {
   }
 
   async voidPayment(actor: Actor, invoiceId: string, paymentId: string): Promise<InvoiceDto> {
-    await this.requireBilling(actor);
+    const access = await this.requireBilling(actor);
     await this.prisma.$transaction(async (tx) => {
       const updated = await tx.payment.updateMany({
-        where: { id: paymentId, invoiceId, voidedAt: null },
+        where: { id: paymentId, invoiceId, invoice: { tenantId: access.teamId }, voidedAt: null },
         data: { voidedAt: new Date() },
       });
       if (updated.count === 0) throw ApiError.notFound('Payment');
@@ -922,7 +974,7 @@ export class CrmService {
 
   /** Sends the invoice as an HTML email to the bill-to address. */
   async emailInvoice(actor: Actor, invoiceId: string): Promise<InvoiceDto> {
-    await this.requireBilling(actor);
+    const access = await this.requireBilling(actor);
     const invoice = await this.getInvoice(actor, invoiceId);
     if (invoice.status === 'DRAFT') throw ApiError.conflict('Issue the invoice before sending it.');
     if (invoice.status === 'VOID') throw ApiError.conflict('This invoice was voided.');
@@ -930,7 +982,7 @@ export class CrmService {
       throw ApiError.validation('Add the customer’s email address first.', 'billToEmail');
     if (!this.mail.enabled)
       throw ApiError.conflict('Email is not set up yet. Add the mail server in Integrations.');
-    const settings = this.crmSettings.current();
+    const settings = access.settings;
     const doc = invoiceDocument(invoice, this.crmSettings);
     const sent = await this.mail.send({
       to: invoice.billToEmail,
@@ -949,7 +1001,8 @@ export class CrmService {
   // ───────────────────────────── Customers ─────────────────────────────
 
   async customers(actor: Actor): Promise<CrmCustomerDto[]> {
-    await this.access(actor);
+    const access = await this.access(actor);
+    if (!access.platform) return this.leadCustomers(access);
     const businesses = await this.prisma.business.findMany({
       where: { internal: false, deletedAt: null },
       select: {
@@ -963,7 +1016,7 @@ export class CrmService {
         },
         _count: { select: { stores: { where: { deletedAt: null } } } },
         deals: {
-          where: { deletedAt: null },
+          where: { tenantId: access.teamId, deletedAt: null },
           select: {
             status: true,
             type: true,
@@ -973,7 +1026,7 @@ export class CrmService {
           },
         },
         invoices: {
-          where: { status: { not: 'VOID' } },
+          where: { tenantId: access.teamId, status: { not: 'VOID' } },
           select: { total: true, amountPaid: true, status: true, currency: true },
         },
       },
@@ -984,13 +1037,14 @@ export class CrmService {
       const invoiced = round2(
         b.invoices
           .filter((i) => i.status !== 'DRAFT')
-          .reduce((s, i) => s + this.main(num(i.total), i.currency), 0),
+          .reduce((s, i) => s + this.main(access, num(i.total), i.currency), 0),
       );
       const paid = round2(
-        b.invoices.reduce((s, i) => s + this.main(num(i.amountPaid), i.currency), 0),
+        b.invoices.reduce((s, i) => s + this.main(access, num(i.amountPaid), i.currency), 0),
       );
       return {
         id: b.id,
+        kind: 'BUSINESS' as const,
         name: b.name,
         slug: b.slug,
         status: b.status,
@@ -1005,11 +1059,67 @@ export class CrmService {
         storeCount: b._count.stores,
         wonDeals: won.length,
         upsells: won.filter((d) => d.type === 'UPSELL').length,
-        lifetimeValue: round2(won.reduce((s, d) => s + this.main(num(d.amount), d.currency), 0)),
+        lifetimeValue: round2(won.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0)),
         invoiced,
         paid,
         outstanding: round2(invoiced - paid),
         openDeals: b.deals.filter((d) => d.status === 'OPEN').length,
+        services: [...new Set(won.flatMap((d) => d.items.map((i) => i.name)))].slice(0, 12),
+      };
+    });
+  }
+
+  /** A business's own customers: its won leads. */
+  private async leadCustomers(access: Access): Promise<CrmCustomerDto[]> {
+    const leads = await this.prisma.lead.findMany({
+      where: { tenantId: access.teamId, deletedAt: null, stage: 'WON' },
+      select: {
+        id: true,
+        companyName: true,
+        storeCount: true,
+        closedAt: true,
+        createdAt: true,
+        owner: { select: publicUserSelect },
+        deals: {
+          where: { deletedAt: null },
+          select: { status: true, type: true, amount: true, currency: true, items: { select: { name: true } } },
+        },
+        invoices: {
+          where: { status: { not: 'VOID' } },
+          select: { total: true, amountPaid: true, status: true, currency: true },
+        },
+      },
+      orderBy: { companyName: 'asc' },
+      take: 2000,
+    });
+    return leads.map((l) => {
+      const won = l.deals.filter((d) => d.status === 'WON');
+      const invoiced = round2(
+        l.invoices
+          .filter((i) => i.status !== 'DRAFT')
+          .reduce((s, i) => s + this.main(access, num(i.total), i.currency), 0),
+      );
+      const paid = round2(l.invoices.reduce((s, i) => s + this.main(access, num(i.amountPaid), i.currency), 0));
+      return {
+        id: l.id,
+        kind: 'LEAD' as const,
+        name: l.companyName,
+        slug: '',
+        status: 'ACTIVE',
+        createdAt: (l.closedAt ?? l.createdAt).toISOString(),
+        lead: {
+          id: l.id,
+          owner: l.owner ? toPublicUser(l.owner) : null,
+          convertedAt: l.closedAt?.toISOString() ?? null,
+        },
+        storeCount: l.storeCount ?? 0,
+        wonDeals: won.length,
+        upsells: won.filter((d) => d.type === 'UPSELL').length,
+        lifetimeValue: round2(won.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0)),
+        invoiced,
+        paid,
+        outstanding: round2(invoiced - paid),
+        openDeals: l.deals.filter((d) => d.status === 'OPEN').length,
         services: [...new Set(won.flatMap((d) => d.items.map((i) => i.name)))].slice(0, 12),
       };
     });
@@ -1022,7 +1132,7 @@ export class CrmService {
       where: {
         businessId: teamId,
         revokedAt: null,
-        role: { key: { in: ['SALES_MANAGER', 'SALES_AGENT'] }, isSystem: true },
+        role: { key: { in: [...SALES_PEOPLE_ROLE_KEYS] }, isSystem: true },
         user: { deletedAt: null, status: 'ACTIVE' },
       },
       select: { user: { select: publicUserSelect } },
@@ -1032,10 +1142,11 @@ export class CrmService {
   }
 
   /** Won value, counts, closed leads and collected payments per owner for a month. */
-  private async achievements(start: Date, end: Date, userIds: string[]) {
+  private async achievements(access: Access, start: Date, end: Date, userIds: string[]) {
     const [deals, leads, payments] = await Promise.all([
       this.prisma.deal.findMany({
         where: {
+          tenantId: access.teamId,
           deletedAt: null,
           status: 'WON',
           closedAt: { gte: start, lt: end },
@@ -1046,6 +1157,7 @@ export class CrmService {
       this.prisma.lead.groupBy({
         by: ['ownerId', 'stage'],
         where: {
+          tenantId: access.teamId,
           deletedAt: null,
           closedAt: { gte: start, lt: end },
           stage: { in: ['WON', 'LOST'] },
@@ -1057,7 +1169,7 @@ export class CrmService {
         where: {
           voidedAt: null,
           paidAt: { gte: start, lt: end },
-          invoice: { status: { not: 'VOID' }, deal: { ownerId: { in: userIds } } },
+          invoice: { tenantId: access.teamId, status: { not: 'VOID' }, deal: { ownerId: { in: userIds } } },
         },
         select: {
           amount: true,
@@ -1079,7 +1191,7 @@ export class CrmService {
     };
     for (const d of deals) {
       const v = get(d.ownerId!);
-      v.achieved = round2(v.achieved + this.main(num(d.amount), d.currency));
+      v.achieved = round2(v.achieved + this.main(access, num(d.amount), d.currency));
       v.won += 1;
       if (d.type === 'UPSELL') v.upsells += 1;
     }
@@ -1092,7 +1204,7 @@ export class CrmService {
       const owner = p.invoice.deal?.ownerId;
       if (owner)
         get(owner).collected = round2(
-          get(owner).collected + this.main(num(p.amount), p.invoice.currency),
+          get(owner).collected + this.main(access, num(p.amount), p.invoice.currency),
         );
     }
     return by;
@@ -1106,13 +1218,13 @@ export class CrmService {
     const ids = people.map((p) => p.id);
     const [targets, achieved] = await Promise.all([
       this.prisma.salesTarget.findMany({
-        where: { userId: { in: ids }, month: monthDate(month) },
+        where: { tenantId: access.teamId, userId: { in: ids }, month: monthDate(month) },
         select: { userId: true, amount: true },
       }),
-      this.achievements(start, end, ids),
+      this.achievements(access, start, end, ids),
     ]);
     const targetBy = new Map(targets.map((t) => [t.userId, num(t.amount)]));
-    const plans = await this.commissionPlans();
+    const plans = await this.commissionPlans(access.teamId);
     const team: TargetProgressDto[] = people.map((user) => {
       const a = achieved.get(user.id);
       const target = targetBy.get(user.id) ?? null;
@@ -1140,7 +1252,7 @@ export class CrmService {
     });
     return {
       month,
-      currency: this.currency,
+      currency: access.settings.defaultCurrency,
       team,
       totals: {
         target: round2(team.reduce((s, t) => s + (t.target ?? 0), 0)),
@@ -1158,12 +1270,13 @@ export class CrmService {
     await this.requireSalesUser(access.teamId, request.userId);
     const month = monthDate(request.month);
     await this.prisma.salesTarget.upsert({
-      where: { userId_month: { userId: request.userId, month } },
+      where: { tenantId_userId_month: { tenantId: access.teamId, userId: request.userId, month } },
       create: {
+        tenantId: access.teamId,
         userId: request.userId,
         month,
         amount: request.amount,
-        currency: this.currency,
+        currency: access.settings.defaultCurrency,
         setById: actor.userId,
       },
       update: { amount: request.amount, setById: actor.userId },
@@ -1184,31 +1297,47 @@ export class CrmService {
     const [, last] = monthRange(keys[keys.length - 1]!);
     const [targets, deals, leads] = await Promise.all([
       this.prisma.salesTarget.findMany({
-        where: { userId, month: { gte: monthDate(keys[0]!), lte: monthDate(keys.at(-1)!) } },
+        where: {
+          tenantId: access.teamId,
+          userId,
+          month: { gte: monthDate(keys[0]!), lte: monthDate(keys.at(-1)!) },
+        },
         select: { month: true, amount: true },
       }),
       this.prisma.deal.findMany({
-        where: { ownerId: userId, status: 'WON', deletedAt: null, closedAt: { gte: first, lt: last } },
+        where: {
+          tenantId: access.teamId,
+          ownerId: userId,
+          status: 'WON',
+          deletedAt: null,
+          closedAt: { gte: first, lt: last },
+        },
         select: { amount: true, closedAt: true, currency: true },
       }),
       this.prisma.lead.findMany({
-        where: { ownerId: userId, stage: 'WON', deletedAt: null, closedAt: { gte: first, lt: last } },
+        where: {
+          tenantId: access.teamId,
+          ownerId: userId,
+          stage: 'WON',
+          deletedAt: null,
+          closedAt: { gte: first, lt: last },
+        },
         select: { closedAt: true },
       }),
     ]);
     const targetBy = new Map(
       targets.map((t) => [t.month.toISOString().slice(0, 7), num(t.amount)]),
     );
-    const plans = await this.commissionPlans();
+    const plans = await this.commissionPlans(access.teamId);
     const plan = plans.get(userId) ?? plans.get('team')!;
     return {
       user: toPublicUser(user),
-      currency: this.currency,
+      currency: access.settings.defaultCurrency,
       months: keys.map((key) => {
         const achieved = round2(
           deals
             .filter((d) => d.closedAt && monthKey(d.closedAt) === key)
-            .reduce((s, d) => s + this.main(num(d.amount), d.currency), 0),
+            .reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
         );
         const target = targetBy.get(key) ?? null;
         return {
@@ -1226,8 +1355,8 @@ export class CrmService {
   // ───────────────────────────── Commission ─────────────────────────────
 
   /** "team" plus per-person overrides. */
-  private async commissionPlans() {
-    const rows = await this.prisma.commissionPlan.findMany();
+  private async commissionPlans(tenantId: string) {
+    const rows = await this.prisma.commissionPlan.findMany({ where: { tenantId } });
     const plans = new Map<string, { baseRate: number; bonusRate: number; basis: 'WON' | 'COLLECTED' }>(
       rows.map((r) => [r.scope, { baseRate: num(r.baseRate), bonusRate: num(r.bonusRate), basis: r.basis }]),
     );
@@ -1237,7 +1366,7 @@ export class CrmService {
 
   async listCommissionPlans(actor: Actor): Promise<CommissionPlanDto[]> {
     const access = await this.access(actor);
-    const plans = await this.commissionPlans();
+    const plans = await this.commissionPlans(access.teamId);
     const people = await this.salesPeople(access.teamId);
     const team = plans.get('team')!;
     return [
@@ -1253,8 +1382,8 @@ export class CrmService {
     if (!access.targets) throw ApiError.forbidden('Only sales managers can change commission.');
     if (request.scope !== 'team') await this.requireSalesUser(access.teamId, request.scope);
     await this.prisma.commissionPlan.upsert({
-      where: { scope: request.scope },
-      create: { ...request, updatedById: actor.userId },
+      where: { tenantId_scope: { tenantId: access.teamId, scope: request.scope } },
+      create: { ...request, tenantId: access.teamId, updatedById: actor.userId },
       update: {
         baseRate: request.baseRate,
         bonusRate: request.bonusRate,
@@ -1269,7 +1398,7 @@ export class CrmService {
     const access = await this.access(actor);
     if (!access.targets) throw ApiError.forbidden('Only sales managers can change commission.');
     if (scope === 'team') throw ApiError.validation('The team plan cannot be removed.', 'scope');
-    await this.prisma.commissionPlan.deleteMany({ where: { scope } });
+    await this.prisma.commissionPlan.deleteMany({ where: { tenantId: access.teamId, scope } });
     return this.listCommissionPlans(actor);
   }
 
@@ -1279,7 +1408,7 @@ export class CrmService {
     const access = await this.access(actor);
     if (!access.billing && !access.seeAll) throw ApiError.forbidden();
     const rows = await this.prisma.paymentClaim.findMany({
-      where: status ? { status } : {},
+      where: { invoice: { tenantId: access.teamId }, ...(status ? { status } : {}) },
       include: {
         invoice: { select: { id: true, number: true, billToName: true, currency: true, total: true, amountPaid: true } },
       },
@@ -1309,8 +1438,10 @@ export class CrmService {
 
   /** Confirming a customer's "I have paid" records the payment on the invoice. */
   async reviewClaim(actor: Actor, claimId: string, request: ReviewPaymentClaimRequest): Promise<PaymentClaimDto[]> {
-    await this.requireBilling(actor);
-    const claim = await this.prisma.paymentClaim.findUnique({ where: { id: claimId } });
+    const access = await this.requireBilling(actor);
+    const claim = await this.prisma.paymentClaim.findFirst({
+      where: { id: claimId, invoice: { tenantId: access.teamId } },
+    });
     if (!claim) throw ApiError.notFound('Payment');
     if (claim.status !== 'PENDING') throw ApiError.conflict('This payment was already reviewed.');
     if (request.action === 'confirm') {
@@ -1356,6 +1487,7 @@ export class CrmService {
     }
     await this.audit.record(actor, {
       action: `crm.payment_claim_${request.action === 'confirm' ? 'confirmed' : 'rejected'}`,
+      businessId: access.teamId,
       targetType: 'Invoice',
       targetId: claim.invoiceId,
       metadata: { amount: num(claim.amount), method: claim.method },
@@ -1414,7 +1546,7 @@ export class CrmService {
     for (const i of items) {
       const s = services.get(i.name) ?? { name: i.name, count: 0, value: 0 };
       s.count += 1;
-      s.value = round2(s.value + this.main(num(i.total), i.deal.currency));
+      s.value = round2(s.value + this.main(access, num(i.total), i.deal.currency));
       services.set(i.name, s);
     }
     const trend = Array.from({ length: 6 }, (_, i) => {
@@ -1424,36 +1556,36 @@ export class CrmService {
         won: round2(
           won
             .filter((d) => d.closedAt && monthKey(d.closedAt) === key)
-            .reduce((s, d) => s + this.main(num(d.amount), d.currency), 0),
+            .reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
         ),
         collected: round2(
           payments
             .filter((p) => monthKey(p.paidAt) === key)
-            .reduce((s, p) => s + this.main(num(p.amount), p.invoice.currency), 0),
+            .reduce((s, p) => s + this.main(access, num(p.amount), p.invoice.currency), 0),
         ),
       };
     });
     return {
-      currency: this.currency,
+      currency: access.settings.defaultCurrency,
       month,
-      wonThisMonth: round2(thisMonth.reduce((s, d) => s + this.main(num(d.amount), d.currency), 0)),
+      wonThisMonth: round2(thisMonth.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0)),
       wonCountThisMonth: thisMonth.length,
       upsellThisMonth: round2(
-        thisMonth.filter((d) => d.type === 'UPSELL').reduce((s, d) => s + this.main(num(d.amount), d.currency), 0),
+        thisMonth.filter((d) => d.type === 'UPSELL').reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
       ),
-      openPipeline: round2(open.reduce((s, d) => s + this.main(num(d.amount), d.currency), 0)),
+      openPipeline: round2(open.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0)),
       openDeals: open.length,
       invoicedThisMonth: round2(
         invoices
           .filter((i) => i.issueDate >= dateOnly(start) && i.issueDate < dateOnly(end))
-          .reduce((s, i) => s + this.main(num(i.total), i.currency), 0),
+          .reduce((s, i) => s + this.main(access, num(i.total), i.currency), 0),
       ),
       collectedThisMonth: trend.at(-1)!.collected,
       outstanding: round2(
-        unpaid.reduce((s, i) => s + this.main(num(i.total) - num(i.amountPaid), i.currency), 0),
+        unpaid.reduce((s, i) => s + this.main(access, num(i.total) - num(i.amountPaid), i.currency), 0),
       ),
       overdue: round2(
-        overdue.reduce((s, i) => s + this.main(num(i.total) - num(i.amountPaid), i.currency), 0),
+        overdue.reduce((s, i) => s + this.main(access, num(i.total) - num(i.amountPaid), i.currency), 0),
       ),
       overdueCount: overdue.length,
       trend,

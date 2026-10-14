@@ -41,7 +41,11 @@ export class BillingRunner {
   async billSubscriptions(): Promise<number> {
     const due = await this.prisma.subscription.findMany({
       where: { status: 'ACTIVE', nextInvoiceAt: { lte: today() } },
-      include: { items: { orderBy: { position: 'asc' } }, business: { select: { name: true, email: true, phone: true, address: true } } },
+      include: {
+        items: { orderBy: { position: 'asc' } },
+        business: { select: { name: true, email: true, phone: true, address: true } },
+        lead: { select: { companyName: true, email: true, phone: true, city: true, country: true } },
+      },
       take: 100,
     });
     let count = 0;
@@ -56,19 +60,34 @@ export class BillingRunner {
             data: { nextInvoiceAt: periodEnd },
           });
           if (claimed.count === 0) return null;
-          const a = (sub.business.address ?? {}) as Record<string, string | undefined>;
+          const a = (sub.business?.address ?? {}) as Record<string, string | undefined>;
+          const party = sub.business
+            ? {
+                name: sub.business.name,
+                email: sub.business.email,
+                phone: sub.business.phone,
+                address: [a.line1, a.city, a.country].filter(Boolean).join(', ') || null,
+              }
+            : {
+                name: sub.lead?.companyName ?? sub.name,
+                email: sub.lead?.email ?? null,
+                phone: sub.lead?.phone ?? null,
+                address: [sub.lead?.city, sub.lead?.country].filter(Boolean).join(', ') || null,
+              };
           const invoice = await tx.invoice.create({
             data: {
-              number: await this.factory.nextInvoiceNumber(tx),
+              tenantId: sub.tenantId,
+              number: await this.factory.nextInvoiceNumber(tx, sub.tenantId),
               dealId: sub.dealId,
               businessId: sub.businessId,
+              leadId: sub.leadId,
               subscriptionId: sub.id,
               periodStart,
               periodEnd: new Date(periodEnd.getTime() - 86_400_000),
-              billToName: sub.business.name,
-              billToEmail: sub.business.email,
-              billToPhone: sub.business.phone,
-              billToAddress: [a.line1, a.city, a.country].filter(Boolean).join(', ') || null,
+              billToName: party.name,
+              billToEmail: party.email,
+              billToPhone: party.phone,
+              billToAddress: party.address,
               issueDate: today(),
               dueDate: dateOnly(new Date(Date.now() + sub.dueDays * 86_400_000)),
               currency: sub.currency,
@@ -104,7 +123,9 @@ export class BillingRunner {
     return count;
   }
 
-  private async documentFor(invoiceId: string): Promise<{ doc: DocumentForEmail; email: string | null; phone: string | null } | null> {
+  private async documentFor(
+    invoiceId: string,
+  ): Promise<{ doc: DocumentForEmail; email: string | null; phone: string | null; tenantId: string } | null> {
     const i = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: { items: { orderBy: { position: 'asc' } } },
@@ -115,6 +136,7 @@ export class BillingRunner {
     return {
       email: i.billToEmail,
       phone: i.billToPhone,
+      tenantId: i.tenantId,
       doc: {
         kind: 'Invoice',
         number: i.number,
@@ -149,7 +171,7 @@ export class BillingRunner {
     if (!this.mail.enabled) return false;
     const found = await this.documentFor(invoiceId);
     if (!found?.email) return false;
-    const s = this.settings.current();
+    const s = await this.settings.load(found.tenantId);
     const sent = await this.mail.send({
       to: found.email,
       subject: intro
@@ -167,32 +189,35 @@ export class BillingRunner {
    * invoice gets each reminder once; the next is due when it is that many days overdue.
    */
   async sendReminders(): Promise<number> {
-    const s = this.settings.current();
-    const days = s.reminderDays;
-    if (days.length === 0) return 0;
     const overdue = await this.prisma.invoice.findMany({
-      where: {
-        status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
-        dueDate: { lt: today() },
-        reminderCount: { lt: days.length },
-      },
-      select: { id: true, dueDate: true, reminderCount: true },
-      take: 200,
+      where: { status: { in: ['ISSUED', 'PARTIALLY_PAID'] }, dueDate: { lt: today() } },
+      select: { id: true, dueDate: true, reminderCount: true, tenantId: true },
+      orderBy: { dueDate: 'asc' },
+      take: 500,
     });
     let count = 0;
     for (const inv of overdue) {
+      // Each business has its own reminder days.
+      const days = (await this.settings.load(inv.tenantId)).reminderDays;
+      if (inv.reminderCount >= days.length) continue;
       const daysLate = Math.floor((today().getTime() - inv.dueDate.getTime()) / 86_400_000);
-      if (daysLate < days[inv.reminderCount]!) continue;
-      if (await this.remind(inv.id)) count += 1;
+      // The latest step that is due. Steps missed earlier are skipped, so an invoice that is
+      // already long overdue gets one reminder, not every step in a burst.
+      const step = days.filter((d) => d <= daysLate).length;
+      if (step <= inv.reminderCount) continue;
+      if (await this.remind(inv.id, step)) count += 1;
     }
     return count;
   }
 
-  /** Sends one reminder on every configured channel; counts it if any channel accepted it. */
-  async remind(invoiceId: string): Promise<boolean> {
+  /**
+   * Sends one reminder on every configured channel; counts it if any channel accepted it.
+   * `step` sets how many reminder steps are done (default: one more than now).
+   */
+  async remind(invoiceId: string, step?: number): Promise<boolean> {
     const found = await this.documentFor(invoiceId);
     if (!found) return false;
-    const s = this.settings.current();
+    const s = await this.settings.load(found.tenantId);
     const { doc } = found;
     const intro = `Friendly reminder: invoice ${doc.number} for ${formatMoney(doc.balance ?? doc.total, doc.currency)} was due on ${doc.dueDate}.`;
     const shortText = `${intro} ${doc.actionUrl ? `Pay or view it here: ${doc.actionUrl}` : ''} — ${s.companyName}`;
@@ -213,7 +238,7 @@ export class BillingRunner {
     // retried every round; the invoice page shows how many reminders went out.
     await this.prisma.invoice.update({
       where: { id: invoiceId },
-      data: { reminderCount: { increment: 1 }, ...(delivered ? { lastReminderAt: new Date() } : {}) },
+      data: { reminderCount: step ?? { increment: 1 }, ...(delivered ? { lastReminderAt: new Date() } : {}) },
     });
     return delivered;
   }

@@ -957,15 +957,16 @@ export class UsersService {
     if (!membership || membership.status !== 'ACTIVE') throw ApiError.notFound('User');
   }
 
-  /** Sales roles exist only in SMA's internal sales team, and that team holds only sales roles. */
+  /**
+   * Any business may have Sales Managers and Agents (its own CRM); SMA's internal sales team
+   * holds only sales roles.
+   */
   private async requireRoleFitsBusiness(businessId: string, roleKey: string): Promise<void> {
     const business = await this.prisma.business.findUnique({
       where: { id: businessId },
       select: { internal: true },
     });
     const salesRole = (SALES_ROLE_KEYS as readonly string[]).includes(roleKey);
-    if (salesRole && !business?.internal)
-      throw ApiError.validation('Sales roles are only for the SMA sales team.', 'roleKey');
     if (!salesRole && business?.internal)
       throw ApiError.validation(
         'The sales team only has Sales Manager and Sales Agent roles.',

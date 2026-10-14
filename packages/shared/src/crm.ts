@@ -64,7 +64,7 @@ export const createDealRequestSchema = z
     notes: text(2000).nullable().optional(),
     items: z.array(lineItemSchema).min(1, 'Add at least one service').max(50),
   })
-  .refine((d) => d.type === 'NEW_BUSINESS' || !!d.businessId, {
+  .refine((d) => d.type === 'NEW_BUSINESS' || !!d.businessId || !!d.leadId, {
     message: 'Choose the customer',
     path: ['businessId'],
   })
@@ -221,7 +221,7 @@ export interface DealDto {
   type: DealType;
   status: DealStatus;
   lead: { id: string; companyName: string; stage: string } | null;
-  customer: { id: string; name: string } | null;
+  customer: CrmCustomerRef | null;
   owner: PublicUserDto | null;
   amount: number;
   currency: string;
@@ -258,7 +258,7 @@ export interface InvoiceDto {
   /** Issued, not fully paid and past the due date. */
   overdue: boolean;
   deal: { id: string; title: string; type: DealType } | null;
-  customer: { id: string; name: string } | null;
+  customer: CrmCustomerRef | null;
   lead: { id: string; companyName: string } | null;
   billToName: string;
   billToEmail: string | null;
@@ -301,8 +301,19 @@ export interface InvoiceDto {
 }
 
 /** One SMA customer with what they bought and owe. */
+/**
+ * Who a deal, quote, invoice or monthly billing is for: a business on SMA (SMA's own CRM) or a
+ * won lead (a business's own CRM).
+ */
+export interface CrmCustomerRef {
+  id: string;
+  name: string;
+  kind: 'BUSINESS' | 'LEAD';
+}
+
 export interface CrmCustomerDto {
   id: string;
+  kind: 'BUSINESS' | 'LEAD';
   name: string;
   slug: string;
   status: string;

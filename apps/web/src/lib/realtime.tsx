@@ -34,6 +34,7 @@ import {
   useEmergencyAlerts,
 } from './emergency';
 import { useMessageAlert } from '@/components/chat/message-toast';
+import { useSalesReminders } from '@/components/sales/reminder-alert';
 import { useChatPrefs } from './chat-prefs';
 import { messagePreview } from './format';
 import { useLive } from './live-store';
@@ -285,6 +286,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       sendReceipt(incident.id, 'DELIVERED');
       useEmergencyAlerts.getState().push(incident);
       applyIncidentUpdate(client, incident);
+    });
+    s.on('sales.reminder', (event) => {
+      useSalesReminders.getState().push(event);
+      void client.invalidateQueries({ queryKey: ['leads'] });
     });
     s.on('status.changed', () => void client.invalidateQueries({ queryKey: ['status'] }));
     s.on('task.changed', () => {

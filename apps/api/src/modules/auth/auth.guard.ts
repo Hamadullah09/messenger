@@ -6,6 +6,8 @@ import { ApiError } from '../../infra/http/api-error';
 import { ALLOW_PASSWORD_CHANGE_PENDING, IS_PUBLIC, type Actor } from './actor';
 import { SessionService } from './session.service';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export type AuthenticatedRequest = Request & { actor?: Actor; id?: string };
 
 /** Global guard: every route requires a valid, unrevoked session unless marked @Public(). */
@@ -37,7 +39,9 @@ export class AuthGuard implements CanActivate {
     ) {
       throw new ApiError('PASSWORD_CHANGE_REQUIRED', 'Please choose a new password to continue.');
     }
-    request.actor = actor;
+    const hint = request.headers['x-business-id'];
+    request.actor =
+      typeof hint === 'string' && UUID.test(hint) ? { ...actor, businessHint: hint.toLowerCase() } : actor;
     return true;
   }
 }

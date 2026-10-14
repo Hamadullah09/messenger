@@ -1,6 +1,7 @@
 import type { PublicUserDto } from './dto';
 import type {
   ActivityOutcome,
+  FollowUpKind,
   LeadActivityKind,
   LeadDirection,
   LeadSource,
@@ -38,6 +39,8 @@ export interface LeadDto {
   notes: string | null;
   owner: PublicUserDto | null;
   nextFollowUpAt: string | null;
+  nextFollowUpKind: FollowUpKind | null;
+  nextFollowUpNote: string | null;
   lastActivityAt: string;
   /** Set once the lead became an SMA customer business. */
   customer: { businessId: string; businessName: string; convertedAt: string } | null;
@@ -63,8 +66,16 @@ export interface LeadDetailDto extends LeadDto {
 }
 
 export interface SalesContextDto {
-  /** SMA's internal sales team (a hidden business that holds the team's chats). */
+  /** The business whose CRM this is (SMA's internal sales team, or any business). */
   teamBusinessId: string;
+  businessName: string;
+  /** For the website lead form link. */
+  businessSlug: string;
+  /**
+   * SMA's own sales team: customers are businesses on SMA (won leads become SMA customers).
+   * Otherwise a business's own CRM, whose customers are its won leads.
+   */
+  platformTeam: boolean;
   teamGroupId: string | null;
   canSeeAll: boolean;
   canAssign: boolean;
@@ -91,7 +102,8 @@ export interface SalesOverviewDto {
 }
 
 export interface SalesUserDto extends PublicUserDto {
-  roleKey: 'SALES_MANAGER' | 'SALES_AGENT';
+  /** Business Owners and Admins use their own business's CRM as managers. */
+  roleKey: 'SALES_MANAGER' | 'SALES_AGENT' | 'BUSINESS_OWNER' | 'BUSINESS_ADMIN';
   openLeads: number;
   wonLeads: number;
 }

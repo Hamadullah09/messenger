@@ -10,6 +10,11 @@ export interface Actor {
   readonly mustChangePassword: boolean;
   readonly requestId: string | null;
   readonly ipHash: string | null;
+  /**
+   * The business the client is working in (X-Business-Id header). Only a hint: every service
+   * still checks the actor's rights in that business.
+   */
+  readonly businessHint?: string | null;
   /** Lazily loaded and memoised by AuthorizationService for the lifetime of the request. */
   authz?: Promise<AuthorizationContext>;
 }

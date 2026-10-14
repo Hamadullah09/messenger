@@ -64,6 +64,10 @@ export type ActivityOutcome = (typeof ACTIVITY_OUTCOMES)[number];
 export const STUCK_AFTER_DAYS_IN_STAGE = 14;
 export const STUCK_AFTER_DAYS_IDLE = 7;
 
+/** What a planned follow-up is. */
+export const FOLLOW_UP_KINDS = ['MEETING', 'CALL', 'VISIT', 'WHATSAPP', 'EMAIL', 'OTHER'] as const;
+export type FollowUpKind = (typeof FOLLOW_UP_KINDS)[number];
+
 export const LEAD_ACTIVITY_TYPES = ['NOTE', 'CALL', 'EMAIL', 'MEETING', 'WHATSAPP'] as const;
 export type LeadActivityKind = (typeof LEAD_ACTIVITY_TYPES)[number];
 
@@ -99,6 +103,9 @@ export const leadFieldsSchema = z.object({
   sourceDetail: optionalText(160),
   notes: optionalText(2000),
   nextFollowUpAt: z.coerce.date().nullable().optional(),
+  nextFollowUpKind: z.enum(FOLLOW_UP_KINDS).nullable().optional(),
+  /** Place, agenda or what to say. */
+  nextFollowUpNote: optionalText(300),
 });
 
 export const createLeadRequestSchema = leadFieldsSchema.extend({
@@ -129,7 +136,12 @@ export const addLeadActivityRequestSchema = z.object({
   body: text(2000).min(1),
   /** The prospect's response (calls, messages, meetings). */
   outcome: z.enum(ACTIVITY_OUTCOMES).nullable().optional(),
+  /** Set (or with null, clear) the next follow-up. */
   nextFollowUpAt: z.coerce.date().nullable().optional(),
+  nextFollowUpKind: z.enum(FOLLOW_UP_KINDS).nullable().optional(),
+  nextFollowUpNote: optionalText(300),
+  /** This activity was the planned follow-up: it is done (cleared unless a new one is set). */
+  completeFollowUp: z.boolean().optional(),
 });
 export type AddLeadActivityRequest = z.infer<typeof addLeadActivityRequestSchema>;
 
@@ -172,6 +184,16 @@ export const listLeadsQuerySchema = z.object({
 });
 export type ListLeadsQuery = z.infer<typeof listLeadsQuerySchema>;
 
+/** Follow-ups up to a time (the client sends the end of its day or week), overdue included. */
+export const agendaQuerySchema = z.object({
+  until: z.coerce.date(),
+  mine: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+});
+export type AgendaQuery = z.infer<typeof agendaQuerySchema>;
+
 export const createSalesUserRequestSchema = z.object({
   displayName: text(80).min(1),
   username: usernameSchema,
@@ -193,6 +215,8 @@ export const publicLeadRequestSchema = z.object({
   message: text(1000).optional(),
   /** Where the form was filled in (e.g. the page of the company website). */
   sourceDetail: text(160).optional(),
+  /** Short name of the business whose form this is (empty: SMA's own sales team). */
+  business: z.string().trim().max(64).optional(),
   website: z.string().max(0, 'Leave this field empty').optional(),
 });
 export type PublicLeadRequest = z.infer<typeof publicLeadRequestSchema>;

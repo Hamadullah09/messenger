@@ -52,6 +52,8 @@ import { api, errorMessage } from '@/lib/api';
 import { copyText } from '@/lib/clipboard';
 import { formatDay } from '@/lib/format';
 import {
+  customerFields,
+  type CustomerPick,
   Chip,
   ItemsEditor,
   money2,
@@ -216,7 +218,7 @@ export function QuoteFormDialog({
           ...(deal
             ? { dealId: deal.id }
             : {
-                businessId: businessId || null,
+                ...customerFields(businessId, customers.data),
                 currency: cur,
                 items: items.map((i) => ({
                   serviceId: i.serviceId ?? null,
@@ -549,7 +551,7 @@ export function SubscriptionDialog({
   subscription,
   onClose,
 }: {
-  customer: { id: string; name: string };
+  customer: CustomerPick;
   deal?: DealDto;
   subscription?: SubscriptionDto;
   onClose: () => void;
@@ -586,7 +588,7 @@ export function SubscriptionDialog({
         : api<SubscriptionDto>('/sales/crm/subscriptions', {
             method: 'POST',
             body: {
-              businessId: customer.id,
+              ...customerFields(customer.id, undefined, customer.kind ?? 'BUSINESS'),
               dealId: deal?.id ?? null,
               name: name.trim(),
               currency,
@@ -692,7 +694,7 @@ export function SubscriptionsTab() {
           <section key={s.id} className={cx('flex flex-col gap-2 rounded-2xl border border-line bg-surface p-4 shadow-card', s.status !== 'ACTIVE' && 'opacity-70')}>
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
-                <p className="font-bold">{s.customer.name}</p>
+                <p className="font-bold">{s.customer?.name ?? 'Customer removed'}</p>
                 <p className="text-sm text-muted">{s.name}</p>
               </div>
               <Chip cls={s.status === 'ACTIVE' ? 'bg-success-soft text-success' : s.status === 'PAUSED' ? 'bg-warning-surface text-warning' : 'bg-surface-3 text-muted'}>
@@ -733,7 +735,13 @@ export function SubscriptionsTab() {
           </section>
         ))}
       </div>
-      {editing && <SubscriptionDialog customer={editing.customer} subscription={editing} onClose={() => setEditing(null)} />}
+      {editing && (
+        <SubscriptionDialog
+          customer={editing.customer ?? { id: '', name: editing.name }}
+          subscription={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }

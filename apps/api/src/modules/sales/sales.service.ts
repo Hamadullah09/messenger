@@ -16,6 +16,8 @@ import {
   type LeadDetailDto,
   type LeadDto,
   type ListLeadsQuery,
+  type AgendaQuery,
+  type FollowUpKind,
   type Permission,
   type PublicLeadRequest,
   type SalesContextDto,
@@ -34,6 +36,23 @@ import { AuthorizationService } from '../authorization/authorization.service';
 import { publicUserSelect, toPublicUser } from '../users/user.mapper';
 import { UsersService } from '../users/users.service';
 
+/** Roles whose holders work leads in a business's CRM (owners and admins act as managers). */
+export const SALES_PEOPLE_ROLE_KEYS = [
+  'SALES_MANAGER',
+  'SALES_AGENT',
+  'BUSINESS_OWNER',
+  'BUSINESS_ADMIN',
+] as const;
+
+/** Whose CRM a request works in. */
+export interface SalesTenant {
+  businessId: string;
+  /** SMA's own sales team (customers are businesses on SMA). */
+  platform: boolean;
+  name: string;
+  slug: string;
+}
+
 const TEAM_SLUG = 'sma-sales-team';
 const TEAM_NAME = 'SMA Sales & Marketing';
 const TEAM_GROUP_TITLE = 'Sales & Marketing team';
@@ -46,6 +65,29 @@ const leadInclude = {
 type LeadRow = Prisma.LeadGetPayload<{ include: typeof leadInclude }>;
 
 const DAY = 86_400_000;
+
+/**
+ * Follow-up fields for a write: a type or note only goes with a date, and clearing the date
+ * clears them too.
+ */
+function followUpData(
+  request: { nextFollowUpAt?: Date | null; nextFollowUpKind?: FollowUpKind | null; nextFollowUpNote?: string | null },
+  current: { nextFollowUpAt: Date | null } | null,
+): { nextFollowUpAt?: Date | null; nextFollowUpKind?: FollowUpKind | null; nextFollowUpNote?: string | null } {
+  if (request.nextFollowUpAt === null)
+    return { nextFollowUpAt: null, nextFollowUpKind: null, nextFollowUpNote: null };
+  if (request.nextFollowUpAt)
+    return {
+      nextFollowUpAt: request.nextFollowUpAt,
+      nextFollowUpKind: request.nextFollowUpKind ?? null,
+      nextFollowUpNote: request.nextFollowUpNote ?? null,
+    };
+  if (!current?.nextFollowUpAt) return {};
+  return {
+    ...(request.nextFollowUpKind !== undefined ? { nextFollowUpKind: request.nextFollowUpKind } : {}),
+    ...(request.nextFollowUpNote !== undefined ? { nextFollowUpNote: request.nextFollowUpNote } : {}),
+  };
+}
 
 /** Open, and too long in its stage or without any activity. */
 function isStuck(row: Pick<LeadRow, 'stage' | 'stageChangedAt' | 'lastActivityAt'>): boolean {
@@ -99,6 +141,8 @@ function toLeadDto(row: LeadRow): LeadDto {
     notes: row.notes,
     owner: row.owner ? toPublicUser(row.owner) : null,
     nextFollowUpAt: row.nextFollowUpAt?.toISOString() ?? null,
+    nextFollowUpKind: row.nextFollowUpKind,
+    nextFollowUpNote: row.nextFollowUpNote,
     lastActivityAt: row.lastActivityAt.toISOString(),
     customer:
       row.convertedBusiness && row.convertedAt
@@ -113,9 +157,9 @@ function toLeadDto(row: LeadRow): LeadDto {
 }
 
 /**
- * Sales & Marketing: SMA's own lead funnel (prospects that may buy SMA), from first contact to
- * an SMA customer business. Separate from the customers of a business (Store Customer role).
- * Rights come only from the Sales roles, which exist only in SMA's internal sales team.
+ * Sales & Marketing: a lead funnel from first contact to customer. Every business has its own
+ * (its owners, admins and sales people use it); SMA's internal sales team uses it to sell SMA,
+ * where a won lead becomes an SMA customer business. Data never crosses businesses.
  */
 @Injectable()
 export class SalesService {
@@ -159,41 +203,96 @@ export class SalesService {
     return { businessId: business.id, groupId: group?.id ?? null };
   }
 
-  private async can(actor: Actor, permission: Permission, teamId?: string): Promise<boolean> {
-    const businessId = teamId ?? (await this.team()).businessId;
+  private readonly tenants = new WeakMap<Actor, Promise<SalesTenant>>();
+
+  /**
+   * Whose CRM this request works in: the business the client names (X-Business-Id) when the
+   * actor has Sales rights given in that business, else SMA's sales team when they have rights
+   * there (sales people, Super Admin), else the first business where they have Sales rights.
+   * Platform-wide admins never open another business's CRM through the hint.
+   */
+  tenant(actor: Actor): Promise<SalesTenant> {
+    let found = this.tenants.get(actor);
+    if (!found) {
+      found = this.resolveTenant(actor);
+      this.tenants.set(actor, found);
+      found.catch(() => this.tenants.delete(actor));
+    }
+    return found;
+  }
+
+  private async resolveTenant(actor: Actor): Promise<SalesTenant> {
+    const ctx = await this.authz.context(actor);
+    const platform = await this.team();
+    const ownBusinesses = ctx.grants
+      .filter((g) => g.scope.type === 'BUSINESS' && g.permissions.has('sales.access'))
+      .map((g) => (g.scope as { businessId: string }).businessId);
+    const candidates = [
+      ...(actor.businessHint && ownBusinesses.includes(actor.businessHint) ? [actor.businessHint] : []),
+      platform.businessId,
+      ...ownBusinesses,
+    ];
+    for (const businessId of [...new Set(candidates)]) {
+      if (!(await this.authz.can(actor, 'sales.access', { businessId }))) continue;
+      const business = await this.prisma.business.findFirst({
+        where: { id: businessId, deletedAt: null },
+        select: { id: true, name: true, slug: true, internal: true },
+      });
+      if (business)
+        return { businessId: business.id, platform: business.internal, name: business.name, slug: business.slug };
+    }
+    throw ApiError.forbidden('You do not have access to Sales & Marketing.');
+  }
+
+  private async can(actor: Actor, permission: Permission): Promise<boolean> {
+    const { businessId } = await this.tenant(actor);
     return this.authz.can(actor, permission, { businessId });
   }
 
-  private async require(actor: Actor, permission: Permission): Promise<string> {
-    const { businessId } = await this.team();
-    await this.authz.require(actor, permission, { businessId });
-    return businessId;
+  private async require(actor: Actor, permission: Permission): Promise<SalesTenant> {
+    const tenant = await this.tenant(actor);
+    await this.authz.require(actor, permission, { businessId: tenant.businessId });
+    return tenant;
+  }
+
+  /** The tenant's "Sales & Marketing team" group chat, created when first needed. */
+  private async teamGroup(tenant: SalesTenant): Promise<string | null> {
+    const existing = await this.prisma.conversation.findFirst({
+      where: { businessId: tenant.businessId, type: 'GROUP', title: TEAM_GROUP_TITLE },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    return existing?.id ?? null;
   }
 
   async context(actor: Actor): Promise<SalesContextDto> {
-    const team = await this.team();
-    await this.authz.require(actor, 'sales.access', { businessId: team.businessId });
-    const [canSeeAll, canAssign, canConvert, canManageTeam] = await Promise.all([
-      this.can(actor, 'sales.lead.read_all', team.businessId),
-      this.can(actor, 'sales.lead.assign', team.businessId),
-      this.can(actor, 'sales.lead.convert', team.businessId),
-      this.can(actor, 'sales.team.manage', team.businessId),
+    const tenant = await this.require(actor, 'sales.access');
+    const [canSeeAll, canAssign, canConvert, canManageTeam, groupId] = await Promise.all([
+      this.can(actor, 'sales.lead.read_all'),
+      this.can(actor, 'sales.lead.assign'),
+      this.can(actor, 'sales.lead.convert'),
+      this.can(actor, 'sales.team.manage'),
+      this.teamGroup(tenant),
     ]);
     return {
-      teamBusinessId: team.businessId,
-      teamGroupId: team.groupId,
+      teamBusinessId: tenant.businessId,
+      businessName: tenant.platform ? 'SMA' : tenant.name,
+      businessSlug: tenant.slug,
+      platformTeam: tenant.platform,
+      teamGroupId: groupId,
       canSeeAll,
       canAssign,
-      canConvert,
+      // Only SMA's own sales turn won leads into businesses on SMA.
+      canConvert: canConvert && tenant.platform,
       canManageTeam,
     };
   }
 
   /** Agents see their own leads and the unassigned queue; managers see everything. */
   private async visibleWhere(actor: Actor): Promise<Prisma.LeadWhereInput> {
-    await this.require(actor, 'sales.access');
-    if (await this.can(actor, 'sales.lead.read_all')) return { deletedAt: null };
-    return { deletedAt: null, OR: [{ ownerId: actor.userId }, { ownerId: null }] };
+    const { businessId: tenantId } = await this.require(actor, 'sales.access');
+    if (await this.can(actor, 'sales.lead.read_all')) return { tenantId, deletedAt: null };
+    return { tenantId, deletedAt: null, OR: [{ ownerId: actor.userId }, { ownerId: null }] };
   }
 
   private async requireVisible(actor: Actor, leadId: string): Promise<LeadRow> {
@@ -215,14 +314,14 @@ export class SalesService {
   }
 
   /** Sales users who can own leads. */
-  private async requireSalesUser(userId: string): Promise<void> {
-    const { businessId } = await this.team();
+  private async requireSalesUser(actor: Actor, userId: string): Promise<void> {
+    const { businessId } = await this.tenant(actor);
     const ok = await this.prisma.roleAssignment.count({
       where: {
         userId,
         businessId,
         revokedAt: null,
-        role: { key: { in: ['SALES_MANAGER', 'SALES_AGENT'] }, isSystem: true },
+        role: { key: { in: [...SALES_PEOPLE_ROLE_KEYS] }, isSystem: true },
         user: { status: 'ACTIVE', deletedAt: null },
       },
     });
@@ -271,6 +370,27 @@ export class SalesService {
     return rows.map(toLeadDto);
   }
 
+  /**
+   * Planned follow-ups (meetings, calls, visits…) up to `until`, overdue ones included, oldest
+   * first. Lost leads are left out; won leads (customers) stay.
+   */
+  async agenda(actor: Actor, query: AgendaQuery): Promise<LeadDto[]> {
+    const visible = await this.visibleWhere(actor);
+    const rows = await this.prisma.lead.findMany({
+      where: {
+        AND: [
+          visible,
+          { stage: { not: 'LOST' }, nextFollowUpAt: { not: null, lte: query.until } },
+          query.mine ? { ownerId: actor.userId } : {},
+        ],
+      },
+      include: leadInclude,
+      orderBy: { nextFollowUpAt: 'asc' },
+      take: 500,
+    });
+    return rows.map(toLeadDto);
+  }
+
   async get(actor: Actor, leadId: string): Promise<LeadDetailDto> {
     const row = await this.requireVisible(actor, leadId);
     const activities = await this.prisma.leadActivity.findMany({
@@ -295,21 +415,30 @@ export class SalesService {
   }
 
   async create(actor: Actor, request: CreateLeadRequest): Promise<LeadDetailDto> {
-    await this.require(actor, 'sales.lead.manage');
+    const { businessId: tenantId } = await this.require(actor, 'sales.lead.manage');
     // Agents' new leads are their own; managers may assign or leave them in the queue.
     let ownerId: string | null = actor.userId;
     if (request.ownerId !== undefined && request.ownerId !== actor.userId) {
       await this.require(actor, 'sales.lead.assign');
-      if (request.ownerId) await this.requireSalesUser(request.ownerId);
+      if (request.ownerId) await this.requireSalesUser(actor, request.ownerId);
       ownerId = request.ownerId;
     }
-    const { ownerId: _ignored, direction, ...fields } = request;
+    const {
+      ownerId: _ignored,
+      direction,
+      nextFollowUpAt: _at,
+      nextFollowUpKind: _kind,
+      nextFollowUpNote: _note,
+      ...fields
+    } = request;
     const lead = await this.prisma.$transaction(async (tx) => {
       const created = await tx.lead.create({
         data: {
           ...fields,
+          tenantId,
           direction:
             direction ?? (OUTBOUND_SOURCES.includes(request.source) ? 'OUTBOUND' : 'INBOUND'),
+          ...followUpData(request, null),
           ownerId,
           createdById: actor.userId,
         },
@@ -324,10 +453,11 @@ export class SalesService {
   }
 
   async update(actor: Actor, leadId: string, request: UpdateLeadRequest): Promise<LeadDetailDto> {
-    await this.requireEditable(actor, leadId);
+    const lead = await this.requireEditable(actor, leadId);
+    const { nextFollowUpAt: _at, nextFollowUpKind: _kind, nextFollowUpNote: _note, ...fields } = request;
     await this.prisma.lead.update({
       where: { id: leadId },
-      data: { ...request, lastActivityAt: new Date() },
+      data: { ...fields, ...followUpData(request, lead), lastActivityAt: new Date() },
     });
     return this.get(actor, leadId);
   }
@@ -370,7 +500,7 @@ export class SalesService {
   async assign(actor: Actor, leadId: string, ownerId: string | null): Promise<LeadDetailDto> {
     const lead = await this.requireVisible(actor, leadId);
     await this.require(actor, 'sales.lead.assign');
-    if (ownerId) await this.requireSalesUser(ownerId);
+    if (ownerId) await this.requireSalesUser(actor, ownerId);
     if (lead.ownerId === ownerId) return this.get(actor, leadId);
     const owner = ownerId
       ? await this.prisma.user.findUnique({ where: { id: ownerId }, select: { displayName: true } })
@@ -412,7 +542,14 @@ export class SalesService {
     leadId: string,
     request: AddLeadActivityRequest,
   ): Promise<LeadDetailDto> {
-    await this.requireEditable(actor, leadId);
+    const lead = await this.requireEditable(actor, leadId);
+    // A new follow-up replaces the old one; "this was the planned follow-up" clears it.
+    const followUp =
+      request.nextFollowUpAt !== undefined
+        ? followUpData(request, lead)
+        : request.completeFollowUp
+          ? { nextFollowUpAt: null, nextFollowUpKind: null, nextFollowUpNote: null }
+          : {};
     await this.prisma.$transaction([
       this.prisma.leadActivity.create({
         data: {
@@ -433,9 +570,7 @@ export class SalesService {
             : {}),
           ...(request.type === 'MEETING' ? { meetingCount: { increment: 1 } } : {}),
           ...(request.outcome ? { lastOutcome: request.outcome } : {}),
-          ...(request.nextFollowUpAt !== undefined
-            ? { nextFollowUpAt: request.nextFollowUpAt }
-            : {}),
+          ...followUp,
         },
       }),
     ]);
@@ -460,7 +595,9 @@ export class SalesService {
    */
   async convert(actor: Actor, leadId: string, request: ConvertLeadRequest): Promise<LeadDetailDto> {
     const lead = await this.requireVisible(actor, leadId);
-    await this.require(actor, 'sales.lead.convert');
+    const tenant = await this.require(actor, 'sales.lead.convert');
+    if (!tenant.platform)
+      throw ApiError.conflict('Mark the lead as won: it is then your customer.');
     if (lead.convertedBusinessId) throw ApiError.conflict('This lead is already an SMA customer.');
     const passwordHash = request.admin ? await this.passwords.hash(request.admin.password) : null;
     const roleId = request.admin
@@ -576,15 +713,16 @@ export class SalesService {
 
   /** Leads (or only SMA customers) as CSV for campaigns and reports. Managers only. */
   async exportCsv(actor: Actor, customersOnly: boolean): Promise<string> {
-    await this.require(actor, 'sales.lead.read_all');
+    const { businessId: tenantId } = await this.require(actor, 'sales.lead.read_all');
     const rows = await this.prisma.lead.findMany({
-      where: { deletedAt: null, ...(customersOnly ? { stage: 'WON' } : {}) },
+      where: { tenantId, deletedAt: null, ...(customersOnly ? { stage: 'WON' } : {}) },
       include: leadInclude,
       orderBy: { createdAt: 'asc' },
       take: 50_000,
     });
     await this.audit.record(actor, {
       action: 'sales.leads_exported',
+      businessId: tenantId,
       metadata: { count: rows.length, customersOnly },
     });
     const header = [
@@ -728,27 +866,26 @@ export class SalesService {
   // ───────────────────────────── Team ─────────────────────────────
 
   async teamMembers(actor: Actor): Promise<SalesUserDto[]> {
-    const { businessId } = await this.team();
-    await this.authz.require(actor, 'sales.access', { businessId });
+    const { businessId } = await this.require(actor, 'sales.access');
     const assignments = await this.prisma.roleAssignment.findMany({
       where: {
         businessId,
         revokedAt: null,
-        role: { key: { in: ['SALES_MANAGER', 'SALES_AGENT'] }, isSystem: true },
+        role: { key: { in: [...SALES_PEOPLE_ROLE_KEYS] }, isSystem: true },
         user: { deletedAt: null },
       },
       select: { role: { select: { key: true } }, user: { select: publicUserSelect } },
     });
     const counts = await this.prisma.lead.groupBy({
       by: ['ownerId', 'stage'],
-      where: { deletedAt: null, ownerId: { in: assignments.map((a) => a.user.id) } },
+      where: { tenantId: businessId, deletedAt: null, ownerId: { in: assignments.map((a) => a.user.id) } },
       _count: { _all: true },
     });
     const people = new Map<string, SalesUserDto>();
     for (const a of assignments) {
       const existing = people.get(a.user.id);
       const roleKey = a.role.key as SalesUserDto['roleKey'];
-      if (existing && existing.roleKey === 'SALES_MANAGER') continue;
+      if (existing && existing.roleKey !== 'SALES_AGENT') continue;
       people.set(a.user.id, { ...toPublicUser(a.user), roleKey, openLeads: 0, wonLeads: 0 });
     }
     for (const c of counts) {
@@ -763,8 +900,18 @@ export class SalesService {
 
   /** Adds a Sales Manager or Sales Agent and puts them in the sales team chat. */
   async addTeamMember(actor: Actor, request: CreateSalesUserRequest): Promise<SalesUserDto[]> {
-    const team = await this.team();
-    await this.authz.require(actor, 'sales.team.manage', { businessId: team.businessId });
+    const tenant = await this.require(actor, 'sales.team.manage');
+    const team = {
+      businessId: tenant.businessId,
+      groupId:
+        (await this.teamGroup(tenant)) ??
+        (
+          await this.prisma.conversation.create({
+            data: { businessId: tenant.businessId, type: 'GROUP', title: TEAM_GROUP_TITLE },
+            select: { id: true },
+          })
+        ).id,
+    };
     const user = await this.users.create(actor, team.businessId, {
       username: request.username,
       displayName: request.displayName,
@@ -800,13 +947,26 @@ export class SalesService {
 
   // ───────────────────────────── Website ─────────────────────────────
 
-  /** "Request a demo" on the website: lands in the unassigned queue as a WEBSITE lead. */
+  /**
+   * The website form ("Request a demo" for SMA, or a business's own contact form): lands in that
+   * business's unassigned queue as a WEBSITE lead.
+   */
   async publicLead(request: PublicLeadRequest, client: ClientContext): Promise<void> {
     await this.rateLimiter.consume(RATE_LIMITS.publicLeadPerIp, client.ipHash);
     // Bots fill the hidden "website" field; accept silently and drop.
     if (request.website) return;
+    const tenantId = request.business
+      ? (
+          await this.prisma.business.findFirst({
+            where: { slug: request.business.toLowerCase(), deletedAt: null, status: 'ACTIVE' },
+            select: { id: true },
+          })
+        )?.id
+      : (await this.team()).businessId;
+    if (!tenantId) throw ApiError.notFound('Business');
     const lead = await this.prisma.lead.create({
       data: {
+        tenantId,
         companyName: request.companyName,
         contactName: request.contactName,
         email: request.email,

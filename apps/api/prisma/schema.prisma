@@ -212,23 +212,34 @@ model Business {
   /// Set when the platform deletes the business: hidden everywhere, history kept.
   deletedAt         DateTime?          @db.Timestamptz(3)
 
-  stores          Store[]
-  departments     Department[]
-  memberships     BusinessMembership[]
-  roles           Role[]
-  roleAssignments RoleAssignment[]
-  conversations   Conversation[]
-  mediaAssets     MediaAsset[]
-  incidents       EmergencyIncident[]
-  campaigns       BulkCampaign[]
-  suppressions    CampaignSuppression[]
-  quota           TenantQuota?
-  statusPosts     StatusPost[]
+  stores             Store[]
+  departments        Department[]
+  memberships        BusinessMembership[]
+  roles              Role[]
+  roleAssignments    RoleAssignment[]
+  conversations      Conversation[]
+  mediaAssets        MediaAsset[]
+  incidents          EmergencyIncident[]
+  campaigns          BulkCampaign[]
+  suppressions       CampaignSuppression[]
+  quota              TenantQuota?
+  statusPosts        StatusPost[]
   /// CRM: what SMA sold to this customer and billed them.
-  deals           Deal[]                @relation("customerDeals")
-  invoices        Invoice[]             @relation("customerInvoices")
-  quotes          Quote[]               @relation("customerQuotes")
-  subscriptions   Subscription[]        @relation("customerSubscriptions")
+  deals              Deal[]                @relation("customerDeals")
+  invoices           Invoice[]             @relation("customerInvoices")
+  quotes             Quote[]               @relation("customerQuotes")
+  subscriptions      Subscription[]        @relation("customerSubscriptions")
+  // CRM data owned by this business (its own Sales & Marketing).
+  crmLeads           Lead[]                @relation("crmTenantLead")
+  crmDeals           Deal[]                @relation("crmTenantDeal")
+  crmInvoices        Invoice[]             @relation("crmTenantInvoice")
+  crmCrmServices     CrmService[]          @relation("crmTenantCrmService")
+  crmSalesTargets    SalesTarget[]         @relation("crmTenantSalesTarget")
+  crmQuotes          Quote[]               @relation("crmTenantQuote")
+  crmSubscriptions   Subscription[]        @relation("crmTenantSubscription")
+  crmCommissionPlans CommissionPlan[]      @relation("crmTenantCommissionPlan")
+  crmSettings        CrmSetting[]
+  crmCounters        CrmCounter[]
 }
 
 model TenantQuota {
@@ -1227,6 +1238,16 @@ model PlatformSetting {
 // ───────────────────────────── Sales & Marketing ─────────────────────────────
 // Prospects for SMA itself (businesses that may buy SMA), not customers of a business.
 
+/// What a planned follow-up with a lead is.
+enum FollowUpKind {
+  CALL
+  MEETING
+  VISIT
+  WHATSAPP
+  EMAIL
+  OTHER
+}
+
 enum LeadStage {
   NEW
   CONTACTED
@@ -1280,6 +1301,8 @@ enum LeadActivityType {
 
 model Lead {
   id                  String           @id @default(uuid()) @db.Uuid
+  /// Whose CRM this belongs to: SMA's sales team (the internal business) or any business.
+  tenantId            String           @db.Uuid
   companyName         String           @db.VarChar(120)
   contactName         String           @db.VarChar(80)
   contactTitle        String?          @db.VarChar(80)
@@ -1311,6 +1334,11 @@ model Lead {
   ownerId             String?          @db.Uuid
   createdById         String?          @db.Uuid
   nextFollowUpAt      DateTime?        @db.Timestamptz(3)
+  /// What the next follow-up is (a meeting, a call...) and a short note (place, agenda).
+  nextFollowUpKind    FollowUpKind?
+  nextFollowUpNote    String?          @db.VarChar(300)
+  /// The follow-up time a 15-minute reminder was sent for (a new time gets a new reminder).
+  followUpRemindedFor DateTime?        @db.Timestamptz(3)
   lastActivityAt      DateTime         @default(now()) @db.Timestamptz(3)
   convertedBusinessId String?          @unique @db.Uuid
   convertedAt         DateTime?        @db.Timestamptz(3)
@@ -1325,10 +1353,14 @@ model Lead {
   deals             Deal[]
   invoices          Invoice[]
   quotes            Quote[]
+  subscriptions     Subscription[] @relation("leadSubscriptions")
+  tenant            Business       @relation("crmTenantLead", fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([stage, deletedAt])
   @@index([ownerId, stage])
   @@index([nextFollowUpAt])
+  @@index([tenantId, nextFollowUpAt])
+  @@index([tenantId])
 }
 
 model LeadActivity {
@@ -1453,6 +1485,8 @@ enum ServiceBilling {
 /// What SMA sells (plans, add-ons, setup, training…). Deals and invoices copy name and price.
 model CrmService {
   id           String         @id @default(uuid()) @db.Uuid
+  /// Whose CRM this belongs to: SMA's sales team (the internal business) or any business.
+  tenantId     String         @db.Uuid
   name         String         @db.VarChar(120)
   description  String?        @db.VarChar(1000)
   category     String?        @db.VarChar(60)
@@ -1465,6 +1499,9 @@ model CrmService {
   updatedAt    DateTime       @updatedAt @db.Timestamptz(3)
   dealItems    DealItem[]
   invoiceItems InvoiceItem[]
+  tenant       Business       @relation("crmTenantCrmService", fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId])
 }
 
 enum DealType {
@@ -1484,6 +1521,8 @@ enum DealStatus {
 /// A sale: which services, to whom, for how much. Won deals count towards the owner's target.
 model Deal {
   id              String         @id @default(uuid()) @db.Uuid
+  /// Whose CRM this belongs to: SMA's sales team (the internal business) or any business.
+  tenantId        String         @db.Uuid
   title           String         @db.VarChar(160)
   type            DealType
   status          DealStatus     @default(OPEN)
@@ -1512,11 +1551,13 @@ model Deal {
   invoices        Invoice[]
   quotes          Quote[]
   subscriptions   Subscription[]
+  tenant          Business       @relation("crmTenantDeal", fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@index([ownerId, status])
   @@index([status, closedAt])
   @@index([businessId])
   @@index([leadId])
+  @@index([tenantId])
 }
 
 model DealItem {
@@ -1549,8 +1590,10 @@ enum InvoiceStatus {
 /// and payments by the API; "overdue" = issued, unpaid and past the due date.
 model Invoice {
   id             String         @id @default(uuid()) @db.Uuid
+  /// Whose CRM this belongs to: SMA's sales team (the internal business) or any business.
+  tenantId       String         @db.Uuid
   /// INV-2026-00001
-  number         String         @unique @db.VarChar(20)
+  number         String         @db.VarChar(20)
   dealId         String?        @db.Uuid
   businessId     String?        @db.Uuid
   leadId         String?        @db.Uuid
@@ -1595,10 +1638,13 @@ model Invoice {
   subscription   Subscription?  @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   claims         PaymentClaim[]
   quote          Quote?         @relation("quoteInvoice")
+  tenant         Business       @relation("crmTenantInvoice", fields: [tenantId], references: [id], onDelete: Restrict)
 
+  @@unique([tenantId, number])
   @@index([status, dueDate])
   @@index([businessId])
   @@index([dealId])
+  @@index([tenantId])
 }
 
 model InvoiceItem {
@@ -1648,6 +1694,8 @@ model Payment {
 /// A sales person's goal for one month (won deal value). History stays month by month.
 model SalesTarget {
   id        String   @id @default(uuid()) @db.Uuid
+  /// Whose CRM this belongs to: SMA's sales team (the internal business) or any business.
+  tenantId  String   @db.Uuid
   userId    String   @db.Uuid
   /// First day of the month.
   month     DateTime @db.Date
@@ -1657,8 +1705,10 @@ model SalesTarget {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
   user      User     @relation("salesTargets", fields: [userId], references: [id], onDelete: Cascade)
+  tenant    Business @relation("crmTenantSalesTarget", fields: [tenantId], references: [id], onDelete: Restrict)
 
-  @@unique([userId, month])
+  @@unique([tenantId, userId, month])
+  @@index([tenantId])
 }
 
 // ───────────────────────────── CRM: quotes, subscriptions, payment claims, commission ─────────────────────────────
@@ -1675,8 +1725,10 @@ enum QuoteStatus {
 /// creates the invoice.
 model Quote {
   id            String      @id @default(uuid()) @db.Uuid
+  /// Whose CRM this belongs to: SMA's sales team (the internal business) or any business.
+  tenantId      String      @db.Uuid
   /// QT-2026-00001
-  number        String      @unique @db.VarChar(20)
+  number        String      @db.VarChar(20)
   dealId        String?     @db.Uuid
   businessId    String?     @db.Uuid
   leadId        String?     @db.Uuid
@@ -1712,9 +1764,12 @@ model Quote {
   lead          Lead?       @relation(fields: [leadId], references: [id], onDelete: SetNull)
   invoice       Invoice?    @relation("quoteInvoice", fields: [invoiceId], references: [id], onDelete: SetNull)
   items         QuoteItem[]
+  tenant        Business    @relation("crmTenantQuote", fields: [tenantId], references: [id], onDelete: Restrict)
 
+  @@unique([tenantId, number])
   @@index([status, validUntil])
   @@index([dealId])
+  @@index([tenantId])
 }
 
 model QuoteItem {
@@ -1742,7 +1797,11 @@ enum SubscriptionStatus {
 /// A customer's plan billed automatically every month (or year).
 model Subscription {
   id            String             @id @default(uuid()) @db.Uuid
-  businessId    String             @db.Uuid
+  /// Whose CRM this belongs to: SMA's sales team (the internal business) or any business.
+  tenantId      String             @db.Uuid
+  businessId    String?            @db.Uuid
+  /// A business's own customer (a won lead) when there is no SMA customer business.
+  leadId        String?            @db.Uuid
   dealId        String?            @db.Uuid
   name          String             @db.VarChar(160)
   currency      String             @db.VarChar(3)
@@ -1758,13 +1817,18 @@ model Subscription {
   createdAt     DateTime           @default(now()) @db.Timestamptz(3)
   updatedAt     DateTime           @updatedAt @db.Timestamptz(3)
   cancelledAt   DateTime?          @db.Timestamptz(3)
-  business      Business           @relation("customerSubscriptions", fields: [businessId], references: [id], onDelete: Restrict)
+  business      Business?          @relation("customerSubscriptions", fields: [businessId], references: [id], onDelete: Restrict)
   deal          Deal?              @relation(fields: [dealId], references: [id], onDelete: SetNull)
   items         SubscriptionItem[]
   invoices      Invoice[]
+  tenant        Business           @relation("crmTenantSubscription", fields: [tenantId], references: [id], onDelete: Restrict)
+
+  lead Lead? @relation("leadSubscriptions", fields: [leadId], references: [id], onDelete: SetNull)
 
   @@index([status, nextInvoiceAt])
   @@index([businessId])
+  @@index([tenantId])
+  @@index([leadId])
 }
 
 model SubscriptionItem {
@@ -1820,12 +1884,17 @@ enum CommissionBasis {
 /// How a sales person earns commission: base % up to the target, bonus % above it.
 /// scope = "team" (default for everyone) or a user id (override).
 model CommissionPlan {
-  scope       String          @id @db.VarChar(40)
+  id          String          @id @default(uuid()) @db.Uuid
+  tenantId    String          @db.Uuid
+  scope       String          @db.VarChar(40)
   baseRate    Decimal         @db.Decimal(5, 2)
   bonusRate   Decimal         @db.Decimal(5, 2)
   basis       CommissionBasis @default(WON)
   updatedById String?         @db.Uuid
   updatedAt   DateTime        @updatedAt @db.Timestamptz(3)
+  tenant      Business        @relation("crmTenantCommissionPlan", fields: [tenantId], references: [id], onDelete: Restrict)
+
+  @@unique([tenantId, scope])
 }
 
 // ───────────────────────────── Attendance, checklists, leave ─────────────────────────────
@@ -1948,4 +2017,28 @@ model LeaveRequest {
 
   @@index([storeId, status])
   @@index([userId, startDate])
+}
+
+/// A business's own CRM settings (tax, company details on invoices, where customers pay,
+/// reminders). Not secret; SMA's own sales team falls back to the platform settings.
+model CrmSetting {
+  businessId  String   @db.Uuid
+  key         String   @db.VarChar(40)
+  value       String   @db.VarChar(2000)
+  updatedById String?  @db.Uuid
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  business    Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@id([businessId, key])
+}
+
+/// Running numbers per business: invoice and quote numbers have no gaps between businesses.
+model CrmCounter {
+  businessId String   @db.Uuid
+  /// "invoice" | "quote"
+  kind       String   @db.VarChar(20)
+  value      Int      @default(0)
+  business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@id([businessId, kind])
 }

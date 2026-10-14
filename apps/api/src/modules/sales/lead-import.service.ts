@@ -17,7 +17,7 @@ import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { publicUserSelect, toPublicUser } from '../users/user.mapper';
-import { SalesService } from './sales.service';
+import { SALES_PEOPLE_ROLE_KEYS, SalesService } from './sales.service';
 
 const MAX_ROWS = 2000;
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -125,15 +125,15 @@ export class LeadImportService {
   ) {}
 
   private async requireManage(actor: Actor) {
-    const { businessId } = await this.sales.team();
+    const { businessId } = await this.sales.tenant(actor);
     await this.authz.require(actor, 'sales.lead.manage', { businessId });
     return businessId;
   }
 
   /** Existing leads keyed by email, phone and company (to spot duplicates). */
-  private async existingIndex() {
+  private async existingIndex(tenantId: string) {
     const leads = await this.prisma.lead.findMany({
-      where: { deletedAt: null },
+      where: { tenantId, deletedAt: null },
       select: { id: true, companyName: true, email: true, phone: true },
       take: 50_000,
     });
@@ -173,7 +173,7 @@ export class LeadImportService {
   }
 
   async preview(actor: Actor, request: LeadImportPreviewRequest): Promise<LeadImportPreviewDto> {
-    await this.requireManage(actor);
+    const tenantId = await this.requireManage(actor);
     const buffer = Buffer.from(request.contentBase64, 'base64');
     if (buffer.length > MAX_BYTES) throw ApiError.validation('The file is too big (4 MB at most).', 'contentBase64');
     const name = request.fileName.toLowerCase();
@@ -205,7 +205,7 @@ export class LeadImportService {
         }
       }
     }
-    const index = await this.existingIndex();
+    const index = await this.existingIndex(tenantId);
     const seen = new Map<string, number>();
     const body = table.slice(1, MAX_ROWS + 1);
     const rows: LeadImportRowDto[] = body.map((cells, i) => {
@@ -248,9 +248,21 @@ export class LeadImportService {
     let ownerId: string | null = actor.userId;
     if (request.ownerId !== undefined && request.ownerId !== actor.userId) {
       await this.authz.require(actor, 'sales.lead.assign', { businessId: teamId });
+      if (request.ownerId) {
+        const isSalesPerson = await this.prisma.roleAssignment.count({
+          where: {
+            userId: request.ownerId,
+            businessId: teamId,
+            revokedAt: null,
+            role: { key: { in: [...SALES_PEOPLE_ROLE_KEYS] }, isSystem: true },
+            user: { status: 'ACTIVE', deletedAt: null },
+          },
+        });
+        if (!isSalesPerson) throw ApiError.validation('Choose someone from the sales team.', 'ownerId');
+      }
       ownerId = request.ownerId;
     }
-    const index = await this.existingIndex();
+    const index = await this.existingIndex(teamId);
     const direction = (OUTBOUND_SOURCES as readonly string[]).includes(request.source) ? 'OUTBOUND' : 'INBOUND';
     let created = 0;
     let skipped = 0;
@@ -271,6 +283,7 @@ export class LeadImportService {
             source: request.source,
             direction,
             sourceDetail: 'Imported from a file',
+            tenantId: teamId,
             ownerId,
             createdById: actor.userId,
           },
@@ -282,13 +295,17 @@ export class LeadImportService {
       });
       created += 1;
     }
-    await this.audit.record(actor, { action: 'sales.leads_imported', metadata: { created, skipped } });
+    await this.audit.record(actor, {
+      action: 'sales.leads_imported',
+      businessId: teamId,
+      metadata: { created, skipped },
+    });
     return { created, skipped };
   }
 
   /** Possible duplicates while typing a new lead. */
   async duplicates(actor: Actor, values: { companyName?: string; email?: string; phone?: string }): Promise<LeadDuplicateDto[]> {
-    await this.requireManage(actor);
+    const tenantId = await this.requireManage(actor);
     const or = [
       values.email ? { email: { equals: values.email.trim(), mode: 'insensitive' as const } } : null,
       values.companyName && values.companyName.trim().length >= 3
@@ -298,7 +315,7 @@ export class LeadImportService {
     ].filter((v): v is NonNullable<typeof v> => v !== null);
     if (or.length === 0) return [];
     const rows = await this.prisma.lead.findMany({
-      where: { deletedAt: null, OR: or },
+      where: { tenantId, deletedAt: null, OR: or },
       select: {
         id: true,
         companyName: true,

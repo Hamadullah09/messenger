@@ -89,6 +89,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
     headers: {
       ...(options.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...businessHeader(),
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
@@ -163,7 +164,7 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   const send = () =>
     fetch(`/api/v1${path}`, {
       credentials: 'same-origin',
-      headers: { Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}` },
+      headers: { Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}`, ...businessHeader() },
     });
   let res = await send();
   if (res.status === 401 && (await refreshSession()) === 'ok') res = await send();
@@ -183,6 +184,12 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** The business the user is working in; the server checks their rights there (e.g. whose CRM). */
+function businessHeader(): Record<string, string> {
+  const id = useAuth.getState().activeBusinessId;
+  return id ? { 'X-Business-Id': id } : {};
 }
 
 /** Sends a file as the raw request body (e.g. a logo image). */

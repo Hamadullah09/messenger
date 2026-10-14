@@ -23,6 +23,8 @@ import {
   createLeadRequestSchema,
   createSalesUserRequestSchema,
   listLeadsQuerySchema,
+  agendaQuerySchema,
+  type AgendaQuery,
   publicLeadRequestSchema,
   updateLeadRequestSchema,
   type AddLeadActivityRequest,
@@ -55,6 +57,16 @@ export class SalesController {
   @Get('context')
   context(@CurrentActor() actor: Actor): Promise<SalesContextDto> {
     return this.sales.context(actor);
+  }
+
+  /** Today's (or this week's) follow-ups and meetings, overdue ones included. */
+  @Get('agenda')
+  @ApiZodQuery(agendaQuerySchema)
+  agenda(
+    @CurrentActor() actor: Actor,
+    @Query(new ZodPipe(agendaQuerySchema)) query: AgendaQuery,
+  ): Promise<LeadDto[]> {
+    return this.sales.agenda(actor, query);
   }
 
   @Get('overview')

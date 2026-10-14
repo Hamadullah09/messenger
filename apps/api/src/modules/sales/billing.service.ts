@@ -18,6 +18,7 @@ import { SalesService } from './sales.service';
 
 const subscriptionInclude = {
   business: { select: { id: true, name: true } },
+  lead: { select: { id: true, companyName: true } },
   deal: { select: { id: true, title: true } },
   items: { orderBy: { position: 'asc' } },
   invoices: {
@@ -40,7 +41,7 @@ export function nextPeriod(date: Date, interval: 'MONTHLY' | 'YEARLY'): Date {
 }
 
 /**
- * Monthly/yearly billing for SMA customers. The worker creates and sends the invoices on the
+ * Monthly/yearly billing for customers (SMA's: businesses on SMA; a business's own: won leads). The worker creates and sends the invoices on the
  * date (see BillingScheduler); this service manages the plans.
  */
 @Injectable()
@@ -54,18 +55,24 @@ export class SubscriptionsService {
   ) {}
 
   private async access(actor: Actor, write: boolean) {
-    const { businessId } = await this.sales.team();
+    const tenant = await this.sales.tenant(actor);
+    const businessId = tenant.businessId;
     await this.authz.require(actor, 'sales.access', { businessId });
     const billing = await this.authz.can(actor, 'sales.billing.manage', { businessId });
     const seeAll = await this.authz.can(actor, 'sales.lead.read_all', { businessId });
     if (write && !billing) throw ApiError.forbidden('Only sales managers can change billing.');
     if (!write && !billing && !seeAll) throw ApiError.forbidden();
+    return tenant;
   }
 
   private toDto(row: SubscriptionRow): SubscriptionDto {
     return {
       id: row.id,
-      customer: row.business,
+      customer: row.business
+        ? { ...row.business, kind: 'BUSINESS' }
+        : row.lead
+          ? { id: row.lead.id, name: row.lead.companyName, kind: 'LEAD' }
+          : null,
       deal: row.deal,
       name: row.name,
       currency: row.currency,
@@ -88,10 +95,13 @@ export class SubscriptionsService {
     };
   }
 
-  async list(actor: Actor, businessId?: string): Promise<SubscriptionDto[]> {
-    await this.access(actor, false);
+  async list(actor: Actor, customerId?: string): Promise<SubscriptionDto[]> {
+    const tenant = await this.access(actor, false);
     const rows = await this.prisma.subscription.findMany({
-      where: businessId ? { businessId } : {},
+      where: {
+        tenantId: tenant.businessId,
+        ...(customerId ? { OR: [{ businessId: customerId }, { leadId: customerId }] } : {}),
+      },
       include: subscriptionInclude,
       orderBy: [{ status: 'asc' }, { nextInvoiceAt: 'asc' }],
       take: 500,
@@ -100,31 +110,56 @@ export class SubscriptionsService {
   }
 
   async create(actor: Actor, request: CreateSubscriptionRequest): Promise<SubscriptionDto> {
-    await this.access(actor, true);
-    const business = await this.prisma.business.findFirst({
-      where: { id: request.businessId, internal: false, deletedAt: null },
-      select: { id: true },
-    });
-    if (!business) throw ApiError.validation('Choose an SMA customer.', 'businessId');
+    const tenant = await this.access(actor, true);
+    const settings = await this.settings.load(tenant.businessId);
+    const businessId = request.businessId ?? null;
+    const leadId = businessId ? null : (request.leadId ?? null);
+    if (businessId) {
+      const business = tenant.platform
+        ? await this.prisma.business.findFirst({
+            where: { id: businessId, internal: false, deletedAt: null },
+            select: { id: true },
+          })
+        : null;
+      if (!business) throw ApiError.validation('Choose an SMA customer.', 'businessId');
+    } else {
+      const lead = await this.prisma.lead.findFirst({
+        where: { id: leadId ?? undefined, tenantId: tenant.businessId, deletedAt: null, stage: 'WON' },
+        select: { id: true },
+      });
+      if (!lead) throw ApiError.validation('Choose a customer (a won lead).', 'leadId');
+    }
     const start = dateOnly(request.startDate);
     if (start < today()) throw ApiError.validation('The first invoice date cannot be in the past.', 'startDate');
     if (request.dealId) {
       const deal = await this.prisma.deal.findFirst({
-        where: { id: request.dealId, businessId: request.businessId, deletedAt: null },
+        where: {
+          id: request.dealId,
+          tenantId: tenant.businessId,
+          deletedAt: null,
+          ...(businessId ? { businessId } : { leadId }),
+        },
         select: { id: true },
       });
       if (!deal) throw ApiError.validation('That deal is not for this customer.', 'dealId');
     }
+    if (request.items.some((i) => i.serviceId)) {
+      const ids = [...new Set(request.items.map((i) => i.serviceId).filter((v): v is string => !!v))];
+      const found = await this.prisma.crmService.count({ where: { id: { in: ids }, tenantId: tenant.businessId } });
+      if (found !== ids.length) throw ApiError.validation('A chosen service was not found.', 'items');
+    }
     const row = await this.prisma.subscription.create({
       data: {
-        businessId: request.businessId,
+        tenantId: tenant.businessId,
+        businessId,
+        leadId,
         dealId: request.dealId ?? null,
         name: request.name,
-        currency: request.currency ?? this.settings.current().defaultCurrency,
+        currency: request.currency ?? settings.defaultCurrency,
         interval: request.interval,
         nextInvoiceAt: start,
         dueDays: request.dueDays,
-        taxRate: request.taxRate ?? this.settings.current().taxRate,
+        taxRate: request.taxRate ?? settings.taxRate,
         autoEmail: request.autoEmail,
         createdById: actor.userId,
         items: {
@@ -141,7 +176,7 @@ export class SubscriptionsService {
     });
     await this.audit.record(actor, {
       action: 'crm.subscription_created',
-      businessId: request.businessId,
+      businessId: tenant.businessId,
       targetType: 'Subscription',
       targetId: row.id,
     });
@@ -149,8 +184,11 @@ export class SubscriptionsService {
   }
 
   async update(actor: Actor, id: string, request: UpdateSubscriptionRequest): Promise<SubscriptionDto> {
-    await this.access(actor, true);
-    const existing = await this.prisma.subscription.findUnique({ where: { id }, select: { status: true } });
+    const tenant = await this.access(actor, true);
+    const existing = await this.prisma.subscription.findFirst({
+      where: { id, tenantId: tenant.businessId },
+      select: { status: true },
+    });
     if (!existing) throw ApiError.notFound('Subscription');
     if (existing.status === 'CANCELLED' && request.status !== 'ACTIVE')
       throw ApiError.conflict('This subscription was cancelled.');
@@ -211,7 +249,7 @@ export class PublicPayService {
   async view(token: string, ipHash: string): Promise<PublicInvoiceDto> {
     await this.rateLimiter.consume(PAY_LIMIT, ipHash);
     const i = await this.byToken(token);
-    const s = this.settings.current();
+    const s = await this.settings.load(i.tenantId);
     return {
       number: i.number,
       status: i.status,

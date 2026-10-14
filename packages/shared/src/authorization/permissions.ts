@@ -13,8 +13,8 @@ export interface PermissionDefinition {
   /** Only meaningful at PLATFORM scope; never covered by a BUSINESS/STORE assignment. */
   readonly platformOnly?: boolean;
   /**
-   * Sales & Marketing module: only the Sales roles (and the Super Admin) ever hold these.
-   * Never part of business roles or custom roles.
+   * Sales & Marketing module: held by the Sales roles, Business Owners and Business Admins (each
+   * business has its own CRM) and the Super Admin. Never part of custom roles.
    */
   readonly salesOnly?: boolean;
 }
@@ -176,7 +176,7 @@ export const BUSINESS_ROLE_KEYS: readonly SystemRoleKey[] = [
   'CUSTOMER',
 ];
 
-/** Sales & Marketing roles: held only inside SMA's internal sales team. */
+/** Sales & Marketing roles: SMA's own sales team, or a business's own sales people. */
 export const SALES_ROLE_KEYS: readonly SystemRoleKey[] = ['SALES_MANAGER', 'SALES_AGENT'];
 
 /** Roles a store manager may give to people in their own stores. */
@@ -257,16 +257,17 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
     key: 'BUSINESS_OWNER',
     name: 'Business Owner',
     description:
-      'Owns one business: its profile, stores, managers, people, groups, roles and campaigns.',
+      'Owns one business: its profile, stores, managers, people, groups, roles, campaigns and its own Sales & Marketing.',
     allowedScopes: ['BUSINESS'],
-    permissions: BUSINESS_WIDE,
+    permissions: [...BUSINESS_WIDE, ...SALES_ALL],
   },
   BUSINESS_ADMIN: {
     key: 'BUSINESS_ADMIN',
     name: 'Business Admin',
-    description: 'Manages one business: stores, users, groups, roles and campaigns.',
+    description:
+      'Manages one business: stores, users, groups, roles, campaigns and its own Sales & Marketing.',
     allowedScopes: ['BUSINESS'],
-    permissions: BUSINESS_WIDE,
+    permissions: [...BUSINESS_WIDE, ...SALES_ALL],
   },
   BUSINESS_MANAGER: {
     key: 'BUSINESS_MANAGER',

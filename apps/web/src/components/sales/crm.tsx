@@ -78,6 +78,20 @@ import {
 /** Amounts with cents, e.g. "$1,250.00". */
 export { useCustomers, refreshCrm, Mini, Chip, Stat };
 
+/** A chosen customer: a business on SMA (SMA's own CRM) or a won lead (a business's own CRM). */
+export type CustomerPick = { id: string; name: string; kind?: 'BUSINESS' | 'LEAD' };
+
+/** Request fields for a chosen customer id. */
+export function customerFields(
+  id: string,
+  customers: Array<{ id: string; kind: 'BUSINESS' | 'LEAD' }> | undefined,
+  kind?: 'BUSINESS' | 'LEAD',
+): { businessId: string | null; leadId: string | null } {
+  if (!id) return { businessId: null, leadId: null };
+  const k = kind ?? customers?.find((c) => c.id === id)?.kind ?? 'BUSINESS';
+  return k === 'LEAD' ? { businessId: null, leadId: id } : { businessId: id, leadId: null };
+}
+
 export function money2(value: number | null | undefined, currency: string): string {
   if (value === null || value === undefined) return '—';
   try {
@@ -660,7 +674,7 @@ export function DealFormDialog({
   preset?: {
     type?: DealType;
     lead?: { id: string; companyName: string };
-    customer?: { id: string; name: string };
+    customer?: CustomerPick;
   };
   team: SalesUserDto[];
   canAssign: boolean;
@@ -702,8 +716,9 @@ export function DealFormDialog({
               ...body,
               type,
               currency,
-              leadId: type === 'NEW_BUSINESS' ? leadId || null : null,
-              businessId: type === 'NEW_BUSINESS' ? null : businessId || null,
+              ...(type === 'NEW_BUSINESS'
+                ? { leadId: leadId || null, businessId: null }
+                : customerFields(businessId, customers.data, preset?.customer?.kind)),
             },
           });
     },
@@ -750,7 +765,7 @@ export function DealFormDialog({
           required
           maxLength={160}
           value={title}
-          placeholder={type === 'UPSELL' ? 'e.g. Extra stores + WhatsApp campaigns' : 'e.g. SMA for 5 stores'}
+          placeholder={type === 'UPSELL' ? 'e.g. More of what they already buy' : 'e.g. First order'}
           onChange={(e) => setTitle(e.target.value)}
         />
         {!deal && type === 'NEW_BUSINESS' && (
@@ -774,7 +789,7 @@ export function DealFormDialog({
         {!deal && type !== 'NEW_BUSINESS' && (
           <SelectField
             label="Customer"
-            hint="Existing SMA customers"
+            hint="Your existing customers"
             required
             value={businessId}
             onChange={(e) => setBusinessId(e.target.value)}
@@ -1382,7 +1397,7 @@ export function InvoiceFormDialog({
   onSaved,
 }: {
   deal?: DealDto;
-  customer?: { id: string; name: string };
+  customer?: CustomerPick;
   onClose: () => void;
   onSaved: (invoice: InvoiceDto) => void;
 }) {
@@ -1409,7 +1424,7 @@ export function InvoiceFormDialog({
           ...(deal
             ? { dealId: deal.id }
             : {
-                businessId: businessId || null,
+                ...customerFields(businessId, customers.data, customer?.kind),
                 items: items.map((i) => ({
                   serviceId: i.serviceId ?? null,
                   name: i.name.trim(),
@@ -2289,7 +2304,7 @@ export function ServicesTab() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-muted">The services SMA sells. Deals and invoices pick from this list.</p>
+        <p className="text-muted">What you sell. Deals, quotes and invoices pick from this list.</p>
         {canManage && (
           <Button icon={<Plus className="size-5" aria-hidden />} onClick={() => setEditing('new')}>
             Add service
@@ -2458,15 +2473,15 @@ export function CrmCustomersTab({
 }: {
   context: SalesContextDto;
   team: SalesUserDto[];
-  /** Won leads that are not an SMA customer business yet. */
+  /** SMA's own CRM: won leads that are not an SMA customer business yet. */
   wonNotSetUp: LeadDto[];
   onOpenLead: (id: string) => void;
 }) {
   const customers = useCustomers();
   const [q, setQ] = useState('');
-  const [upsellFor, setUpsellFor] = useState<{ id: string; name: string } | null>(null);
-  const [invoiceFor, setInvoiceFor] = useState<{ id: string; name: string } | null>(null);
-  const [billFor, setBillFor] = useState<{ id: string; name: string } | null>(null);
+  const [upsellFor, setUpsellFor] = useState<CustomerPick | null>(null);
+  const [invoiceFor, setInvoiceFor] = useState<CustomerPick | null>(null);
+  const [billFor, setBillFor] = useState<CustomerPick | null>(null);
   const [openDeal, setOpenDeal] = useState<string | null>(null);
   const [openInvoice, setOpenInvoice] = useState<string | null>(null);
   const overview = useQuery({
@@ -2485,12 +2500,12 @@ export function CrmCustomersTab({
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search SMA customers"
+            placeholder={context.platformTeam ? 'Search SMA customers' : 'Search customers'}
             className="min-h-11 w-full rounded-xl border border-line-strong/70 bg-surface pr-3 pl-9"
           />
         </label>
       </div>
-      {wonNotSetUp.length > 0 && (
+      {context.platformTeam && wonNotSetUp.length > 0 && (
         <Alert tone="warning" title={`${wonNotSetUp.length} won leads are not set up yet`}>
           <span className="mt-1 flex flex-wrap gap-2">
             {wonNotSetUp.map((l) => (
@@ -2509,8 +2524,13 @@ export function CrmCustomersTab({
       {customers.isPending && <Spinner label="Loading customers" />}
       {customers.isError && <Alert tone="error">{errorMessage(customers.error)}</Alert>}
       {customers.data?.length === 0 && (
-        <EmptyState icon={<BadgeCheck className="size-9" aria-hidden />} title="No SMA customers yet">
-          Win a lead and convert it to create the first one.
+        <EmptyState
+          icon={<BadgeCheck className="size-9" aria-hidden />}
+          title={context.platformTeam ? 'No SMA customers yet' : 'No customers yet'}
+        >
+          {context.platformTeam
+            ? 'Win a lead and convert it to create the first one.'
+            : 'Win a lead (or a deal) and it becomes your customer here.'}
         </EmptyState>
       )}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -2521,7 +2541,8 @@ export function CrmCustomersTab({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-lg font-bold">{c.name}</p>
                 <p className="text-sm text-muted">
-                  {c.storeCount} stores · since {formatDay(c.lead?.convertedAt ?? c.createdAt)}
+                  {c.kind === 'BUSINESS' || c.storeCount ? `${c.storeCount} stores · ` : ''}since{' '}
+                  {formatDay(c.lead?.convertedAt ?? c.createdAt)}
                   {c.lead?.owner ? ` · ${c.lead.owner.displayName}` : ''}
                 </p>
               </div>
@@ -2545,7 +2566,7 @@ export function CrmCustomersTab({
               {c.wonDeals} deals won · {c.upsells} upsells · {c.openDeals} open
             </p>
             <div className="mt-auto flex flex-wrap gap-2">
-              <Button size="sm" icon={<TrendingUp className="size-4" aria-hidden />} onClick={() => setUpsellFor({ id: c.id, name: c.name })}>
+              <Button size="sm" icon={<TrendingUp className="size-4" aria-hidden />} onClick={() => setUpsellFor({ id: c.id, name: c.name, kind: c.kind })}>
                 Upsell
               </Button>
               {overview.data?.canManageBilling && (
@@ -2553,7 +2574,7 @@ export function CrmCustomersTab({
                   size="sm"
                   variant="secondary"
                   icon={<Receipt className="size-4" aria-hidden />}
-                  onClick={() => setInvoiceFor({ id: c.id, name: c.name })}
+                  onClick={() => setInvoiceFor({ id: c.id, name: c.name, kind: c.kind })}
                 >
                   Invoice
                 </Button>
@@ -2563,7 +2584,7 @@ export function CrmCustomersTab({
                   size="sm"
                   variant="secondary"
                   icon={<CalendarClock className="size-4" aria-hidden />}
-                  onClick={() => setBillFor({ id: c.id, name: c.name })}
+                  onClick={() => setBillFor({ id: c.id, name: c.name, kind: c.kind })}
                 >
                   Monthly billing
                 </Button>
@@ -2619,11 +2640,14 @@ export function CrmCustomersTab({
 
 // ───────────────────────────── Website form ─────────────────────────────
 
-/** Link and embed code for the website's "Request a demo" form. */
-export function WebsiteFormDialog({ onClose }: { onClose: () => void }) {
+/** Link and embed code for the website's lead form (SMA's "Request a demo", or a business's own). */
+export function WebsiteFormDialog({ context, onClose }: { context: SalesContextDto; onClose: () => void }) {
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
-  const link = `${origin}/embed/lead-form`;
-  const code = `<iframe src="${link}" title="Request a demo" style="width:100%;max-width:560px;height:780px;border:0" loading="lazy"></iframe>`;
+  const link = context.platformTeam
+    ? `${origin}/embed/lead-form`
+    : `${origin}/embed/lead-form?business=${encodeURIComponent(context.businessSlug)}`;
+  const title = context.platformTeam ? 'Request a demo' : 'Contact us';
+  const code = `<iframe src="${link}" title="${title}" style="width:100%;max-width:560px;height:780px;border:0" loading="lazy"></iframe>`;
   const [copied, setCopied] = useState<string | null>(null);
   const copy = async (label: string, value: string) => {
     const { copyText } = await import('@/lib/clipboard');
@@ -2634,8 +2658,9 @@ export function WebsiteFormDialog({ onClose }: { onClose: () => void }) {
     <Dialog open onClose={onClose} title="Website lead form" wide>
       <div className="flex flex-col gap-4">
         <p className="text-muted">
-          Put this form on SMA’s website. Every request lands in Leads as a new website lead in
-          the unassigned queue, with the page it came from.
+          Put this form on {context.platformTeam ? 'SMA’s' : `${context.businessName}’s`} website.
+          Every request lands in Leads as a new website lead in the unassigned queue, with the
+          page it came from.
         </p>
         <div>
           <p className="mb-1 font-semibold">Link</p>
@@ -2669,7 +2694,7 @@ export function WebsiteFormDialog({ onClose }: { onClose: () => void }) {
           </div>
         </div>
         <Alert tone="info">
-          The website must link to SMA’s public https address (not a local Wi-Fi address) for
+          The website must use this app’s public https address (not a local Wi-Fi address) for
           visitors to reach the form.
         </Alert>
       </div>

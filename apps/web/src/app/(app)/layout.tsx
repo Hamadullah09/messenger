@@ -15,6 +15,7 @@ import { useConversations } from '@/lib/chat-hooks';
 import { useLive } from '@/lib/live-store';
 import { setTitleCount } from '@/lib/notify';
 import { MessageToast } from '@/components/chat/message-toast';
+import { ReminderAlerts } from '@/components/sales/reminder-alert';
 import { CallHost } from '@/lib/calls';
 import { useLiveLocationSharing } from '@/lib/live-location';
 import { useDeviceRegistration } from '@/lib/push';
@@ -112,6 +113,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-dvh bg-bg">
       <MessageToast />
+      <ReminderAlerts />
       <CallHost />
       {messenger ? (
         <WaRail unreadChats={unread.length} />

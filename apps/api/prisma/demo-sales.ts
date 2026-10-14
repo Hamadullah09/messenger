@@ -577,8 +577,8 @@ const LEADS: DemoLead[] = [
   },
 ];
 
-async function addLeads(ids: Map<string, string>): Promise<void> {
-  if ((await prisma.lead.count()) > 0) {
+async function addLeads(ids: Map<string, string>, tenantId: string): Promise<void> {
+  if ((await prisma.lead.count({ where: { tenantId } })) > 0) {
     console.log('• leads already exist, skipped');
     return;
   }
@@ -595,6 +595,7 @@ async function addLeads(ids: Map<string, string>): Promise<void> {
     const lastAct = l.acts.length ? Math.min(...l.acts.map((a) => a[3])) : l.createdDaysAgo;
     const lead = await prisma.lead.create({
       data: {
+        tenantId,
         companyName: l.company,
         contactName: l.contact,
         contactTitle: l.title ?? null,
@@ -781,7 +782,7 @@ async function main(): Promise<void> {
   const team = await salesTeam();
   const ids = await addSalesUsers(team, local.salesUsers, roles);
   await teamChat(team.groupId, ids);
-  await addLeads(ids);
+  await addLeads(ids, team.businessId);
   await addStoreCustomers();
 }
 
