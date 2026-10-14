@@ -121,9 +121,18 @@ export class IntegrationsService {
       action: 'platform.integration_tested',
       metadata: { channel: request.channel, ok: result.ok },
     });
-    return result.ok
-      ? { ok: true, detail: 'Accepted by the provider. Check that it arrived.' }
-      : { ok: false, detail: result.error };
+    if (!result.ok) return { ok: false, detail: result.error };
+    // A mail server on this computer (the development test inbox) never delivers to real people.
+    if (
+      request.channel === 'EMAIL' &&
+      isLocalMailServer(this.settings.get('SMTP_URL') ?? this.config.SMTP_URL)
+    )
+      return {
+        ok: false,
+        detail:
+          'Caught by the test inbox on this computer (Mailpit), not sent to the real address. To send real email, enter your email provider’s SMTP address as the mail server.',
+      };
+    return { ok: true, detail: 'Accepted by the provider. Check that it arrived.' };
   }
 }
 
@@ -163,3 +172,14 @@ export class IntegrationsController {
   providers: [IntegrationsService],
 })
 export class IntegrationsModule {}
+
+/** A mail server on this machine or the dev container (Mailpit): it delivers nowhere. */
+export function isLocalMailServer(url: string | undefined): boolean {
+  if (!url) return false;
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return ['127.0.0.1', 'localhost', '::1', '[::1]', 'mailpit'].includes(host);
+  } catch {
+    return false;
+  }
+}
