@@ -111,7 +111,9 @@ export function messagePreview(
         const kind = meta.media === 'video' ? 'video call' : 'voice call';
         const outgoing = meta.callerId === myId;
         if (meta.outcome === 'answered') return `📞 ${outgoing ? 'Outgoing' : 'Incoming'} ${kind}`;
-        return outgoing ? `📞 ${kind[0]!.toUpperCase()}${kind.slice(1)} · no answer` : `📞 Missed ${kind}`;
+        return outgoing
+          ? `📞 ${kind[0]!.toUpperCase()}${kind.slice(1)} · no answer`
+          : `📞 Missed ${kind}`;
       }
     }
   }

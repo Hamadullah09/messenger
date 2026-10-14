@@ -43,13 +43,7 @@ export interface AttendanceRecordDto {
   note: string | null;
 }
 
-export type AttendanceStatus =
-  | 'ON_TIME'
-  | 'LATE'
-  | 'ABSENT'
-  | 'NOT_YET'
-  | 'ON_LEAVE'
-  | 'NO_SHIFT';
+export type AttendanceStatus = 'ON_TIME' | 'LATE' | 'ABSENT' | 'NOT_YET' | 'ON_LEAVE' | 'NO_SHIFT';
 
 /** One person on one day at a store: their shift and what happened. */
 export interface AttendanceRowDto {
@@ -64,16 +58,35 @@ export interface AttendanceRowDto {
 export interface AttendanceDayDto {
   day: string;
   rows: AttendanceRowDto[];
-  summary: { onTime: number; late: number; absent: number; notYet: number; onLeave: number; outside: number };
+  summary: {
+    onTime: number;
+    late: number;
+    absent: number;
+    notYet: number;
+    onLeave: number;
+    outside: number;
+  };
 }
 
 export interface MyAttendanceDto {
   /** Checked in and not yet out. */
   open: AttendanceRecordDto | null;
   /** Today's shifts for me. */
-  shifts: Array<{ id: string; storeId: string; storeName: string; startsAt: string; endsAt: string }>;
+  shifts: Array<{
+    id: string;
+    storeId: string;
+    storeName: string;
+    startsAt: string;
+    endsAt: string;
+  }>;
   /** Stores I can check in at, with their location. */
-  stores: Array<{ id: string; name: string; latitude: number | null; longitude: number | null; geofenceMeters: number }>;
+  stores: Array<{
+    id: string;
+    name: string;
+    latitude: number | null;
+    longitude: number | null;
+    geofenceMeters: number;
+  }>;
   recent: AttendanceRecordDto[];
 }
 

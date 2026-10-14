@@ -15,6 +15,11 @@ export interface CallDto {
   media: 'audio' | 'video';
   /** Group call (everyone in the group is invited; people join and leave). */
   group: boolean;
+  /**
+   * Media goes through the LiveKit server (big groups) instead of device to device. Get the
+   * room token from POST /calls/:id/sfu-token after joining.
+   */
+  sfu: boolean;
   /** Group name for group calls. */
   title: string | null;
   caller: PublicUserDto;
@@ -35,6 +40,14 @@ export interface CallConfigDto {
   iceServers: Array<{ urls: string | string[]; username?: string; credential?: string }>;
   /** Seconds the phone rings before the call counts as missed. */
   ringSeconds: number;
+  /** Most people in a group call (8 device-to-device; more through LiveKit when set up). */
+  maxGroupParticipants: number;
+}
+
+/** Joining a LiveKit room for a big group call. */
+export interface SfuTokenDto {
+  url: string;
+  token: string;
 }
 
 /** One entry of the Calls tab. */

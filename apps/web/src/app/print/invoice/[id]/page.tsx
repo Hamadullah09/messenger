@@ -100,7 +100,9 @@ export default function PrintInvoicePage() {
           <div>
             <img src="/brand/sma-logo.webp" alt="" className="mb-2 h-12 w-auto" />
             <p className="text-lg font-bold">{s.companyName}</p>
-            {s.companyAddress && <p className="whitespace-pre-line text-neutral-600">{s.companyAddress}</p>}
+            {s.companyAddress && (
+              <p className="whitespace-pre-line text-neutral-600">{s.companyAddress}</p>
+            )}
             <p className="text-neutral-600">
               {[s.companyEmail, s.companyPhone].filter(Boolean).join(' · ')}
             </p>
@@ -151,11 +153,17 @@ export default function PrintInvoicePage() {
               <tr key={it.id} className="border-b border-neutral-200">
                 <td className="px-3 py-2.5">
                   <span className="font-semibold">{it.name}</span>
-                  {it.description && <span className="block text-xs text-neutral-500">{it.description}</span>}
+                  {it.description && (
+                    <span className="block text-xs text-neutral-500">{it.description}</span>
+                  )}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums">{it.quantity}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{money2(it.unitPrice, i.currency)}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">{money2(it.total, i.currency)}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {money2(it.unitPrice, i.currency)}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums">
+                  {money2(it.total, i.currency)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -164,7 +172,9 @@ export default function PrintInvoicePage() {
         <div className="mt-4 ml-auto w-72">
           <Row label="Subtotal" value={money2(i.subtotal, i.currency)} />
           {i.discount > 0 && <Row label="Discount" value={`−${money2(i.discount, i.currency)}`} />}
-          {i.taxAmount > 0 && <Row label={`${s.taxName} (${i.taxRate}%)`} value={money2(i.taxAmount, i.currency)} />}
+          {i.taxAmount > 0 && (
+            <Row label={`${s.taxName} (${i.taxRate}%)`} value={money2(i.taxAmount, i.currency)} />
+          )}
           <div className="my-1 border-t-2 border-neutral-900" />
           <Row label="Total" value={money2(i.total, i.currency)} strong />
           {i.amountPaid > 0 && <Row label="Paid" value={`−${money2(i.amountPaid, i.currency)}`} />}
@@ -175,7 +185,9 @@ export default function PrintInvoicePage() {
 
         {paid.length > 0 && (
           <section className="mt-6">
-            <p className="text-xs font-bold tracking-wider text-neutral-500 uppercase">Payments received</p>
+            <p className="text-xs font-bold tracking-wider text-neutral-500 uppercase">
+              Payments received
+            </p>
             <ul className="mt-1">
               {paid.map((p) => (
                 <li key={p.id} className="text-neutral-700">
@@ -186,18 +198,42 @@ export default function PrintInvoicePage() {
             </ul>
           </section>
         )}
-        {i.balance > 0 && (s.paymentDetails || s.payTo.jazzcash || s.payTo.easypaisa || s.payTo.bank) && (
-          <section className="mt-6 rounded-lg bg-neutral-100 p-4">
-            <p className="font-bold">How to pay</p>
-            {s.payTo.jazzcash && <p className="text-neutral-700">JazzCash: {s.payTo.jazzcash}</p>}
-            {s.payTo.easypaisa && <p className="text-neutral-700">Easypaisa: {s.payTo.easypaisa}</p>}
-            {s.payTo.bank && <p className="whitespace-pre-line text-neutral-700">Bank: {s.payTo.bank}</p>}
-            {s.paymentDetails && <p className="whitespace-pre-line text-neutral-700">{s.paymentDetails}</p>}
-            {i.payUrl && (
-              <p className="mt-1 text-neutral-700">
-                Pay online or tell us you paid: {typeof window === 'undefined' ? i.payUrl : `${window.location.origin}${i.payUrl}`}
-              </p>
+        {i.balance > 0 &&
+          (s.paymentDetails || s.payTo.jazzcash || s.payTo.easypaisa || s.payTo.bank) && (
+            <section className="mt-6 rounded-lg bg-neutral-100 p-4">
+              <p className="font-bold">How to pay</p>
+              {s.payTo.jazzcash && <p className="text-neutral-700">JazzCash: {s.payTo.jazzcash}</p>}
+              {s.payTo.easypaisa && (
+                <p className="text-neutral-700">Easypaisa: {s.payTo.easypaisa}</p>
+              )}
+              {s.payTo.bank && (
+                <p className="whitespace-pre-line text-neutral-700">Bank: {s.payTo.bank}</p>
+              )}
+              {s.paymentDetails && (
+                <p className="whitespace-pre-line text-neutral-700">{s.paymentDetails}</p>
+              )}
+              {i.payUrl && (
+                <p className="mt-1 text-neutral-700">
+                  Pay online or tell us you paid:{' '}
+                  {typeof window === 'undefined'
+                    ? i.payUrl
+                    : `${window.location.origin}${i.payUrl}`}
+                </p>
+              )}
+            </section>
+          )}
+        {i.fbr?.invoiceNumber && (
+          <section className="mt-6 flex items-center gap-4 rounded-lg border border-neutral-200 p-4">
+            {i.fbr.qrDataUrl && (
+              <img src={i.fbr.qrDataUrl} alt="FBR invoice QR code" className="size-24" />
             )}
+            <div>
+              <p className="font-bold">FBR Digital Invoice{i.fbr.sandbox ? ' (test)' : ''}</p>
+              <p className="text-neutral-700">FBR invoice number: {i.fbr.invoiceNumber}</p>
+              {i.billToTaxNumber && (
+                <p className="text-neutral-700">Buyer NTN/CNIC: {i.billToTaxNumber}</p>
+              )}
+            </div>
           </section>
         )}
         {i.notes && <p className="mt-6 whitespace-pre-line text-neutral-700">{i.notes}</p>}

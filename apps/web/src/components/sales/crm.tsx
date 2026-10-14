@@ -72,6 +72,7 @@ import {
   QuotePanel,
   SubscriptionDialog,
 } from './crm-more';
+import { FbrInvoiceBox } from './fbr';
 
 // ───────────────────────────── Labels and formatting ─────────────────────────────
 
@@ -162,7 +163,11 @@ function DealStatusChip({ status }: { status: DealStatus }) {
   return <Chip cls={s.cls}>{s.label}</Chip>;
 }
 
-export function InvoiceStatusChip({ invoice }: { invoice: Pick<InvoiceDto, 'status' | 'overdue'> }) {
+export function InvoiceStatusChip({
+  invoice,
+}: {
+  invoice: Pick<InvoiceDto, 'status' | 'overdue'>;
+}) {
   const s = INVOICE_STATUS_STYLE[invoice.overdue ? 'OVERDUE' : invoice.status];
   return <Chip cls={s.cls}>{s.label}</Chip>;
 }
@@ -358,12 +363,18 @@ export function RevenueStrip({ myId }: { myId: string }) {
             {o.topServices.map((s) => {
               const max = o.topServices[0]!.value || 1;
               return (
-                <li key={s.name} className="grid grid-cols-[minmax(8rem,14rem)_1fr_auto] items-center gap-3">
+                <li
+                  key={s.name}
+                  className="grid grid-cols-[minmax(8rem,14rem)_1fr_auto] items-center gap-3"
+                >
                   <span className="truncate text-sm font-semibold">{s.name}</span>
                   <span className="h-3 overflow-hidden rounded-full bg-surface-2">
                     <span
                       className="block h-full rounded-full"
-                      style={{ width: `${Math.max(2, (s.value / max) * 100)}%`, background: 'var(--series-1)' }}
+                      style={{
+                        width: `${Math.max(2, (s.value / max) * 100)}%`,
+                        background: 'var(--series-1)',
+                      }}
                     />
                   </span>
                   <span className="text-right text-sm tabular-nums text-muted">
@@ -441,7 +452,12 @@ function TrendChart({ trend, currency }: { trend: CrmOverviewDto['trend']; curre
                 tabIndex={0}
                 aria-label={`${monthLabel(t.month)}: won ${money2(t.won, currency)}, collected ${money2(t.collected, currency)}`}
               >
-                {hover === i && <span className="absolute inset-x-0 inset-y-0 rounded-lg bg-surface-2" aria-hidden />}
+                {hover === i && (
+                  <span
+                    className="absolute inset-x-0 inset-y-0 rounded-lg bg-surface-2"
+                    aria-hidden
+                  />
+                )}
                 {series.map((s) => (
                   <span
                     key={s.key}
@@ -531,7 +547,8 @@ export function ItemsEditor({
           <option value="">{services.isLoading ? 'Loading…' : 'Choose from the catalog…'}</option>
           {active.map((s) => (
             <option key={s.id} value={s.id}>
-              {s.name} — {money2(priceIn(s), currency)} {s.billing !== 'ONE_TIME' ? BILLING_LABEL[s.billing] : ''}
+              {s.name} — {money2(priceIn(s), currency)}{' '}
+              {s.billing !== 'ONE_TIME' ? BILLING_LABEL[s.billing] : ''}
             </option>
           ))}
         </SelectField>
@@ -590,7 +607,9 @@ export function ItemsEditor({
                     min={1}
                     className={cell}
                     value={i.quantity}
-                    onChange={(e) => set(i.key, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                    onChange={(e) =>
+                      set(i.key, { quantity: Math.max(1, Number(e.target.value) || 1) })
+                    }
                   />
                 </label>
                 <label className="text-xs text-muted">
@@ -601,7 +620,9 @@ export function ItemsEditor({
                     step="0.01"
                     className={cell}
                     value={i.unitPrice}
-                    onChange={(e) => set(i.key, { unitPrice: Math.max(0, Number(e.target.value) || 0) })}
+                    onChange={(e) =>
+                      set(i.key, { unitPrice: Math.max(0, Number(e.target.value) || 0) })
+                    }
                   />
                 </label>
                 {withDiscount && (
@@ -765,7 +786,9 @@ export function DealFormDialog({
           required
           maxLength={160}
           value={title}
-          placeholder={type === 'UPSELL' ? 'e.g. More of what they already buy' : 'e.g. First order'}
+          placeholder={
+            type === 'UPSELL' ? 'e.g. More of what they already buy' : 'e.g. First order'
+          }
           onChange={(e) => setTitle(e.target.value)}
         />
         {!deal && type === 'NEW_BUSINESS' && (
@@ -826,7 +849,12 @@ export function DealFormDialog({
               onChange={(e) => {
                 const next = e.target.value;
                 const rate = settings.data?.usdToPkr ?? 280;
-                setItems(items.map((i) => ({ ...i, unitPrice: convertAmount(i.unitPrice, currency, next, rate) })));
+                setItems(
+                  items.map((i) => ({
+                    ...i,
+                    unitPrice: convertAmount(i.unitPrice, currency, next, rate),
+                  })),
+                );
                 setCurrency(next);
               }}
             >
@@ -952,7 +980,11 @@ export function DealPanel({
               }
             />
           </div>
-          {d.lostReason && <Alert tone="warning" title="Lost">{d.lostReason}</Alert>}
+          {d.lostReason && (
+            <Alert tone="warning" title="Lost">
+              {d.lostReason}
+            </Alert>
+          )}
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-muted">
@@ -973,7 +1005,9 @@ export function DealPanel({
                     </span>
                   </td>
                   <td className="py-2 text-right tabular-nums">{i.quantity}</td>
-                  <td className="py-2 text-right tabular-nums">{money2(i.unitPrice, d.currency)}</td>
+                  <td className="py-2 text-right tabular-nums">
+                    {money2(i.unitPrice, d.currency)}
+                  </td>
                   <td className="py-2 text-right font-semibold tabular-nums">
                     {money2(i.total, d.currency)}
                   </td>
@@ -1082,7 +1116,12 @@ export function DealPanel({
                 <Button size="sm" variant="secondary" onClick={() => setConfirmDelete(false)}>
                   Keep it
                 </Button>
-                <Button size="sm" variant="danger" busy={remove.isPending} onClick={() => remove.mutate()}>
+                <Button
+                  size="sm"
+                  variant="danger"
+                  busy={remove.isPending}
+                  onClick={() => remove.mutate()}
+                >
                   Delete deal
                 </Button>
               </div>
@@ -1147,11 +1186,7 @@ export function DealPanel({
       )}
       {openQuote && <QuotePanel quoteId={openQuote} onClose={() => setOpenQuote(null)} />}
       {billing && d?.customer && (
-        <SubscriptionDialog
-          customer={d.customer}
-          deal={d}
-          onClose={() => setBilling(false)}
-        />
+        <SubscriptionDialog customer={d.customer} deal={d} onClose={() => setBilling(false)} />
       )}
     </Dialog>
   );
@@ -1166,13 +1201,7 @@ function Mini({ label, value }: { label: string; value: string }) {
   );
 }
 
-export function DealsTab({
-  context,
-  team,
-}: {
-  context: SalesContextDto;
-  team: SalesUserDto[];
-}) {
+export function DealsTab({ context, team }: { context: SalesContextDto; team: SalesUserDto[] }) {
   const [status, setStatus] = useState<DealStatus | 'ALL'>('OPEN');
   const [type, setType] = useState<DealType | ''>('');
   const [q, setQ] = useState('');
@@ -1195,7 +1224,11 @@ export function DealsTab({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1 rounded-xl bg-surface-2 p-1" role="radiogroup" aria-label="Status">
+        <div
+          className="flex gap-1 rounded-xl bg-surface-2 p-1"
+          role="radiogroup"
+          aria-label="Status"
+        >
           {(['OPEN', 'WON', 'LOST', 'ALL'] as const).map((s) => (
             <button
               key={s}
@@ -1227,7 +1260,10 @@ export function DealsTab({
         </select>
         <label className="relative min-w-48 flex-1">
           <span className="sr-only">Search deals</span>
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
+            aria-hidden
+          />
           <input
             type="search"
             value={q}
@@ -1268,13 +1304,17 @@ export function DealsTab({
                 <p className="truncate text-sm text-muted">
                   {DEAL_TYPE_LABEL[d.type]} · {d.customer?.name ?? d.lead?.companyName ?? '—'}
                 </p>
-                <p className="line-clamp-1 text-xs text-muted">{d.items.map((i) => i.name).join(', ')}</p>
+                <p className="line-clamp-1 text-xs text-muted">
+                  {d.items.map((i) => i.name).join(', ')}
+                </p>
                 <div className="mt-auto flex items-center justify-between gap-2 pt-1">
                   <span className="flex items-center gap-1.5 text-sm text-muted">
                     {d.owner && <Avatar name={d.owner.displayName} size={22} />}
                     {d.owner?.displayName ?? 'Unassigned'}
                   </span>
-                  <span className="text-lg font-bold tabular-nums">{money2(d.amount, d.currency)}</span>
+                  <span className="text-lg font-bold tabular-nums">
+                    {money2(d.amount, d.currency)}
+                  </span>
                 </div>
               </button>
             ))}
@@ -1330,7 +1370,12 @@ export function LeadDeals({
     <section className="rounded-2xl border border-line p-4">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h3 className="font-bold">Deals</h3>
-        <Button size="sm" variant="secondary" icon={<Plus className="size-4" aria-hidden />} onClick={() => setCreating(true)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          icon={<Plus className="size-4" aria-hidden />}
+          onClick={() => setCreating(true)}
+        >
           New deal
         </Button>
       </div>
@@ -1448,7 +1493,12 @@ export function InvoiceFormDialog({
     },
   });
   return (
-    <Dialog open onClose={onClose} title={deal ? `Invoice for “${deal.title}”` : 'New invoice'} wide>
+    <Dialog
+      open
+      onClose={onClose}
+      title={deal ? `Invoice for “${deal.title}”` : 'New invoice'}
+      wide
+    >
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -1458,7 +1508,10 @@ export function InvoiceFormDialog({
       >
         {save.isError && <Alert tone="error">{errorMessage(save.error)}</Alert>}
         {deal ? (
-          <Alert tone="info" title={`${deal.items.length} items · ${money2(deal.amount, deal.currency)}`}>
+          <Alert
+            tone="info"
+            title={`${deal.items.length} items · ${money2(deal.amount, deal.currency)}`}
+          >
             The deal’s services and the customer’s details are copied onto the invoice. It starts as
             a draft; issue it when it is ready.
           </Alert>
@@ -1485,7 +1538,11 @@ export function InvoiceFormDialog({
                 onChange={(e) => setBillToName(e.target.value)}
               />
             )}
-            <SelectField label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            <SelectField
+              label="Currency"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+            >
               <option value="USD">US dollars (USD)</option>
               <option value="PKR">Pakistani rupees (PKR)</option>
             </SelectField>
@@ -1503,8 +1560,20 @@ export function InvoiceFormDialog({
           onChange={(e) => setBillToEmail(e.target.value)}
         />
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <TextField label="Issue date" type="date" required value={issueDate} onChange={(e) => setIssueDate(e.target.value)} />
-          <TextField label="Due date" type="date" hint="Default: 14 days" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+          <TextField
+            label="Issue date"
+            type="date"
+            required
+            value={issueDate}
+            onChange={(e) => setIssueDate(e.target.value)}
+          />
+          <TextField
+            label="Due date"
+            type="date"
+            hint="Default: 14 days"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+          />
           <TextField
             label={`Discount (${currency})`}
             type="number"
@@ -1523,7 +1592,13 @@ export function InvoiceFormDialog({
             onChange={(e) => setTaxRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
           />
         </div>
-        <TextArea label="Notes on the invoice" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <TextArea
+          label="Notes on the invoice"
+          rows={2}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
@@ -1581,7 +1656,8 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
             <div>
               <p className="text-lg font-bold">{i.billToName}</p>
               <p className="text-sm text-muted">
-                {[i.billToEmail, i.billToPhone, i.billToAddress].filter(Boolean).join(' · ') || 'No contact details'}
+                {[i.billToEmail, i.billToPhone, i.billToAddress].filter(Boolean).join(' · ') ||
+                  'No contact details'}
               </p>
               {i.deal && (
                 <p className="text-sm text-muted">
@@ -1621,10 +1697,14 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
                 <tr key={it.id} className="border-b border-line/60">
                   <td className="py-2">
                     <span className="font-semibold">{it.name}</span>
-                    {it.description && <span className="block text-xs text-muted">{it.description}</span>}
+                    {it.description && (
+                      <span className="block text-xs text-muted">{it.description}</span>
+                    )}
                   </td>
                   <td className="py-2 text-right tabular-nums">{it.quantity}</td>
-                  <td className="py-2 text-right tabular-nums">{money2(it.unitPrice, i.currency)}</td>
+                  <td className="py-2 text-right tabular-nums">
+                    {money2(it.unitPrice, i.currency)}
+                  </td>
                   <td className="py-2 text-right tabular-nums">{money2(it.total, i.currency)}</td>
                 </tr>
               ))}
@@ -1650,19 +1730,26 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
             <dt className="text-muted">Paid</dt>
             <dd className="text-right tabular-nums">{money2(i.amountPaid, i.currency)}</dd>
             <dt className="font-bold">Balance due</dt>
-            <dd className={cx('text-right font-bold tabular-nums', i.balance > 0 && i.overdue && 'text-danger')}>
+            <dd
+              className={cx(
+                'text-right font-bold tabular-nums',
+                i.balance > 0 && i.overdue && 'text-danger',
+              )}
+            >
               {money2(i.balance, i.currency)}
             </dd>
           </dl>
 
           {i.pendingClaims > 0 && (
-            <Alert tone="warning" title={`${i.pendingClaims} payment${i.pendingClaims > 1 ? 's' : ''} reported by the customer`}>
+            <Alert
+              tone="warning"
+              title={`${i.pendingClaims} payment${i.pendingClaims > 1 ? 's' : ''} reported by the customer`}
+            >
               Check your account, then confirm it under Invoices → Payments to confirm.
             </Alert>
           )}
-          {i.payUrl && (
-            <PayLinkBox path={i.payUrl} />
-          )}
+          {i.payUrl && <PayLinkBox path={i.payUrl} />}
+          {i.canManage && <FbrInvoiceBox invoice={i} onChanged={done} />}
           <section>
             <h3 className="mb-2 font-bold">Payments</h3>
             {i.payments.length === 0 && <p className="text-sm text-muted">No payments yet.</p>}
@@ -1700,7 +1787,11 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
 
           <div className="flex flex-wrap gap-2">
             {i.canManage && i.status === 'DRAFT' && (
-              <Button icon={<Send className="size-4" aria-hidden />} busy={action.isPending} onClick={() => action.mutate({ path: '/issue' })}>
+              <Button
+                icon={<Send className="size-4" aria-hidden />}
+                busy={action.isPending}
+                onClick={() => action.mutate({ path: '/issue' })}
+              >
                 Issue invoice
               </Button>
             )}
@@ -1750,7 +1841,11 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
               </Button>
             )}
             {i.canManage && i.status !== 'VOID' && (
-              <Button variant="ghost" icon={<Ban className="size-4" aria-hidden />} onClick={() => setVoiding(true)}>
+              <Button
+                variant="ghost"
+                icon={<Ban className="size-4" aria-hidden />}
+                onClick={() => setVoiding(true)}
+              >
                 Void
               </Button>
             )}
@@ -1772,7 +1867,9 @@ export function InvoicePanel({ invoiceId, onClose }: { invoiceId: string; onClos
                   variant="danger"
                   disabled={!voidReason.trim()}
                   busy={action.isPending}
-                  onClick={() => action.mutate({ path: '/void', body: { reason: voidReason.trim() } })}
+                  onClick={() =>
+                    action.mutate({ path: '/void', body: { reason: voidReason.trim() } })
+                  }
                 >
                   Void invoice
                 </Button>
@@ -1846,9 +1943,19 @@ function PaymentDialog({
             value={amount}
             onChange={(e) => setAmount(Number(e.target.value) || 0)}
           />
-          <TextField label="Date received" type="date" required value={paidAt} onChange={(e) => setPaidAt(e.target.value)} />
+          <TextField
+            label="Date received"
+            type="date"
+            required
+            value={paidAt}
+            onChange={(e) => setPaidAt(e.target.value)}
+          />
         </div>
-        <SelectField label="Method" value={method} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+        <SelectField
+          label="Method"
+          value={method}
+          onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+        >
           {PAYMENT_METHODS.map((m) => (
             <option key={m} value={m}>
               {PAYMENT_METHOD_LABEL[m]}
@@ -1862,7 +1969,13 @@ function PaymentDialog({
           value={reference}
           onChange={(e) => setReference(e.target.value)}
         />
-        <TextArea label="Notes" rows={2} maxLength={500} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <TextArea
+          label="Notes"
+          rows={2}
+          maxLength={500}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
@@ -1877,7 +1990,9 @@ function PaymentDialog({
 }
 
 export function InvoicesTab() {
-  const [filter, setFilter] = useState<'ALL' | 'UNPAID' | 'OVERDUE' | 'PAID' | 'DRAFT' | 'VOID'>('UNPAID');
+  const [filter, setFilter] = useState<'ALL' | 'UNPAID' | 'OVERDUE' | 'PAID' | 'DRAFT' | 'VOID'>(
+    'UNPAID',
+  );
   const [q, setQ] = useState('');
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
@@ -1892,16 +2007,36 @@ export function InvoicesTab() {
         query: { status: filter === 'ALL' ? undefined : filter, q: q.trim() || undefined },
       }),
   });
-  const labels = { ALL: 'All', UNPAID: 'Unpaid', OVERDUE: 'Overdue', PAID: 'Paid', DRAFT: 'Drafts', VOID: 'Void' };
+  const labels = {
+    ALL: 'All',
+    UNPAID: 'Unpaid',
+    OVERDUE: 'Overdue',
+    PAID: 'Paid',
+    DRAFT: 'Drafts',
+    VOID: 'Void',
+  };
   const balance = (invoices.data ?? []).reduce((s, i) => s + i.balance, 0);
   const currency = invoices.data?.[0]?.currency ?? overview.data?.currency ?? 'USD';
   return (
     <div className="flex flex-col gap-4">
       {overview.data && (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <Stat Icon={Receipt} label="Invoiced this month" value={moneyShort(overview.data.invoicedThisMonth, overview.data.currency)} />
-          <Stat Icon={Banknote} label="Collected this month" value={moneyShort(overview.data.collectedThisMonth, overview.data.currency)} tone="success" />
-          <Stat Icon={FileText} label="Waiting for payment" value={moneyShort(overview.data.outstanding, overview.data.currency)} />
+          <Stat
+            Icon={Receipt}
+            label="Invoiced this month"
+            value={moneyShort(overview.data.invoicedThisMonth, overview.data.currency)}
+          />
+          <Stat
+            Icon={Banknote}
+            label="Collected this month"
+            value={moneyShort(overview.data.collectedThisMonth, overview.data.currency)}
+            tone="success"
+          />
+          <Stat
+            Icon={FileText}
+            label="Waiting for payment"
+            value={moneyShort(overview.data.outstanding, overview.data.currency)}
+          />
           <Stat
             Icon={AlertTriangle}
             label="Overdue"
@@ -1913,7 +2048,11 @@ export function InvoicesTab() {
       )}
       {overview.data?.canManageBilling && <PaymentClaimsBox onOpenInvoice={setOpen} />}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1" role="radiogroup" aria-label="Show">
+        <div
+          className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1"
+          role="radiogroup"
+          aria-label="Show"
+        >
           {(Object.keys(labels) as Array<keyof typeof labels>).map((k) => (
             <button
               key={k}
@@ -1932,7 +2071,10 @@ export function InvoicesTab() {
         </div>
         <label className="relative min-w-48 flex-1">
           <span className="sr-only">Search invoices</span>
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
+            aria-hidden
+          />
           <input
             type="search"
             value={q}
@@ -1975,14 +2117,24 @@ export function InvoicesTab() {
                   onClick={() => setOpen(inv.id)}
                 >
                   <td className="px-4 py-3">
-                    <button type="button" className="font-bold text-brand" onClick={() => setOpen(inv.id)}>
+                    <button
+                      type="button"
+                      className="font-bold text-brand"
+                      onClick={() => setOpen(inv.id)}
+                    >
                       {inv.number}
                     </button>
                   </td>
                   <td className="px-4 py-3">{inv.billToName}</td>
-                  <td className={cx('px-4 py-3', inv.overdue && 'font-semibold text-danger')}>{inv.dueDate}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{money2(inv.total, inv.currency)}</td>
-                  <td className="px-4 py-3 text-right font-semibold tabular-nums">{money2(inv.balance, inv.currency)}</td>
+                  <td className={cx('px-4 py-3', inv.overdue && 'font-semibold text-danger')}>
+                    {inv.dueDate}
+                  </td>
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    {money2(inv.total, inv.currency)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-semibold tabular-nums">
+                    {money2(inv.balance, inv.currency)}
+                  </td>
                   <td className="px-4 py-3">
                     <InvoiceStatusChip invoice={inv} />
                   </td>
@@ -1994,7 +2146,9 @@ export function InvoicesTab() {
                 <td className="px-4 py-3 font-semibold" colSpan={4}>
                   {invoices.data.length} invoices
                 </td>
-                <td className="px-4 py-3 text-right font-bold tabular-nums">{money2(balance, currency)}</td>
+                <td className="px-4 py-3 text-right font-bold tabular-nums">
+                  {money2(balance, currency)}
+                </td>
                 <td />
               </tr>
             </tfoot>
@@ -2064,12 +2218,20 @@ export function TargetsTab() {
       {t && (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <Stat Icon={Target} label="Team target" value={moneyShort(t.totals.target, t.currency)} />
+            <Stat
+              Icon={Target}
+              label="Team target"
+              value={moneyShort(t.totals.target, t.currency)}
+            />
             <Stat
               Icon={Trophy}
               label="Achieved"
               value={moneyShort(t.totals.achieved, t.currency)}
-              hint={t.totals.target > 0 ? `${Math.round((t.totals.achieved / t.totals.target) * 100)}% of target` : undefined}
+              hint={
+                t.totals.target > 0
+                  ? `${Math.round((t.totals.achieved / t.totals.target) * 100)}% of target`
+                  : undefined
+              }
               tone="success"
             />
             <Stat
@@ -2102,7 +2264,9 @@ export function TargetsTab() {
         </>
       )}
       {history && <TargetHistoryDialog userId={history} onClose={() => setHistory(null)} />}
-      {commission && t && <CommissionDialog team={t.team.map((p) => p.user)} onClose={() => setCommission(false)} />}
+      {commission && t && (
+        <CommissionDialog team={t.team.map((p) => p.user)} onClose={() => setCommission(false)} />
+      )}
     </div>
   );
 }
@@ -2141,9 +2305,10 @@ function TargetRow({
         <div className="min-w-0 flex-1">
           <p className="font-bold">{row.user.displayName}</p>
           <p className="text-sm text-muted">
-            {row.wonDeals} deals won ({row.upsells} upsells) · {row.leadsClosed} leads closed, {row.leadsWon} won ·
-            collected {moneyShort(row.collected, currency)} · commission{' '}
-            <b className="text-fg">{money2(row.commission, currency)}</b> ({row.commissionPlan.baseRate}% / {row.commissionPlan.bonusRate}% above target
+            {row.wonDeals} deals won ({row.upsells} upsells) · {row.leadsClosed} leads closed,{' '}
+            {row.leadsWon} won · collected {moneyShort(row.collected, currency)} · commission{' '}
+            <b className="text-fg">{money2(row.commission, currency)}</b> (
+            {row.commissionPlan.baseRate}% / {row.commissionPlan.bonusRate}% above target
             {row.commissionPlan.basis === 'COLLECTED' ? ', on collections' : ''})
           </p>
         </div>
@@ -2183,7 +2348,9 @@ function TargetRow({
         <Button variant="ghost" size="sm" onClick={onHistory}>
           Past months
         </Button>
-        {save.isError && <span className="text-sm font-semibold text-danger">{errorMessage(save.error)}</span>}
+        {save.isError && (
+          <span className="text-sm font-semibold text-danger">{errorMessage(save.error)}</span>
+        )}
       </div>
     </section>
   );
@@ -2199,14 +2366,24 @@ function TargetHistoryDialog({ userId, onClose }: { userId: string; onClose: () 
   const h = history.data;
   const max = h ? Math.max(1, ...h.months.flatMap((m) => [m.achieved, m.target ?? 0])) : 1;
   return (
-    <Dialog open onClose={onClose} title={h ? `${h.user.displayName} · past months` : 'Past months'} wide>
+    <Dialog
+      open
+      onClose={onClose}
+      title={h ? `${h.user.displayName} · past months` : 'Past months'}
+      wide
+    >
       {history.isPending && <Spinner />}
       {history.isError && <Alert tone="error">{errorMessage(history.error)}</Alert>}
       {h && (
         <div className="flex flex-col gap-4">
           <div className="flex items-center gap-4 text-sm text-muted">
             <span className="flex items-center gap-1.5">
-              <span className="size-3 rounded-sm" style={{ background: 'var(--series-1)' }} aria-hidden /> Achieved
+              <span
+                className="size-3 rounded-sm"
+                style={{ background: 'var(--series-1)' }}
+                aria-hidden
+              />{' '}
+              Achieved
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-0.5 w-4 bg-fg" aria-hidden /> Target
@@ -2264,13 +2441,17 @@ function TargetHistoryDialog({ userId, onClose }: { userId: string; onClose: () 
               {[...h.months].reverse().map((m) => (
                 <tr key={m.month} className="border-t border-line">
                   <td className="py-1.5">{monthLabel(m.month)}</td>
-                  <td className="py-1.5 text-right tabular-nums">{m.target !== null ? money2(m.target, h.currency) : '—'}</td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {m.target !== null ? money2(m.target, h.currency) : '—'}
+                  </td>
                   <td className="py-1.5 text-right tabular-nums">
                     {money2(m.achieved, h.currency)}
                     {m.target ? ` (${Math.round((m.achieved / m.target) * 100)}%)` : ''}
                   </td>
                   <td className="py-1.5 text-right tabular-nums">{m.leadsWon}</td>
-                  <td className="py-1.5 text-right tabular-nums">{money2(m.commission, h.currency)}</td>
+                  <td className="py-1.5 text-right tabular-nums">
+                    {money2(m.commission, h.currency)}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -2335,16 +2516,27 @@ export function ServicesTab() {
                   <span className="min-w-0 flex-1 font-bold">{s.name}</span>
                   {!s.active && <Chip cls="bg-surface-3 text-muted">Not sold</Chip>}
                 </div>
-                {s.description && <p className="line-clamp-3 text-sm text-muted">{s.description}</p>}
+                {s.description && (
+                  <p className="line-clamp-3 text-sm text-muted">{s.description}</p>
+                )}
                 <div className="mt-auto flex items-end justify-between gap-2">
                   <span>
-                    <span className="text-xl font-bold tabular-nums">{money2(s.price, s.currency)}</span>{' '}
-                    <span className="text-sm text-muted">{s.billing === 'ONE_TIME' ? 'one-time' : BILLING_LABEL[s.billing]}</span>
+                    <span className="text-xl font-bold tabular-nums">
+                      {money2(s.price, s.currency)}
+                    </span>{' '}
+                    <span className="text-sm text-muted">
+                      {s.billing === 'ONE_TIME' ? 'one-time' : BILLING_LABEL[s.billing]}
+                    </span>
                   </span>
                   <span className="text-sm text-muted">Sold {s.timesSold}×</span>
                 </div>
                 {canManage && (
-                  <Button size="sm" variant="secondary" icon={<Pencil className="size-4" aria-hidden />} onClick={() => setEditing(s)}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={<Pencil className="size-4" aria-hidden />}
+                    onClick={() => setEditing(s)}
+                  >
                     Edit
                   </Button>
                 )}
@@ -2412,7 +2604,13 @@ function ServiceDialog({
         }}
       >
         {save.isError && <Alert tone="error">{errorMessage(save.error)}</Alert>}
-        <TextField label="Name" required maxLength={120} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+        <TextField
+          label="Name"
+          required
+          maxLength={120}
+          value={form.name}
+          onChange={(e) => setForm({ ...form, name: e.target.value })}
+        />
         <TextField
           label="Category"
           hint="e.g. Plans, Add-ons, Setup"
@@ -2420,7 +2618,13 @@ function ServiceDialog({
           value={form.category}
           onChange={(e) => setForm({ ...form, category: e.target.value })}
         />
-        <TextArea label="Description" rows={3} maxLength={1000} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+        <TextArea
+          label="Description"
+          rows={3}
+          maxLength={1000}
+          value={form.description}
+          onChange={(e) => setForm({ ...form, description: e.target.value })}
+        />
         <div className="grid grid-cols-2 gap-3">
           <TextField
             label={`Price (${form.currency})`}
@@ -2431,11 +2635,19 @@ function ServiceDialog({
             value={form.price}
             onChange={(e) => setForm({ ...form, price: Math.max(0, Number(e.target.value) || 0) })}
           />
-          <SelectField label="Currency" value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
+          <SelectField
+            label="Currency"
+            value={form.currency}
+            onChange={(e) => setForm({ ...form, currency: e.target.value })}
+          >
             <option value="USD">USD</option>
             <option value="PKR">PKR</option>
           </SelectField>
-          <SelectField label="Billing" value={form.billing} onChange={(e) => setForm({ ...form, billing: e.target.value as ServiceBilling })}>
+          <SelectField
+            label="Billing"
+            value={form.billing}
+            onChange={(e) => setForm({ ...form, billing: e.target.value as ServiceBilling })}
+          >
             <option value="ONE_TIME">One-time</option>
             <option value="MONTHLY">Monthly</option>
             <option value="YEARLY">Yearly</option>
@@ -2488,14 +2700,19 @@ export function CrmCustomersTab({
     queryKey: ['crm', 'overview'],
     queryFn: () => api<CrmOverviewDto>('/sales/crm/overview'),
   });
-  const list = (customers.data ?? []).filter((c) => c.name.toLowerCase().includes(q.trim().toLowerCase()));
+  const list = (customers.data ?? []).filter((c) =>
+    c.name.toLowerCase().includes(q.trim().toLowerCase()),
+  );
   const currency = overview.data?.currency ?? 'USD';
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
         <label className="relative min-w-48 flex-1">
           <span className="sr-only">Search customers</span>
-          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted" aria-hidden />
+          <Search
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted"
+            aria-hidden
+          />
           <input
             type="search"
             value={q}
@@ -2535,7 +2752,10 @@ export function CrmCustomersTab({
       )}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
         {list.map((c) => (
-          <section key={c.id} className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4 shadow-card">
+          <section
+            key={c.id}
+            className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-4 shadow-card"
+          >
             <div className="flex items-start gap-3">
               <Avatar name={c.name} size={44} />
               <div className="min-w-0 flex-1">
@@ -2546,7 +2766,9 @@ export function CrmCustomersTab({
                   {c.lead?.owner ? ` · ${c.lead.owner.displayName}` : ''}
                 </p>
               </div>
-              {c.status !== 'ACTIVE' && <Chip cls="bg-warning-surface text-warning">{c.status.toLowerCase()}</Chip>}
+              {c.status !== 'ACTIVE' && (
+                <Chip cls="bg-warning-surface text-warning">{c.status.toLowerCase()}</Chip>
+              )}
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
               <Mini label="Lifetime" value={moneyShort(c.lifetimeValue, currency)} />
@@ -2556,7 +2778,10 @@ export function CrmCustomersTab({
             {c.services.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {c.services.map((s) => (
-                  <span key={s} className="rounded-full bg-brand-soft px-2.5 py-0.5 text-xs font-semibold text-brand-strong">
+                  <span
+                    key={s}
+                    className="rounded-full bg-brand-soft px-2.5 py-0.5 text-xs font-semibold text-brand-strong"
+                  >
                     {s}
                   </span>
                 ))}
@@ -2566,7 +2791,11 @@ export function CrmCustomersTab({
               {c.wonDeals} deals won · {c.upsells} upsells · {c.openDeals} open
             </p>
             <div className="mt-auto flex flex-wrap gap-2">
-              <Button size="sm" icon={<TrendingUp className="size-4" aria-hidden />} onClick={() => setUpsellFor({ id: c.id, name: c.name, kind: c.kind })}>
+              <Button
+                size="sm"
+                icon={<TrendingUp className="size-4" aria-hidden />}
+                onClick={() => setUpsellFor({ id: c.id, name: c.name, kind: c.kind })}
+              >
                 Upsell
               </Button>
               {overview.data?.canManageBilling && (
@@ -2641,7 +2870,13 @@ export function CrmCustomersTab({
 // ───────────────────────────── Website form ─────────────────────────────
 
 /** Link and embed code for the website's lead form (SMA's "Request a demo", or a business's own). */
-export function WebsiteFormDialog({ context, onClose }: { context: SalesContextDto; onClose: () => void }) {
+export function WebsiteFormDialog({
+  context,
+  onClose,
+}: {
+  context: SalesContextDto;
+  onClose: () => void;
+}) {
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const link = context.platformTeam
     ? `${origin}/embed/lead-form`
@@ -2659,13 +2894,17 @@ export function WebsiteFormDialog({ context, onClose }: { context: SalesContextD
       <div className="flex flex-col gap-4">
         <p className="text-muted">
           Put this form on {context.platformTeam ? 'SMA’s' : `${context.businessName}’s`} website.
-          Every request lands in Leads as a new website lead in the unassigned queue, with the
-          page it came from.
+          Every request lands in Leads as a new website lead in the unassigned queue, with the page
+          it came from.
         </p>
         <div>
           <p className="mb-1 font-semibold">Link</p>
           <div className="flex gap-2">
-            <input readOnly value={link} className="min-h-11 flex-1 rounded-xl border border-line bg-surface-2 px-3 font-mono text-sm" />
+            <input
+              readOnly
+              value={link}
+              className="min-h-11 flex-1 rounded-xl border border-line bg-surface-2 px-3 font-mono text-sm"
+            />
             <Button variant="secondary" onClick={() => void copy('link', link)}>
               {copied === 'link' ? 'Copied' : 'Copy'}
             </Button>

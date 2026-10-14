@@ -35,19 +35,28 @@ const EARLY_WINDOW_MS = 2 * 3_600_000;
 const DAY = 86_400_000;
 
 /** Great-circle distance in metres. */
-export function distanceMetres(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+export function distanceMetres(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): number {
   const R = 6_371_000;
   const toRad = (d: number) => (d * Math.PI) / 180;
   const dLat = toRad(b.lat - a.lat);
   const dLng = toRad(b.lng - a.lng);
-  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2;
   return Math.round(2 * R * Math.asin(Math.sqrt(h)));
 }
 
 /** "2026-10-14" → local midnight, and the DATE value stored for that day. */
 function localDay(day: string): { start: Date; end: Date; date: Date } {
   const [y, m, d] = day.split('-').map(Number) as [number, number, number];
-  return { start: new Date(y, m - 1, d), end: new Date(y, m - 1, d + 1), date: new Date(Date.UTC(y, m - 1, d)) };
+  return {
+    start: new Date(y, m - 1, d),
+    end: new Date(y, m - 1, d + 1),
+    date: new Date(Date.UTC(y, m - 1, d)),
+  };
 }
 function todayKey(): string {
   const n = new Date();
@@ -65,7 +74,9 @@ const recordInclude = {
 type RecordRow = Prisma.AttendanceRecordGetPayload<{ include: typeof recordInclude }>;
 
 function toRecord(r: RecordRow): AttendanceRecordDto {
-  const late = r.shift ? Math.max(0, Math.round((r.checkInAt.getTime() - r.shift.startsAt.getTime()) / 60_000)) : 0;
+  const late = r.shift
+    ? Math.max(0, Math.round((r.checkInAt.getTime() - r.shift.startsAt.getTime()) / 60_000))
+    : 0;
   return {
     id: r.id,
     storeId: r.storeId,
@@ -76,7 +87,13 @@ function toRecord(r: RecordRow): AttendanceRecordDto {
     checkInDistance: r.checkInDistance,
     checkOutDistance: r.checkOutDistance,
     outside: r.checkInDistance !== null && r.checkInDistance > r.store.geofenceMeters,
-    shift: r.shift ? { id: r.shift.id, startsAt: r.shift.startsAt.toISOString(), endsAt: r.shift.endsAt.toISOString() } : null,
+    shift: r.shift
+      ? {
+          id: r.shift.id,
+          startsAt: r.shift.startsAt.toISOString(),
+          endsAt: r.shift.endsAt.toISOString(),
+        }
+      : null,
     lateMinutes: late > LATE_GRACE_MIN ? late : 0,
     note: r.note,
   };
@@ -99,7 +116,14 @@ export class StaffService {
   private async store(storeId: string) {
     const store = await this.prisma.store.findFirst({
       where: { id: storeId, deletedAt: null, status: 'ACTIVE' },
-      select: { id: true, businessId: true, name: true, latitude: true, longitude: true, geofenceMeters: true },
+      select: {
+        id: true,
+        businessId: true,
+        name: true,
+        latitude: true,
+        longitude: true,
+        geofenceMeters: true,
+      },
     });
     if (!store) throw ApiError.notFound('Store');
     return store;
@@ -124,20 +148,34 @@ export class StaffService {
       select: { id: true },
       take: 2000,
     });
-    this.realtime.toUsers([...users.map((u) => u.id), ...extra], 'task.changed', { businessId, storeId });
+    this.realtime.toUsers([...users.map((u) => u.id), ...extra], 'task.changed', {
+      businessId,
+      storeId,
+    });
   }
 
   // ───────────────────────────── Store location ─────────────────────────────
 
-  async setStoreLocation(actor: Actor, storeId: string, request: StoreLocationRequest): Promise<void> {
+  async setStoreLocation(
+    actor: Actor,
+    storeId: string,
+    request: StoreLocationRequest,
+  ): Promise<void> {
     const store = await this.store(storeId);
     const scope = { businessId: store.businessId, storeId };
-    if (!(await this.authz.can(actor, 'store.update', scope)) && !(await this.authz.can(actor, 'task.manage', scope)))
+    if (
+      !(await this.authz.can(actor, 'store.update', scope)) &&
+      !(await this.authz.can(actor, 'task.manage', scope))
+    )
       throw ApiError.forbidden('Only managers can set the store location.');
     if ((request.latitude === null) !== (request.longitude === null))
       throw ApiError.validation('Give both latitude and longitude.', 'latitude');
     await this.prisma.store.update({ where: { id: storeId }, data: request });
-    await this.audit.record(actor, { action: 'store.location_set', businessId: store.businessId, storeId });
+    await this.audit.record(actor, {
+      action: 'store.location_set',
+      businessId: store.businessId,
+      storeId,
+    });
   }
 
   // ───────────────────────────── Attendance ─────────────────────────────
@@ -157,7 +195,12 @@ export class StaffService {
     const { start, end } = localDay(todayKey());
     const [open, shifts, recent] = await Promise.all([
       this.prisma.attendanceRecord.findFirst({
-        where: { userId: actor.userId, businessId, checkOutAt: null, checkInAt: { gt: new Date(Date.now() - 20 * 3_600_000) } },
+        where: {
+          userId: actor.userId,
+          businessId,
+          checkOutAt: null,
+          checkInAt: { gt: new Date(Date.now() - 20 * 3_600_000) },
+        },
         include: recordInclude,
         orderBy: { checkInAt: 'desc' },
       }),
@@ -189,12 +232,20 @@ export class StaffService {
 
   async checkIn(actor: Actor, request: CheckInRequest): Promise<AttendanceRecordDto> {
     const store = await this.store(request.storeId);
-    await this.authz.require(actor, 'task.work', { businessId: store.businessId, storeId: store.id });
+    await this.authz.require(actor, 'task.work', {
+      businessId: store.businessId,
+      storeId: store.id,
+    });
     const open = await this.prisma.attendanceRecord.findFirst({
-      where: { userId: actor.userId, checkOutAt: null, checkInAt: { gt: new Date(Date.now() - 20 * 3_600_000) } },
+      where: {
+        userId: actor.userId,
+        checkOutAt: null,
+        checkInAt: { gt: new Date(Date.now() - 20 * 3_600_000) },
+      },
       select: { store: { select: { name: true } } },
     });
-    if (open) throw ApiError.conflict(`You are already checked in at ${open.store.name}. Check out first.`);
+    if (open)
+      throw ApiError.conflict(`You are already checked in at ${open.store.name}. Check out first.`);
     const now = new Date();
     const shift = await this.prisma.shift.findFirst({
       where: {
@@ -209,7 +260,10 @@ export class StaffService {
     const hasPoint = request.lat !== undefined && request.lng !== undefined;
     const distance =
       hasPoint && store.latitude !== null && store.longitude !== null
-        ? distanceMetres({ lat: request.lat!, lng: request.lng! }, { lat: store.latitude, lng: store.longitude })
+        ? distanceMetres(
+            { lat: request.lat!, lng: request.lng! },
+            { lat: store.latitude, lng: store.longitude },
+          )
         : null;
     const row = await this.prisma.attendanceRecord.create({
       data: {
@@ -238,8 +292,14 @@ export class StaffService {
     });
     if (!open) throw ApiError.conflict('You are not checked in.');
     const distance =
-      request.lat !== undefined && request.lng !== undefined && open.store.latitude !== null && open.store.longitude !== null
-        ? distanceMetres({ lat: request.lat, lng: request.lng }, { lat: open.store.latitude, lng: open.store.longitude })
+      request.lat !== undefined &&
+      request.lng !== undefined &&
+      open.store.latitude !== null &&
+      open.store.longitude !== null
+        ? distanceMetres(
+            { lat: request.lat, lng: request.lng },
+            { lat: open.store.latitude, lng: open.store.longitude },
+          )
         : null;
     const row = await this.prisma.attendanceRecord.update({
       where: { id: open.id },
@@ -258,9 +318,14 @@ export class StaffService {
   /** Managers' board: everyone's shifts for the day with on time / late / absent / on leave. */
   async day(actor: Actor, query: AttendanceDayQuery): Promise<AttendanceDayDto> {
     const covered = await this.covered(actor, 'task.manage', query.businessId);
-    if (covered && covered.size === 0) throw ApiError.forbidden('Only store managers can see attendance.');
+    if (covered && covered.size === 0)
+      throw ApiError.forbidden('Only store managers can see attendance.');
     if (query.storeId && covered && !covered.has(query.storeId)) throw ApiError.notFound('Store');
-    const storeFilter = query.storeId ? { storeId: query.storeId } : covered ? { storeId: { in: [...covered] } } : {};
+    const storeFilter = query.storeId
+      ? { storeId: query.storeId }
+      : covered
+        ? { storeId: { in: [...covered] } }
+        : {};
     const { start, end, date } = localDay(query.day);
     const [shifts, records, leave] = await Promise.all([
       this.prisma.shift.findMany({
@@ -302,7 +367,12 @@ export class StaffService {
             r.checkInAt < s.endsAt,
         );
       if (record) used.add(record.id);
-      const dto = record ? { ...toRecord(record), shift: { id: s.id, startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString() } } : null;
+      const dto = record
+        ? {
+            ...toRecord(record),
+            shift: { id: s.id, startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString() },
+          }
+        : null;
       if (dto && record) {
         const late = Math.round((record.checkInAt.getTime() - s.startsAt.getTime()) / 60_000);
         dto.lateMinutes = late > LATE_GRACE_MIN ? late : 0;
@@ -320,14 +390,26 @@ export class StaffService {
         user: toPublicUser(s.user),
         storeId: s.storeId,
         storeName: s.store.name,
-        shift: { id: s.id, startsAt: s.startsAt.toISOString(), endsAt: s.endsAt.toISOString(), title: s.title },
+        shift: {
+          id: s.id,
+          startsAt: s.startsAt.toISOString(),
+          endsAt: s.endsAt.toISOString(),
+          title: s.title,
+        },
         record: dto,
         status,
       };
     });
     for (const r of records) {
       if (used.has(r.id) || r.checkInAt < start) continue;
-      rows.push({ user: toPublicUser(r.user), storeId: r.storeId, storeName: r.store.name, shift: null, record: toRecord(r), status: 'NO_SHIFT' });
+      rows.push({
+        user: toPublicUser(r.user),
+        storeId: r.storeId,
+        storeName: r.store.name,
+        shift: null,
+        record: toRecord(r),
+        status: 'NO_SHIFT',
+      });
     }
     const count = (s: AttendanceRowDto['status']) => rows.filter((r) => r.status === s).length;
     return {
@@ -347,7 +429,14 @@ export class StaffService {
   // ───────────────────────────── Checklists ─────────────────────────────
 
   private templateDto(
-    t: { id: string; businessId: string; storeId: string | null; name: string; items: Prisma.JsonValue; active: boolean },
+    t: {
+      id: string;
+      businessId: string;
+      storeId: string | null;
+      name: string;
+      items: Prisma.JsonValue;
+      active: boolean;
+    },
     storeName: string | null,
     canEdit: boolean,
   ): ChecklistTemplateDto {
@@ -372,7 +461,12 @@ export class StaffService {
       orderBy: { name: 'asc' },
     });
     const stores = new Map(
-      (await this.prisma.store.findMany({ where: { businessId }, select: { id: true, name: true } })).map((s) => [s.id, s.name]),
+      (
+        await this.prisma.store.findMany({
+          where: { businessId },
+          select: { id: true, name: true },
+        })
+      ).map((s) => [s.id, s.name]),
     );
     return rows
       .filter((t) => !t.storeId || !work || work.has(t.storeId) || !manage || manage.has(t.storeId))
@@ -395,11 +489,16 @@ export class StaffService {
     });
   }
 
-  async saveTemplate(actor: Actor, id: string | null, request: ChecklistTemplateRequest): Promise<ChecklistTemplateDto[]> {
+  async saveTemplate(
+    actor: Actor,
+    id: string | null,
+    request: ChecklistTemplateRequest,
+  ): Promise<ChecklistTemplateDto[]> {
     const storeId = request.storeId ?? null;
     if (storeId) {
       const store = await this.store(storeId);
-      if (store.businessId !== request.businessId) throw ApiError.validation('Store not in this business.', 'storeId');
+      if (store.businessId !== request.businessId)
+        throw ApiError.validation('Store not in this business.', 'storeId');
     }
     await this.authz.require(actor, 'task.manage', { businessId: request.businessId, storeId });
     const data = {
@@ -424,8 +523,14 @@ export class StaffService {
   async removeTemplate(actor: Actor, id: string): Promise<void> {
     const t = await this.prisma.checklistTemplate.findFirst({ where: { id, deletedAt: null } });
     if (!t) throw ApiError.notFound('Checklist');
-    await this.authz.require(actor, 'task.manage', { businessId: t.businessId, storeId: t.storeId });
-    await this.prisma.checklistTemplate.update({ where: { id }, data: { deletedAt: new Date(), active: false } });
+    await this.authz.require(actor, 'task.manage', {
+      businessId: t.businessId,
+      storeId: t.storeId,
+    });
+    await this.prisma.checklistTemplate.update({
+      where: { id },
+      data: { deletedAt: new Date(), active: false },
+    });
   }
 
   private runInclude = {
@@ -438,10 +543,20 @@ export class StaffService {
     storeName: string,
     canWork: boolean,
   ): Promise<ChecklistRunDto> {
-    const defs = (run.template.items as Array<{ key: string; label: string; photo: boolean }>) ?? [];
-    const userIds = [...new Set([...run.items.map((i) => i.checkedById), run.completedById].filter((v): v is string => !!v))];
+    const defs =
+      (run.template.items as Array<{ key: string; label: string; photo: boolean }>) ?? [];
+    const userIds = [
+      ...new Set(
+        [...run.items.map((i) => i.checkedById), run.completedById].filter((v): v is string => !!v),
+      ),
+    ];
     const users = new Map(
-      (await this.prisma.user.findMany({ where: { id: { in: userIds } }, select: publicUserSelect })).map((u) => [u.id, toPublicUser(u)]),
+      (
+        await this.prisma.user.findMany({
+          where: { id: { in: userIds } },
+          select: publicUserSelect,
+        })
+      ).map((u) => [u.id, toPublicUser(u)]),
     );
     const items = defs.map((d) => {
       const it = run.items.find((i) => i.itemKey === d.key);
@@ -472,7 +587,12 @@ export class StaffService {
   }
 
   /** Today's (or a past day's) checklists for the actor's stores; runs are created on first view. */
-  async runs(actor: Actor, businessId: string, storeId: string | undefined, day: string | undefined): Promise<ChecklistRunDto[]> {
+  async runs(
+    actor: Actor,
+    businessId: string,
+    storeId: string | undefined,
+    day: string | undefined,
+  ): Promise<ChecklistRunDto[]> {
     const work = await this.covered(actor, 'task.work', businessId);
     const manage = await this.covered(actor, 'task.manage', businessId);
     const allowed = (id: string) => !work || work.has(id) || !manage || manage.has(id);
@@ -505,7 +625,9 @@ export class StaffService {
             })
             .catch(() =>
               this.prisma.checklistRun.findUnique({
-                where: { templateId_storeId_day: { templateId: t.id, storeId: store.id, day: date } },
+                where: {
+                  templateId_storeId_day: { templateId: t.id, storeId: store.id, day: date },
+                },
                 include: this.runInclude,
               }),
             );
@@ -517,24 +639,40 @@ export class StaffService {
   }
 
   async tick(actor: Actor, runId: string, request: ChecklistTickRequest): Promise<ChecklistRunDto> {
-    const run = await this.prisma.checklistRun.findUnique({ where: { id: runId }, include: this.runInclude });
+    const run = await this.prisma.checklistRun.findUnique({
+      where: { id: runId },
+      include: this.runInclude,
+    });
     if (!run) throw ApiError.notFound('Checklist');
-    await this.authz.require(actor, 'task.work', { businessId: run.businessId, storeId: run.storeId });
+    await this.authz.require(actor, 'task.work', {
+      businessId: run.businessId,
+      storeId: run.storeId,
+    });
     if (dateKey(run.day) !== dateKey(localDay(todayKey()).date))
       throw ApiError.conflict('Only today’s checklist can be changed.');
-    const def = (run.template.items as Array<{ key: string; photo: boolean }>).find((i) => i.key === request.itemKey);
+    const def = (run.template.items as Array<{ key: string; photo: boolean }>).find(
+      (i) => i.key === request.itemKey,
+    );
     if (!def) throw ApiError.validation('That check is not on this list.', 'itemKey');
     const existing = run.items.find((i) => i.itemKey === request.itemKey);
     const mediaId = request.mediaId !== undefined ? request.mediaId : (existing?.mediaId ?? null);
     if (request.mediaId) {
       const media = await this.prisma.mediaAsset.findFirst({
-        where: { id: request.mediaId, uploaderId: actor.userId, forOps: true, businessId: run.businessId },
+        where: {
+          id: request.mediaId,
+          uploaderId: actor.userId,
+          forOps: true,
+          businessId: run.businessId,
+        },
         select: { status: true, kind: true },
       });
-      if (!media || media.kind !== 'IMAGE') throw ApiError.validation('The photo was not found.', 'mediaId');
-      if (media.status !== 'READY') throw ApiError.conflict('The photo is still being checked. Please wait a moment.');
+      if (!media || media.kind !== 'IMAGE')
+        throw ApiError.validation('The photo was not found.', 'mediaId');
+      if (media.status !== 'READY')
+        throw ApiError.conflict('The photo is still being checked. Please wait a moment.');
     }
-    if (request.checked && def.photo && !mediaId) throw ApiError.validation('This check needs a photo.', 'mediaId');
+    if (request.checked && def.photo && !mediaId)
+      throw ApiError.validation('This check needs a photo.', 'mediaId');
     await this.prisma.$transaction(async (tx) => {
       await tx.checklistRunItem.upsert({
         where: { runId_itemKey: { runId, itemKey: request.itemKey } },
@@ -555,17 +693,31 @@ export class StaffService {
           mediaId,
         },
       });
-      const items = await tx.checklistRunItem.findMany({ where: { runId, checked: true }, select: { itemKey: true } });
+      const items = await tx.checklistRunItem.findMany({
+        where: { runId, checked: true },
+        select: { itemKey: true },
+      });
       const total = (run.template.items as unknown[]).length;
       const complete = items.length >= total;
       await tx.checklistRun.update({
         where: { id: runId },
-        data: complete ? { completedAt: run.completedAt ?? new Date(), completedById: run.completedById ?? actor.userId } : { completedAt: null, completedById: null },
+        data: complete
+          ? {
+              completedAt: run.completedAt ?? new Date(),
+              completedById: run.completedById ?? actor.userId,
+            }
+          : { completedAt: null, completedById: null },
       });
     });
     await this.notifyStore(run.businessId, run.storeId);
-    const store = await this.prisma.store.findUniqueOrThrow({ where: { id: run.storeId }, select: { name: true } });
-    const fresh = await this.prisma.checklistRun.findUniqueOrThrow({ where: { id: runId }, include: this.runInclude });
+    const store = await this.prisma.store.findUniqueOrThrow({
+      where: { id: run.storeId },
+      select: { name: true },
+    });
+    const fresh = await this.prisma.checklistRun.findUniqueOrThrow({
+      where: { id: runId },
+      include: this.runInclude,
+    });
     return this.runDto(fresh, store.name, true);
   }
 
@@ -596,7 +748,10 @@ export class StaffService {
       take: 300,
     });
     return rows.map((r) => {
-      const canDecide = r.userId !== actor.userId && (manage === null || manage.has(r.storeId)) && r.status === 'PENDING';
+      const canDecide =
+        r.userId !== actor.userId &&
+        (manage === null || manage.has(r.storeId)) &&
+        r.status === 'PENDING';
       return {
         id: r.id,
         storeId: r.storeId,
@@ -615,19 +770,29 @@ export class StaffService {
         canDecide,
         canCancel:
           r.userId === actor.userId &&
-          (r.status === 'PENDING' || (r.status === 'APPROVED' && dateKey(r.startDate) > todayKey())),
+          (r.status === 'PENDING' ||
+            (r.status === 'APPROVED' && dateKey(r.startDate) > todayKey())),
       };
     });
   }
 
   async requestLeave(actor: Actor, request: CreateLeaveRequest): Promise<LeaveDto[]> {
     const store = await this.store(request.storeId);
-    await this.authz.require(actor, 'task.work', { businessId: store.businessId, storeId: store.id });
+    await this.authz.require(actor, 'task.work', {
+      businessId: store.businessId,
+      storeId: store.id,
+    });
     const start = localDay(request.startDate).date;
     const end = localDay(request.endDate).date;
-    if (end.getTime() - start.getTime() > 90 * DAY) throw ApiError.validation('At most 90 days at a time.', 'endDate');
+    if (end.getTime() - start.getTime() > 90 * DAY)
+      throw ApiError.validation('At most 90 days at a time.', 'endDate');
     const overlap = await this.prisma.leaveRequest.count({
-      where: { userId: actor.userId, status: { in: ['PENDING', 'APPROVED'] }, startDate: { lte: end }, endDate: { gte: start } },
+      where: {
+        userId: actor.userId,
+        status: { in: ['PENDING', 'APPROVED'] },
+        startDate: { lte: end },
+        endDate: { gte: start },
+      },
     });
     if (overlap > 0) throw ApiError.conflict('You already asked for leave on some of these days.');
     await this.prisma.leaveRequest.create({
@@ -648,11 +813,20 @@ export class StaffService {
   async decide(actor: Actor, id: string, request: DecideLeaveRequest): Promise<void> {
     const leave = await this.prisma.leaveRequest.findUnique({ where: { id } });
     if (!leave) throw ApiError.notFound('Leave request');
-    await this.authz.require(actor, 'task.manage', { businessId: leave.businessId, storeId: leave.storeId });
-    if (leave.userId === actor.userId) throw ApiError.forbidden('Someone else must approve your own leave.');
+    await this.authz.require(actor, 'task.manage', {
+      businessId: leave.businessId,
+      storeId: leave.storeId,
+    });
+    if (leave.userId === actor.userId)
+      throw ApiError.forbidden('Someone else must approve your own leave.');
     const updated = await this.prisma.leaveRequest.updateMany({
       where: { id, status: 'PENDING' },
-      data: { status: request.status, decidedById: actor.userId, decidedAt: new Date(), decisionNote: request.note ?? null },
+      data: {
+        status: request.status,
+        decidedById: actor.userId,
+        decidedAt: new Date(),
+        decisionNote: request.note ?? null,
+      },
     });
     if (updated.count === 0) throw ApiError.conflict('This request was already decided.');
     await this.notifyStore(leave.businessId, leave.storeId, [leave.userId]);
@@ -664,7 +838,10 @@ export class StaffService {
     const updated = await this.prisma.leaveRequest.updateMany({
       where: {
         id,
-        OR: [{ status: 'PENDING' }, { status: 'APPROVED', startDate: { gt: localDay(todayKey()).date } }],
+        OR: [
+          { status: 'PENDING' },
+          { status: 'APPROVED', startDate: { gt: localDay(todayKey()).date } },
+        ],
       },
       data: { status: 'CANCELLED' },
     });

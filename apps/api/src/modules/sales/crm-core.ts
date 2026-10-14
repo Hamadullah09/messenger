@@ -40,7 +40,13 @@ const CACHE_MS = 30_000;
 interface TenantCache {
   at: number;
   values: Map<string, string>;
-  business: { name: string; email: string | null; phone: string | null; address: string | null; internal: boolean };
+  business: {
+    name: string;
+    email: string | null;
+    phone: string | null;
+    address: string | null;
+    internal: boolean;
+  };
 }
 
 /**
@@ -65,7 +71,10 @@ export class CrmSettingsService {
     const cached = this.cache.get(tenantId);
     if (cached && Date.now() - cached.at < CACHE_MS) return cached;
     const [rows, business] = await Promise.all([
-      this.prisma.crmSetting.findMany({ where: { businessId: tenantId }, select: { key: true, value: true } }),
+      this.prisma.crmSetting.findMany({
+        where: { businessId: tenantId },
+        select: { key: true, value: true },
+      }),
       this.prisma.business.findUnique({
         where: { id: tenantId },
         select: { name: true, email: true, phone: true, address: true, internal: true },
@@ -117,12 +126,19 @@ export class CrmSettingsService {
       taxName: get('CRM_TAX_NAME') ?? 'GST',
       taxRate: Number(get('CRM_TAX_RATE') ?? 0) || 0,
       taxNumber: get('CRM_TAX_NUMBER') ?? null,
-      companyName: get('INVOICE_COMPANY_NAME') ?? (platform ? c.INVOICE_COMPANY_NAME : e.business.name),
+      companyName:
+        get('INVOICE_COMPANY_NAME') ?? (platform ? c.INVOICE_COMPANY_NAME : e.business.name),
       companyAddress:
-        get('INVOICE_COMPANY_ADDRESS') ?? (platform ? c.INVOICE_COMPANY_ADDRESS || null : e.business.address),
-      companyEmail: get('INVOICE_COMPANY_EMAIL') ?? (platform ? c.INVOICE_COMPANY_EMAIL || null : e.business.email),
-      companyPhone: get('INVOICE_COMPANY_PHONE') ?? (platform ? c.INVOICE_COMPANY_PHONE || null : e.business.phone),
-      paymentDetails: get('INVOICE_PAYMENT_DETAILS') ?? (platform ? c.INVOICE_PAYMENT_DETAILS || null : null),
+        get('INVOICE_COMPANY_ADDRESS') ??
+        (platform ? c.INVOICE_COMPANY_ADDRESS || null : e.business.address),
+      companyEmail:
+        get('INVOICE_COMPANY_EMAIL') ??
+        (platform ? c.INVOICE_COMPANY_EMAIL || null : e.business.email),
+      companyPhone:
+        get('INVOICE_COMPANY_PHONE') ??
+        (platform ? c.INVOICE_COMPANY_PHONE || null : e.business.phone),
+      paymentDetails:
+        get('INVOICE_PAYMENT_DETAILS') ?? (platform ? c.INVOICE_PAYMENT_DETAILS || null : null),
       payTo: {
         jazzcash: get('PAY_JAZZCASH_ACCOUNT') ?? null,
         easypaisa: get('PAY_EASYPAISA_ACCOUNT') ?? null,
@@ -150,8 +166,14 @@ export class CrmSettingsService {
       ['PAY_JAZZCASH_ACCOUNT', request.payTo?.jazzcash],
       ['PAY_EASYPAISA_ACCOUNT', request.payTo?.easypaisa],
       ['PAY_BANK_ACCOUNT', request.payTo?.bank],
-      ['REMINDER_DAYS', request.reminderDays ? [...new Set(request.reminderDays)].join(',') : undefined],
-      ['REMINDER_CHANNELS', request.reminderChannels ? [...new Set(request.reminderChannels)].join(',') : undefined],
+      [
+        'REMINDER_DAYS',
+        request.reminderDays ? [...new Set(request.reminderDays)].join(',') : undefined,
+      ],
+      [
+        'REMINDER_CHANNELS',
+        request.reminderChannels ? [...new Set(request.reminderChannels)].join(',') : undefined,
+      ],
     ];
     for (const [key, value] of values) {
       if (value === undefined) continue;
@@ -260,7 +282,10 @@ export class InvoiceFactory {
 // ───────────────────────────── Emails ─────────────────────────────
 
 export const escapeHtml = (s: string): string =>
-  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
+  s.replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!,
+  );
 
 export function formatMoney(value: number, currency: string): string {
   return `${currency} ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -274,7 +299,13 @@ export interface DocumentForEmail {
   dueLabel: string;
   dueDate: string;
   currency: string;
-  items: Array<{ name: string; description: string | null; quantity: number; unitPrice: number; total: number }>;
+  items: Array<{
+    name: string;
+    description: string | null;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }>;
   subtotal: number;
   discount: number;
   taxRate: number;
@@ -307,14 +338,23 @@ export function documentHtml(d: DocumentForEmail, s: CrmSettings, intro?: string
     .map(
       (it) =>
         `<tr><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(it.name)}${
-          it.description ? `<br><small style="color:#666">${escapeHtml(it.description)}</small>` : ''
+          it.description
+            ? `<br><small style="color:#666">${escapeHtml(it.description)}</small>`
+            : ''
         }</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${it.quantity}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${formatMoney(it.unitPrice, d.currency)}</td><td style="padding:8px;border-bottom:1px solid #eee;text-align:right">${formatMoney(it.total, d.currency)}</td></tr>`,
     )
     .join('');
-  const tax = d.taxAmount ? `<br>${escapeHtml(s.taxName)} (${d.taxRate}%) ${formatMoney(d.taxAmount, d.currency)}` : '';
+  const tax = d.taxAmount
+    ? `<br>${escapeHtml(s.taxName)} (${d.taxRate}%) ${formatMoney(d.taxAmount, d.currency)}`
+    : '';
   return `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto;color:#111">
 <h2 style="color:#ea580c;margin:0">${escapeHtml(s.companyName)}</h2>
-<p style="color:#666;margin:4px 0 16px">${[s.companyAddress, s.companyEmail, s.companyPhone].filter(Boolean).map((v) => escapeHtml(v!)).join(' · ')}${s.taxNumber ? `<br>${escapeHtml(s.taxName)} no. ${escapeHtml(s.taxNumber)}` : ''}</p>
+<p style="color:#666;margin:4px 0 16px">${[s.companyAddress, s.companyEmail, s.companyPhone]
+    .filter(Boolean)
+    .map((v) => escapeHtml(v!))
+    .join(
+      ' · ',
+    )}${s.taxNumber ? `<br>${escapeHtml(s.taxName)} no. ${escapeHtml(s.taxNumber)}` : ''}</p>
 ${intro ? `<p>${escapeHtml(intro)}</p>` : ''}
 <h3 style="margin:0">${d.kind} ${escapeHtml(d.number)}</h3>
 <p style="margin:4px 0">For: <b>${escapeHtml(d.billToName)}</b><br>Issued ${d.issueDate} · ${escapeHtml(d.dueLabel)} ${d.dueDate}</p>

@@ -377,7 +377,10 @@ export class MediaService {
       });
       for (const { run } of runs) {
         const scope = { businessId: run.businessId, storeId: run.storeId };
-        if ((await this.authz.can(actor, 'task.work', scope)) || (await this.authz.can(actor, 'task.manage', scope)))
+        if (
+          (await this.authz.can(actor, 'task.work', scope)) ||
+          (await this.authz.can(actor, 'task.manage', scope))
+        )
           return { media, sensitiveConversationId };
       }
       throw notFound;
@@ -466,8 +469,7 @@ export class MediaService {
     else if (media.forOps) {
       // The store is checked again when the photo is attached to a checklist.
       await this.requirePermission(actor, 'media.upload', media.businessId);
-    }
-    else await this.campaignUploadContext(actor, media.campaignId!);
+    } else await this.campaignUploadContext(actor, media.campaignId!);
     return media;
   }
 
@@ -512,7 +514,10 @@ export class MediaService {
       where: { id: storeId, deletedAt: null, status: 'ACTIVE', business: { status: 'ACTIVE' } },
       select: { businessId: true, business: { select: { policy: true } } },
     });
-    if (!store || !(await this.authz.can(actor, 'task.work', { businessId: store.businessId, storeId })))
+    if (
+      !store ||
+      !(await this.authz.can(actor, 'task.work', { businessId: store.businessId, storeId }))
+    )
       throw ApiError.notFound('Store');
     await this.requirePermission(actor, 'media.upload', store.businessId);
     return {

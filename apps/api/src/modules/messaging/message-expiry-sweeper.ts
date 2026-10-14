@@ -1,4 +1,9 @@
-import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RealtimeEmitter } from '../realtime/realtime-emitter.service';
 
@@ -53,7 +58,10 @@ export class MessageExpirySweeper implements OnApplicationBootstrap, OnModuleDes
         ]);
         const byConversation = new Map<string, string[]>();
         for (const m of expired)
-          byConversation.set(m.conversationId, [...(byConversation.get(m.conversationId) ?? []), m.id]);
+          byConversation.set(m.conversationId, [
+            ...(byConversation.get(m.conversationId) ?? []),
+            m.id,
+          ]);
         for (const [conversationId, messageIds] of byConversation) {
           const members = await this.prisma.conversationMember.findMany({
             where: { conversationId, leftAt: null },

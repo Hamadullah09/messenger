@@ -80,7 +80,9 @@ export function AudioMessage({
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState((meta?.durationMs ?? 0) / 1000);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
-  const bars = meta?.waveform?.length ? meta.waveform : Array.from({ length: 40 }, (_, i) => 6 + ((i * 7) % 13));
+  const bars = meta?.waveform?.length
+    ? meta.waveform
+    : Array.from({ length: 40 }, (_, i) => 6 + ((i * 7) % 13));
   const progress = duration > 0 ? position / duration : 0;
   const voice = meta?.voice ?? false;
 
@@ -98,7 +100,11 @@ export function AudioMessage({
       return;
     }
     if (!el) return;
-    if (el.paused) void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    if (el.paused)
+      void el
+        .play()
+        .then(() => setPlaying(true))
+        .catch(() => setPlaying(false));
     else {
       el.pause();
       setPlaying(false);
@@ -116,13 +122,18 @@ export function AudioMessage({
       {voice && !mine && (
         <span className="relative shrink-0">
           <Avatar name={senderName} size={44} />
-          <Mic className="absolute -right-1 -bottom-1 size-4 rounded-full bg-wa-in text-brand" aria-hidden />
+          <Mic
+            className="absolute -right-1 -bottom-1 size-4 rounded-full bg-wa-in text-brand"
+            aria-hidden
+          />
         </span>
       )}
       <button
         type="button"
         onClick={toggle}
-        aria-label={playing ? 'Pause' : voice ? 'Play voice message' : `Play ${attachment.fileName}`}
+        aria-label={
+          playing ? 'Pause' : voice ? 'Play voice message' : `Play ${attachment.fileName}`
+        }
         className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-wa-icon hover:bg-black/5"
       >
         {requested && url.isPending ? (
@@ -163,7 +174,9 @@ export function AudioMessage({
           ))}
         </div>
         <div className="flex items-center justify-between text-[0.7rem] text-wa-meta-in">
-          <span className="tabular-nums">{formatDuration(playing || position > 0 ? position : duration)}</span>
+          <span className="tabular-nums">
+            {formatDuration(playing || position > 0 ? position : duration)}
+          </span>
           {!voice && <span className="truncate">{attachment.fileName}</span>}
         </div>
       </div>
@@ -218,7 +231,15 @@ const MAP_ZOOM = 15;
  * Map preview from OpenStreetMap tiles, fetched through our own server (the phone never
  * contacts the map provider). The point sits in the middle of the picture.
  */
-export function StaticMap({ lat, lng, zoom = MAP_ZOOM }: { lat: number; lng: number; zoom?: number }) {
+export function StaticMap({
+  lat,
+  lng,
+  zoom = MAP_ZOOM,
+}: {
+  lat: number;
+  lng: number;
+  zoom?: number;
+}) {
   const n = 2 ** zoom;
   const rad = (lat * Math.PI) / 180;
   const px = ((lng + 180) / 360) * n * 256;
@@ -259,7 +280,15 @@ export function mapsLink(lat: number, lng: number): string {
   return `https://www.google.com/maps/search/?api=1&query=${lat.toFixed(6)},${lng.toFixed(6)}`;
 }
 
-export function LocationMessage({ message, meta, mine }: { message: MessageDto; meta: Meta<'location'>; mine: boolean }) {
+export function LocationMessage({
+  message,
+  meta,
+  mine,
+}: {
+  message: MessageDto;
+  meta: Meta<'location'>;
+  mine: boolean;
+}) {
   const mutation = useMessageMutation(message);
   const stopShare = useLiveShares((s) => s.stop);
   const live = meta.live;
@@ -332,12 +361,22 @@ export function LocationMessage({ message, meta, mine }: { message: MessageDto; 
 
 // ───────────────────────────── Contact card ─────────────────────────────
 
-export function ContactMessage({ message, meta, mine }: { message: MessageDto; meta: Meta<'contact'>; mine: boolean }) {
+export function ContactMessage({
+  message,
+  meta,
+  mine,
+}: {
+  message: MessageDto;
+  meta: Meta<'contact'>;
+  mine: boolean;
+}) {
   const router = useRouter();
   const client = useQueryClient();
   const open = useMutation({
     mutationFn: async () => {
-      const conversation = client.getQueryData<ConversationDetailDto>(keys.conversation(message.conversationId));
+      const conversation = client.getQueryData<ConversationDetailDto>(
+        keys.conversation(message.conversationId),
+      );
       const businessId =
         conversation?.businessId ??
         (await api<ConversationDetailDto>(`/conversations/${message.conversationId}`)).businessId;
@@ -410,7 +449,11 @@ export function PollMessage({
         <Check className="size-3.5" aria-hidden />
         {meta.multiple ? 'Select one or more' : 'Select one'}
       </p>
-      <ul className="flex flex-col gap-2.5" role={meta.multiple ? 'group' : 'radiogroup'} aria-label="Poll options">
+      <ul
+        className="flex flex-col gap-2.5"
+        role={meta.multiple ? 'group' : 'radiogroup'}
+        aria-label="Poll options"
+      >
         {meta.options.map((option, i) => {
           const selected = mine.has(i);
           return (
@@ -492,7 +535,10 @@ const RESPONSES = [
 ] as const;
 
 function icsDate(iso: string): string {
-  return new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  return new Date(iso)
+    .toISOString()
+    .replace(/[-:]/g, '')
+    .replace(/\.\d{3}/, '');
 }
 
 /** Downloads an .ics file so the event can be added to any calendar app. */
@@ -522,7 +568,15 @@ function addToCalendar(title: string, meta: Meta<'event'>) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function EventMessage({ message, meta, myId }: { message: MessageDto; meta: Meta<'event'>; myId: string }) {
+export function EventMessage({
+  message,
+  meta,
+  myId,
+}: {
+  message: MessageDto;
+  meta: Meta<'event'>;
+  myId: string;
+}) {
   const mutation = useMessageMutation(message);
   const mine = message.eventResponses.find((r) => r.userId === myId)?.response ?? null;
   const count = (r: string) => message.eventResponses.filter((x) => x.response === r).length;
@@ -541,7 +595,11 @@ export function EventMessage({ message, meta, myId }: { message: MessageDto; met
           <p className="font-semibold">{message.body}</p>
           <p className="flex items-center gap-1 text-sm text-wa-meta-in">
             <CalendarDays className="size-4" aria-hidden />
-            {start.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })}{' '}
+            {start.toLocaleDateString(undefined, {
+              weekday: 'short',
+              day: 'numeric',
+              month: 'short',
+            })}{' '}
             · {formatTime(meta.startsAt)}
             {meta.endsAt ? `–${formatTime(meta.endsAt)}` : ''}
           </p>
@@ -598,25 +656,44 @@ export function EventMessage({ message, meta, myId }: { message: MessageDto; met
 
 // ───────────────────────────── Call record ─────────────────────────────
 
-export function callLabel(meta: Meta<'call'>, outgoing: boolean): { text: string; missed: boolean } {
+export function callLabel(
+  meta: Meta<'call'>,
+  outgoing: boolean,
+): { text: string; missed: boolean } {
   const kind = meta.media === 'video' ? 'video call' : 'voice call';
   switch (meta.outcome) {
     case 'answered':
       return { text: `${outgoing ? 'Outgoing' : 'Incoming'} ${kind}`, missed: false };
     case 'missed':
-      return outgoing ? { text: `No answer · ${kind}`, missed: false } : { text: `Missed ${kind}`, missed: true };
+      return outgoing
+        ? { text: `No answer · ${kind}`, missed: false }
+        : { text: `Missed ${kind}`, missed: true };
     case 'declined':
-      return { text: outgoing ? `Declined · ${kind}` : `You declined a ${kind}`, missed: !outgoing };
+      return {
+        text: outgoing ? `Declined · ${kind}` : `You declined a ${kind}`,
+        missed: !outgoing,
+      };
     case 'cancelled':
       return { text: outgoing ? `Cancelled ${kind}` : `Missed ${kind}`, missed: !outgoing };
     case 'busy':
-      return { text: outgoing ? `Busy · ${kind}` : `Missed ${kind} (you were on another call)`, missed: !outgoing };
+      return {
+        text: outgoing ? `Busy · ${kind}` : `Missed ${kind} (you were on another call)`,
+        missed: !outgoing,
+      };
     default:
       return { text: `Call failed · ${kind}`, missed: false };
   }
 }
 
-export function CallMessage({ message, meta, myId }: { message: MessageDto; meta: Meta<'call'>; myId: string }) {
+export function CallMessage({
+  message,
+  meta,
+  myId,
+}: {
+  message: MessageDto;
+  meta: Meta<'call'>;
+  myId: string;
+}) {
   const calls = useCallControls();
   const outgoing = meta.callerId === myId;
   const { text, missed } = callLabel(meta, outgoing);
@@ -629,7 +706,11 @@ export function CallMessage({ message, meta, myId }: { message: MessageDto; meta
           missed ? 'bg-danger/15 text-danger' : 'bg-black/10 text-wa-icon dark:bg-white/15',
         )}
       >
-        {meta.media === 'video' ? <Video className="size-5" aria-hidden /> : <Icon className="size-5" aria-hidden />}
+        {meta.media === 'video' ? (
+          <Video className="size-5" aria-hidden />
+        ) : (
+          <Icon className="size-5" aria-hidden />
+        )}
       </span>
       <div className="min-w-0 flex-1">
         <p className={cx('font-semibold', missed && 'text-danger')}>{text}</p>
@@ -643,7 +724,11 @@ export function CallMessage({ message, meta, myId }: { message: MessageDto; meta
         className="inline-flex size-9 items-center justify-center rounded-full text-brand hover:bg-black/5"
         onClick={() => calls.start(message.conversationId, meta.media)}
       >
-        {meta.media === 'video' ? <Video className="size-5" aria-hidden /> : <Phone className="size-5" aria-hidden />}
+        {meta.media === 'video' ? (
+          <Video className="size-5" aria-hidden />
+        ) : (
+          <Phone className="size-5" aria-hidden />
+        )}
       </button>
     </div>
   );
@@ -660,7 +745,10 @@ function CustomSticker({ attachment }: { attachment: AttachmentDto }) {
   return url.data ? (
     <img src={url.data.url} alt="Sticker" className="size-40 object-contain drop-shadow-md" />
   ) : (
-    <span className="block size-40 animate-pulse rounded-3xl bg-black/5" aria-label="Loading sticker" />
+    <span
+      className="block size-40 animate-pulse rounded-3xl bg-black/5"
+      aria-label="Loading sticker"
+    />
   );
 }
 

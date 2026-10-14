@@ -1,8 +1,18 @@
-import { Body, Controller, Get, HttpCode, Module, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Module,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   startCallRequestSchema,
   type CallConfigDto,
+  type SfuTokenDto,
   type CallDto,
   type CallLogEntryDto,
   type StartCallRequest,
@@ -13,7 +23,9 @@ import { CurrentActor, type Actor } from '../auth/actor';
 import { MessagingModule } from '../messaging/messaging.module';
 import { CallsService } from './calls.service';
 
-const endCallSchema = z.object({ reason: z.enum(['hangup', 'timeout', 'failed']).default('hangup') });
+const endCallSchema = z.object({
+  reason: z.enum(['hangup', 'timeout', 'failed']).default('hangup'),
+});
 
 @ApiTags('calls')
 @ApiBearerAuth()
@@ -22,8 +34,18 @@ export class CallsController {
   constructor(private readonly calls: CallsService) {}
 
   @Get('config')
-  config(): CallConfigDto {
-    return this.calls.configFor();
+  config(@CurrentActor() actor: Actor): CallConfigDto {
+    return this.calls.configFor(actor);
+  }
+
+  /** Big group calls (LiveKit): the room address and this person's token. */
+  @Post(':id/sfu-token')
+  @HttpCode(200)
+  sfuToken(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<SfuTokenDto> {
+    return this.calls.sfuToken(actor, id);
   }
 
   @Get('log')

@@ -1,5 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import QRCode from 'qrcode';
 import {
   OPEN_LEAD_STAGES,
   type ChangeDealStatusRequest,
@@ -150,7 +151,16 @@ export class CrmService {
       can('sales.lead.assign'),
     ]);
     const settings = await this.crmSettings.load(teamId);
-    return { teamId, platform: tenant.platform, settings, seeAll, billing, catalog, targets, assign };
+    return {
+      teamId,
+      platform: tenant.platform,
+      settings,
+      seeAll,
+      billing,
+      catalog,
+      targets,
+      assign,
+    };
   }
 
   private async requireSalesUser(teamId: string, userId: string): Promise<void> {
@@ -168,7 +178,12 @@ export class CrmService {
 
   /** Amount in the business's main currency (targets, totals). */
   private main(access: Access, amount: number, currency: string): number {
-    return this.crmSettings.convert(amount, currency, access.settings.defaultCurrency, access.settings);
+    return this.crmSettings.convert(
+      amount,
+      currency,
+      access.settings.defaultCurrency,
+      access.settings,
+    );
   }
 
   /** Who a row is for: a business on SMA, or (a business's own CRM) the lead. */
@@ -346,7 +361,10 @@ export class CrmService {
     return this.toDeal(row, actor, access);
   }
 
-  private async requireCustomer(access: Access, businessId: string): Promise<{ id: string; name: string }> {
+  private async requireCustomer(
+    access: Access,
+    businessId: string,
+  ): Promise<{ id: string; name: string }> {
     if (!access.platform)
       throw ApiError.validation('Choose the customer from your won leads.', 'businessId');
     const business = await this.prisma.business.findFirst({
@@ -579,6 +597,7 @@ export class CrmService {
       billToEmail: row.billToEmail,
       billToPhone: row.billToPhone,
       billToAddress: row.billToAddress,
+      billToTaxNumber: row.billToTaxNumber,
       issueDate: isoDate(row.issueDate),
       dueDate: isoDate(row.dueDate),
       currency: row.currency,
@@ -617,8 +636,21 @@ export class CrmService {
       periodEnd: row.periodEnd ? isoDate(row.periodEnd) : null,
       reminderCount: row.reminderCount,
       lastReminderAt: row.lastReminderAt?.toISOString() ?? null,
-      payUrl: row.payToken && row.status !== 'DRAFT' && row.status !== 'VOID' ? `/pay/${row.payToken}` : null,
+      payUrl:
+        row.payToken && row.status !== 'DRAFT' && row.status !== 'VOID'
+          ? `/pay/${row.payToken}`
+          : null,
       pendingClaims: row._count.claims,
+      fbr:
+        row.fbrInvoiceNumber || row.fbrError
+          ? {
+              invoiceNumber: row.fbrInvoiceNumber,
+              submittedAt: row.fbrSubmittedAt?.toISOString() ?? null,
+              sandbox: row.fbrSandbox,
+              error: row.fbrInvoiceNumber ? null : row.fbrError,
+              qrDataUrl: null,
+            }
+          : null,
       createdAt: row.createdAt.toISOString(),
       canManage: access.billing,
     };
@@ -665,7 +697,15 @@ export class CrmService {
       include: invoiceInclude,
     });
     if (!row) throw ApiError.notFound('Invoice');
-    return this.toInvoice(row, access);
+    const dto = this.toInvoice(row, access);
+    // The QR code printed on FBR invoices (only for the one invoice opened).
+    if (dto.fbr?.invoiceNumber)
+      dto.fbr.qrDataUrl = await QRCode.toDataURL(dto.fbr.invoiceNumber, {
+        errorCorrectionLevel: 'M',
+        margin: 1,
+        width: 160,
+      });
+    return dto;
   }
 
   private async requireBilling(actor: Actor): Promise<Access> {
@@ -990,7 +1030,8 @@ export class CrmService {
       text: documentText(doc, settings),
       html: documentHtml(doc, settings),
     });
-    if (!sent) throw ApiError.conflict('The mail server did not accept the email. Try again later.');
+    if (!sent)
+      throw ApiError.conflict('The mail server did not accept the email. Try again later.');
     await this.prisma.invoice.update({
       where: { id: invoiceId },
       data: { lastEmailedAt: new Date() },
@@ -1059,7 +1100,9 @@ export class CrmService {
         storeCount: b._count.stores,
         wonDeals: won.length,
         upsells: won.filter((d) => d.type === 'UPSELL').length,
-        lifetimeValue: round2(won.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0)),
+        lifetimeValue: round2(
+          won.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
+        ),
         invoiced,
         paid,
         outstanding: round2(invoiced - paid),
@@ -1082,7 +1125,13 @@ export class CrmService {
         owner: { select: publicUserSelect },
         deals: {
           where: { deletedAt: null },
-          select: { status: true, type: true, amount: true, currency: true, items: { select: { name: true } } },
+          select: {
+            status: true,
+            type: true,
+            amount: true,
+            currency: true,
+            items: { select: { name: true } },
+          },
         },
         invoices: {
           where: { status: { not: 'VOID' } },
@@ -1099,7 +1148,9 @@ export class CrmService {
           .filter((i) => i.status !== 'DRAFT')
           .reduce((s, i) => s + this.main(access, num(i.total), i.currency), 0),
       );
-      const paid = round2(l.invoices.reduce((s, i) => s + this.main(access, num(i.amountPaid), i.currency), 0));
+      const paid = round2(
+        l.invoices.reduce((s, i) => s + this.main(access, num(i.amountPaid), i.currency), 0),
+      );
       return {
         id: l.id,
         kind: 'LEAD' as const,
@@ -1115,7 +1166,9 @@ export class CrmService {
         storeCount: l.storeCount ?? 0,
         wonDeals: won.length,
         upsells: won.filter((d) => d.type === 'UPSELL').length,
-        lifetimeValue: round2(won.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0)),
+        lifetimeValue: round2(
+          won.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
+        ),
         invoiced,
         paid,
         outstanding: round2(invoiced - paid),
@@ -1169,7 +1222,11 @@ export class CrmService {
         where: {
           voidedAt: null,
           paidAt: { gte: start, lt: end },
-          invoice: { tenantId: access.teamId, status: { not: 'VOID' }, deal: { ownerId: { in: userIds } } },
+          invoice: {
+            tenantId: access.teamId,
+            status: { not: 'VOID' },
+            deal: { ownerId: { in: userIds } },
+          },
         },
         select: {
           amount: true,
@@ -1179,7 +1236,14 @@ export class CrmService {
     ]);
     const by = new Map<
       string,
-      { achieved: number; won: number; upsells: number; closed: number; leadsWon: number; collected: number }
+      {
+        achieved: number;
+        won: number;
+        upsells: number;
+        closed: number;
+        leadsWon: number;
+        collected: number;
+      }
     >();
     const get = (id: string) => {
       let v = by.get(id);
@@ -1287,7 +1351,10 @@ export class CrmService {
   async targetHistory(actor: Actor, userId: string, months = 12): Promise<TargetHistoryDto> {
     const access = await this.access(actor);
     if (userId !== actor.userId && !access.seeAll && !access.targets) throw ApiError.forbidden();
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: publicUserSelect });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: publicUserSelect,
+    });
     if (!user) throw ApiError.notFound('User');
     const now = new Date();
     const keys = Array.from({ length: months }, (_, i) =>
@@ -1357,8 +1424,14 @@ export class CrmService {
   /** "team" plus per-person overrides. */
   private async commissionPlans(tenantId: string) {
     const rows = await this.prisma.commissionPlan.findMany({ where: { tenantId } });
-    const plans = new Map<string, { baseRate: number; bonusRate: number; basis: 'WON' | 'COLLECTED' }>(
-      rows.map((r) => [r.scope, { baseRate: num(r.baseRate), bonusRate: num(r.bonusRate), basis: r.basis }]),
+    const plans = new Map<
+      string,
+      { baseRate: number; bonusRate: number; basis: 'WON' | 'COLLECTED' }
+    >(
+      rows.map((r) => [
+        r.scope,
+        { baseRate: num(r.baseRate), bonusRate: num(r.bonusRate), basis: r.basis },
+      ]),
     );
     if (!plans.has('team')) plans.set('team', { baseRate: 5, bonusRate: 10, basis: 'WON' });
     return plans;
@@ -1372,12 +1445,17 @@ export class CrmService {
     return [
       { scope: 'team', user: null, ...team },
       ...people
-        .filter((p) => plans.has(p.id) && (access.seeAll || access.targets || p.id === actor.userId))
+        .filter(
+          (p) => plans.has(p.id) && (access.seeAll || access.targets || p.id === actor.userId),
+        )
         .map((p) => ({ scope: p.id, user: p, ...plans.get(p.id)! })),
     ];
   }
 
-  async setCommissionPlan(actor: Actor, request: SetCommissionPlanRequest): Promise<CommissionPlanDto[]> {
+  async setCommissionPlan(
+    actor: Actor,
+    request: SetCommissionPlanRequest,
+  ): Promise<CommissionPlanDto[]> {
     const access = await this.access(actor);
     if (!access.targets) throw ApiError.forbidden('Only sales managers can change commission.');
     if (request.scope !== 'team') await this.requireSalesUser(access.teamId, request.scope);
@@ -1404,13 +1482,25 @@ export class CrmService {
 
   // ───────────────────────────── Payment claims ─────────────────────────────
 
-  async listClaims(actor: Actor, status?: 'PENDING' | 'CONFIRMED' | 'REJECTED'): Promise<PaymentClaimDto[]> {
+  async listClaims(
+    actor: Actor,
+    status?: 'PENDING' | 'CONFIRMED' | 'REJECTED',
+  ): Promise<PaymentClaimDto[]> {
     const access = await this.access(actor);
     if (!access.billing && !access.seeAll) throw ApiError.forbidden();
     const rows = await this.prisma.paymentClaim.findMany({
       where: { invoice: { tenantId: access.teamId }, ...(status ? { status } : {}) },
       include: {
-        invoice: { select: { id: true, number: true, billToName: true, currency: true, total: true, amountPaid: true } },
+        invoice: {
+          select: {
+            id: true,
+            number: true,
+            billToName: true,
+            currency: true,
+            total: true,
+            amountPaid: true,
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       take: 200,
@@ -1437,7 +1527,11 @@ export class CrmService {
   }
 
   /** Confirming a customer's "I have paid" records the payment on the invoice. */
-  async reviewClaim(actor: Actor, claimId: string, request: ReviewPaymentClaimRequest): Promise<PaymentClaimDto[]> {
+  async reviewClaim(
+    actor: Actor,
+    claimId: string,
+    request: ReviewPaymentClaimRequest,
+  ): Promise<PaymentClaimDto[]> {
     const access = await this.requireBilling(actor);
     const claim = await this.prisma.paymentClaim.findFirst({
       where: { id: claimId, invoice: { tenantId: access.teamId } },
@@ -1457,7 +1551,10 @@ export class CrmService {
         paidAt: claim.createdAt,
         method: claim.method,
         reference: claim.reference,
-        notes: [claim.payerName ? `Paid by ${claim.payerName}` : null, claim.note].filter(Boolean).join(' — ') || null,
+        notes:
+          [claim.payerName ? `Paid by ${claim.payerName}` : null, claim.note]
+            .filter(Boolean)
+            .join(' — ') || null,
       });
       const payment = await this.prisma.payment.findFirst({
         where: { invoiceId: claim.invoiceId, reference: claim.reference },
@@ -1568,12 +1665,18 @@ export class CrmService {
     return {
       currency: access.settings.defaultCurrency,
       month,
-      wonThisMonth: round2(thisMonth.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0)),
+      wonThisMonth: round2(
+        thisMonth.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
+      ),
       wonCountThisMonth: thisMonth.length,
       upsellThisMonth: round2(
-        thisMonth.filter((d) => d.type === 'UPSELL').reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
+        thisMonth
+          .filter((d) => d.type === 'UPSELL')
+          .reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
       ),
-      openPipeline: round2(open.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0)),
+      openPipeline: round2(
+        open.reduce((s, d) => s + this.main(access, num(d.amount), d.currency), 0),
+      ),
       openDeals: open.length,
       invoicedThisMonth: round2(
         invoices
@@ -1582,10 +1685,16 @@ export class CrmService {
       ),
       collectedThisMonth: trend.at(-1)!.collected,
       outstanding: round2(
-        unpaid.reduce((s, i) => s + this.main(access, num(i.total) - num(i.amountPaid), i.currency), 0),
+        unpaid.reduce(
+          (s, i) => s + this.main(access, num(i.total) - num(i.amountPaid), i.currency),
+          0,
+        ),
       ),
       overdue: round2(
-        overdue.reduce((s, i) => s + this.main(access, num(i.total) - num(i.amountPaid), i.currency), 0),
+        overdue.reduce(
+          (s, i) => s + this.main(access, num(i.total) - num(i.amountPaid), i.currency),
+          0,
+        ),
       ),
       overdueCount: overdue.length,
       trend,

@@ -81,6 +81,36 @@ const envSchema = z.object({
         return z.NEVER;
       }
     }),
+  /**
+   * TURN relay (coturn with `use-auth-secret`): calls across mobile data and different networks.
+   * Comma-separated URLs, e.g. "turn:turn.example.com:3478?transport=udp,turn:turn.example.com:3478?transport=tcp".
+   * Each signed-in user gets short-lived credentials (TURN REST API), never a shared password.
+   */
+  TURN_URLS: z
+    .string()
+    .default('')
+    .transform((v) =>
+      v
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  TURN_SHARED_SECRET: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(32).optional(),
+  ),
+  TURN_CREDENTIAL_TTL_SECONDS: z.coerce.number().int().min(600).max(86_400).default(43_200),
+  /**
+   * LiveKit (self-hosted media server) for group calls in groups larger than 8 people.
+   * Unset: every group call is peer to peer (up to 8 people).
+   */
+  LIVEKIT_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
+  LIVEKIT_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(3).optional()),
+  LIVEKIT_API_SECRET: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().min(32).optional(),
+  ),
+  LIVEKIT_MAX_PARTICIPANTS: z.coerce.number().int().min(9).max(500).default(50),
   /** Map tiles for location previews (fetched by the server). {z}/{x}/{y} are filled in. */
   MAP_TILE_URL: z.string().default('https://tile.openstreetmap.org/{z}/{x}/{y}.png'),
   /** Seconds a call rings before it counts as missed. */

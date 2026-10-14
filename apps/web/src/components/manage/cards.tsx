@@ -62,6 +62,13 @@ function Label({ children }: { children: ReactNode }) {
 }
 
 /** Super Admin's view of one business: profile, numbers, stores, admins and actions. */
+const PLAN_LABEL: Record<string, string> = {
+  TRIAL: 'Trial',
+  STARTER: 'Starter',
+  BUSINESS: 'Business',
+  ENTERPRISE: 'Enterprise',
+};
+
 export function BusinessCard({
   business: b,
   selected,
@@ -98,6 +105,29 @@ export function BusinessCard({
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate text-xl font-bold">{b.name}</h3>
             <StatusBadge status={b.status} />
+            {b.plan && (
+              <span
+                className={cx(
+                  'rounded-full px-2.5 py-0.5 text-xs font-bold',
+                  b.plan.status === 'PAST_DUE' || b.plan.status === 'SUSPENDED'
+                    ? 'bg-danger-surface text-danger'
+                    : b.plan.status === 'TRIAL'
+                      ? 'bg-brand-soft text-brand-strong'
+                      : 'bg-surface-3 text-muted',
+                )}
+              >
+                {PLAN_LABEL[b.plan.key] ?? b.plan.key}
+                {b.plan.status === 'PAST_DUE' ? ' · payment due' : ''}
+              </span>
+            )}
+            {b.closureRequestedAt && (
+              <span
+                className="rounded-full bg-danger-surface px-2.5 py-0.5 text-xs font-bold text-danger"
+                title={b.closureReason ?? undefined}
+              >
+                Closure requested
+              </span>
+            )}
           </div>
           <p className="mt-0.5 truncate text-sm text-muted">
             {b.slug}

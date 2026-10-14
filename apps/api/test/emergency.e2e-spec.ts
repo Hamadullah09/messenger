@@ -423,9 +423,11 @@ describe('Emergency help', () => {
       t.admin.id,
     ]);
 
-    // Business admins with no store have no store context.
+    // Business admins may raise for any store of their business, so they must say which one.
     const admin = await h.loginWithMfa(t.admin.username);
-    await raise(admin).expect(409);
+    const unclear = await raise(admin).expect(400);
+    expect(unclear.body.error.details[0].path).toBe('storeId');
+    await raise(admin, { storeId: other.storeId }).expect(404);
   });
 
   it('refuses with a clear message when nobody can be alerted', async () => {

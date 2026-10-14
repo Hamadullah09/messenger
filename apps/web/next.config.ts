@@ -10,6 +10,9 @@ const isDev = process.env.NODE_ENV !== 'production';
 // Unset: local storage for this computer; phones on the Wi-Fi load files through the page's
 // own origin (the LAN web server forwards them).
 const mediaOrigin = process.env.NEXT_PUBLIC_MEDIA_ORIGIN ?? 'http://127.0.0.1:18333';
+// Self-hosted LiveKit for big group calls (wss://livekit.example.com). Unset: not used.
+const liveKitWs = process.env.NEXT_PUBLIC_LIVEKIT_ORIGIN ?? '';
+const liveKitHttps = liveKitWs.replace(/^ws/, 'http');
 
 /**
  * Content Security Policy: no third-party origins. 'unsafe-eval' is only needed by the
@@ -22,10 +25,11 @@ const csp = [
   `img-src 'self' data: blob: ${mediaOrigin}`,
   `media-src 'self' blob: ${mediaOrigin}`,
   "font-src 'self'",
-  `connect-src 'self' ${realtimeUrl} ${realtimeWs} ${mediaOrigin}`,
+  `connect-src 'self' ${realtimeUrl} ${realtimeWs} ${mediaOrigin} ${liveKitWs} ${liveKitHttps}`,
   "frame-ancestors 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  // The pay page sends customers to JazzCash / Easypaisa (sandbox and live) to pay.
+  "form-action 'self' https://sandbox.jazzcash.com.pk https://payments.jazzcash.com.pk https://easypaystg.easypaisa.com.pk https://easypay.easypaisa.com.pk",
   "object-src 'none'",
 ].join('; ');
 

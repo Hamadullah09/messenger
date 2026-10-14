@@ -4,6 +4,7 @@ import type { Response } from 'express';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { Public } from '../auth/actor';
+import { ClientErrorsController } from './client-errors.controller';
 
 type CheckResult = 'ok' | 'fail';
 
@@ -54,5 +55,5 @@ async function withTimeout(promise: Promise<unknown>, ms = 2_000): Promise<Check
   }
 }
 
-@Module({ controllers: [HealthController] })
+@Module({ controllers: [HealthController, ClientErrorsController] })
 export class HealthModule {}

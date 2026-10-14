@@ -25,3 +25,11 @@ e2e/report/
 
 # Local HTTPS certificates for phones on the LAN (never commit)
 .certs/
+
+# Production secrets and per-server files (never committed)
+infrastructure/deployment/secrets/
+infrastructure/monitoring/alertmanager.yml
+infrastructure/deployment/.deploy/
+
+# Local database exports (never in the public repo)
+database/

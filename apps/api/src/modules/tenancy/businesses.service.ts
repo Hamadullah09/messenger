@@ -16,6 +16,7 @@ import { isUniqueViolation, PrismaService } from '../../infra/prisma/prisma.serv
 import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
+import { startTrial } from '../sales/sma-billing.service';
 import { placeDetailsData, placeDetailsSelect, processLogo, toPlaceDetails } from './place-details';
 
 const businessSelect = {
@@ -27,6 +28,9 @@ const businessSelect = {
   locale: true,
   policy: true,
   createdAt: true,
+  closureRequestedAt: true,
+  closureReason: true,
+  smaPlan: { select: { plan: true, status: true } },
   ...placeDetailsSelect,
   stores: {
     where: { status: 'ACTIVE' },
@@ -73,6 +77,9 @@ function toDto(row: BusinessRow): BusinessDto {
     memberCount: row._count.memberships,
     stores: row.stores,
     admins: row.roleAssignments.map((a) => ({ ...a.user, roleName: a.role.name })),
+    closureRequestedAt: row.closureRequestedAt?.toISOString() ?? null,
+    closureReason: row.closureReason,
+    plan: row.smaPlan ? { key: row.smaPlan.plan, status: row.smaPlan.status } : null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -135,6 +142,8 @@ export class BusinessesService {
           },
           select: businessSelect,
         });
+        // Every new business starts on the free trial (its limits apply at once).
+        await startTrial(tx, created.id);
         await this.audit.record(
           actor,
           {

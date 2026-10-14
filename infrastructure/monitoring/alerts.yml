@@ -141,3 +141,20 @@ groups:
         annotations:
           summary: 'Unusual number of authorization denials (probing?)'
           runbook: 'docs/operations/runbook.md#security-incidents'
+
+  - name: sma-uptime
+    rules:
+      - alert: SmaSiteDown
+        expr: probe_success{job="sma-uptime"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: '{{ $labels.instance }} is not reachable from outside (users cannot use SMA)'
+          runbook: 'docs/operations/runbook.md#health'
+      - alert: SmaCertificateExpiring
+        expr: (probe_ssl_earliest_cert_expiry{job="sma-uptime"} - time()) / 86400 < 14
+        for: 1h
+        labels: { severity: warning }
+        annotations:
+          summary: 'The https certificate of {{ $labels.instance }} expires in under 14 days (Caddy renews automatically: check it)'
+          runbook: 'docs/operations/runbook.md#health'

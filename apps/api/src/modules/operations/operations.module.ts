@@ -64,7 +64,10 @@ const businessQuery = z.object({ businessId: z.uuid() });
 const runsQuery = z.object({
   businessId: z.uuid(),
   storeId: z.uuid().optional(),
-  day: z.string().regex(/^d{4}-d{2}-d{2}$/).optional(),
+  day: z
+    .string()
+    .regex(/^d{4}-d{2}-d{2}$/)
+    .optional(),
 });
 
 /** Attendance, checklists and leave. */
@@ -152,7 +155,10 @@ export class StaffController {
 
   @Delete('checklists/templates/:id')
   @HttpCode(204)
-  async removeTemplate(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+  async removeTemplate(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
     await this.staff.removeTemplate(actor, id);
   }
 
@@ -206,7 +212,10 @@ export class StaffController {
 
   @Post('leave/:id/cancel')
   @HttpCode(204)
-  async cancel(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+  async cancel(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
     await this.staff.cancelLeave(actor, id);
   }
 }
@@ -247,7 +256,10 @@ export class OperationsController {
 
   @Delete('tasks/:id')
   @HttpCode(204)
-  async removeTask(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+  async removeTask(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
     await this.ops.removeTask(actor, id);
   }
 
@@ -271,12 +283,18 @@ export class OperationsController {
 
   @Delete('shifts/:id')
   @HttpCode(204)
-  async removeShift(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+  async removeShift(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
     await this.ops.removeShift(actor, id);
   }
 
   @Get('stores/:id/staff')
-  staff(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<StoreStaffDto> {
+  staff(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<StoreStaffDto> {
     return this.ops.staff(actor, id);
   }
 }

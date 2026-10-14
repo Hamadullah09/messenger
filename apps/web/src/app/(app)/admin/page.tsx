@@ -12,6 +12,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Building2,
   Contact,
+  CreditCard,
   Plus,
   ScrollText,
   Siren,
@@ -24,6 +25,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { EmergencySettingsTab } from '@/components/emergency/emergency-settings';
 import { BusinessCard, StoreCard } from '@/components/manage/cards';
+import { PlanBillingTab } from '@/components/manage/plan-billing';
 import { StoreCustomersTab } from '@/components/manage/store-customers';
 import {
   assignableRoles,
@@ -60,9 +62,17 @@ import {
 import { api, errorMessage } from '@/lib/api';
 import { hasPermission, isPlatformAdmin, useAuth } from '@/lib/auth-store';
 
-type Tab = 'businesses' | 'stores' | 'people' | 'customers' | 'emergency' | 'audit';
+type Tab = 'businesses' | 'stores' | 'people' | 'customers' | 'emergency' | 'billing' | 'audit';
 
-const TAB_KEYS: Tab[] = ['businesses', 'stores', 'people', 'customers', 'emergency', 'audit'];
+const TAB_KEYS: Tab[] = [
+  'businesses',
+  'stores',
+  'people',
+  'customers',
+  'emergency',
+  'billing',
+  'audit',
+];
 
 function AdminScreen() {
   const router = useRouter();
@@ -95,6 +105,12 @@ function AdminScreen() {
       label: 'Emergency',
       Icon: Siren,
       show: !!businessId && hasPermission(me, 'emergency_contact.manage', businessId),
+    },
+    {
+      key: 'billing',
+      label: 'Plan & billing',
+      Icon: CreditCard,
+      show: !!businessId && (platform || hasPermission(me, 'business.read', businessId)),
     },
     {
       key: 'audit',
@@ -166,6 +182,7 @@ function AdminScreen() {
           {tab === 'people' && businessId && <PeopleTab businessId={businessId} />}
           {tab === 'customers' && businessId && <StoreCustomersTab businessId={businessId} />}
           {tab === 'emergency' && businessId && <EmergencySettingsTab businessId={businessId} />}
+          {tab === 'billing' && businessId && <PlanBillingTab businessId={businessId} />}
           {tab === 'audit' && businessId && <AuditTab businessId={businessId} />}
           {!businessId && tab !== 'businesses' && <EmptyState title="Choose a business first" />}
         </div>

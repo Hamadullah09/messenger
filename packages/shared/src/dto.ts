@@ -112,6 +112,11 @@ export interface BusinessDto extends PlaceDetailsDto {
   stores: Array<{ id: string; name: string; code: string }>;
   /** People holding a business-wide role: owners, admins, business managers (names only). */
   admins: Array<{ id: string; displayName: string; username: string; roleName: string }>;
+  /** The owner asked SMA to close the account. */
+  closureRequestedAt: string | null;
+  closureReason: string | null;
+  /** SMA plan (null: SMA's own sales team). */
+  plan: { key: string; status: string } | null;
   createdAt: string;
 }
 

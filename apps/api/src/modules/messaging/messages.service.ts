@@ -220,10 +220,7 @@ export class MessagesService {
     if (message.senderId !== actor.userId)
       throw ApiError.forbidden('You can only edit your own messages.');
     // Text and attachment captions can be edited; system messages cannot.
-    if (
-      message.deletedAt ||
-      !['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT'].includes(message.kind)
-    )
+    if (message.deletedAt || !['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT'].includes(message.kind))
       throw ApiError.conflict('This message cannot be edited.');
     const policy = resolveBusinessPolicy(conversation.business.policy);
     if (Date.now() - message.createdAt.getTime() > policy.messageEditWindowMinutes * 60_000) {
@@ -467,7 +464,11 @@ export class MessagesService {
     tx: Tx,
     businessId: string,
     content: RichContent,
-  ): Promise<{ kind: 'LOCATION' | 'CONTACT' | 'POLL' | 'EVENT' | 'STICKER'; body: string | null; meta: MessageMeta }> {
+  ): Promise<{
+    kind: 'LOCATION' | 'CONTACT' | 'POLL' | 'EVENT' | 'STICKER';
+    body: string | null;
+    meta: MessageMeta;
+  }> {
     switch (content.kind) {
       case 'LOCATION': {
         const now = new Date();
@@ -676,7 +677,9 @@ export class MessagesService {
       const text =
         m.kind === 'TEXT'
           ? (m.body ?? '')
-          : [kindPreview(m.kind, null), file ? `(${file})` : null, m.body].filter(Boolean).join(' ');
+          : [kindPreview(m.kind, null), file ? `(${file})` : null, m.body]
+              .filter(Boolean)
+              .join(' ');
       return `[${stamp(m.createdAt)}] ${m.sender.displayName}: ${text}`;
     });
     await this.audit.record(actor, {
@@ -688,7 +691,11 @@ export class MessagesService {
     });
     return {
       title,
-      text: [`Chat export · ${title} · ${new Date().toISOString().slice(0, 10)} (times in UTC)`, '', ...lines].join('\r\n'),
+      text: [
+        `Chat export · ${title} · ${new Date().toISOString().slice(0, 10)} (times in UTC)`,
+        '',
+        ...lines,
+      ].join('\r\n'),
     };
   }
 

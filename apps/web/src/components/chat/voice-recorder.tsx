@@ -88,7 +88,10 @@ export function VoiceRecorder({
       setError('Allow the microphone to record voice messages.');
       return false;
     }
-    const recorder = new MediaRecorder(stream, { mimeType: format.recorder, audioBitsPerSecond: 32_000 });
+    const recorder = new MediaRecorder(stream, {
+      mimeType: format.recorder,
+      audioBitsPerSecond: 32_000,
+    });
     const audio = new AudioContext();
     const analyser = audio.createAnalyser();
     analyser.fftSize = 512;
@@ -132,7 +135,9 @@ export function VoiceRecorder({
     if (current.cancel || durationMs < MIN_MS) return;
     const blob = new Blob(current.chunks, { type: current.format.upload });
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    const file = new File([blob], `voice-${stamp}.${current.format.ext}`, { type: current.format.upload });
+    const file = new File([blob], `voice-${stamp}.${current.format.ext}`, {
+      type: current.format.upload,
+    });
     onSend(file, { voice: true, durationMs, waveform: toBars(current.samples, BARS) });
   }
 
@@ -153,7 +158,10 @@ export function VoiceRecorder({
     return (
       <div className="relative">
         {error && (
-          <p role="alert" className="absolute right-0 bottom-full mb-2 w-64 rounded-lg bg-surface p-2 text-sm text-danger shadow-pop">
+          <p
+            role="alert"
+            className="absolute right-0 bottom-full mb-2 w-64 rounded-lg bg-surface p-2 text-sm text-danger shadow-pop"
+          >
             {error}
           </p>
         )}
@@ -216,7 +224,10 @@ export function VoiceRecorder({
       </span>
       {state === 'holding' ? (
         <span
-          className={cx('flex flex-1 items-center gap-1 text-sm', cancelling ? 'text-danger' : 'text-wa-meta-in')}
+          className={cx(
+            'flex flex-1 items-center gap-1 text-sm',
+            cancelling ? 'text-danger' : 'text-wa-meta-in',
+          )}
           style={{ transform: `translateX(${dx / 3}px)` }}
         >
           <ChevronLeft className="size-4" aria-hidden />

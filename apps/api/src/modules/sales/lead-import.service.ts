@@ -24,16 +24,54 @@ const MAX_BYTES = 4 * 1024 * 1024;
 
 /** Heading words that identify each lead field (lower-case, spaces removed). */
 const SYNONYMS: Record<LeadImportField, string[]> = {
-  companyName: ['company', 'companyname', 'business', 'businessname', 'organisation', 'organization', 'shop', 'store', 'brand', 'name'],
-  contactName: ['contact', 'contactname', 'person', 'contactperson', 'owner', 'fullname', 'customer'],
+  companyName: [
+    'company',
+    'companyname',
+    'business',
+    'businessname',
+    'organisation',
+    'organization',
+    'shop',
+    'store',
+    'brand',
+    'name',
+  ],
+  contactName: [
+    'contact',
+    'contactname',
+    'person',
+    'contactperson',
+    'owner',
+    'fullname',
+    'customer',
+  ],
   contactTitle: ['title', 'designation', 'position', 'role', 'jobtitle'],
   email: ['email', 'e-mail', 'emailaddress', 'mail'],
-  phone: ['phone', 'mobile', 'cell', 'contactno', 'contactnumber', 'whatsapp', 'number', 'tel', 'telephone', 'phoneno'],
+  phone: [
+    'phone',
+    'mobile',
+    'cell',
+    'contactno',
+    'contactnumber',
+    'whatsapp',
+    'number',
+    'tel',
+    'telephone',
+    'phoneno',
+  ],
   website: ['website', 'web', 'url', 'site'],
   industry: ['industry', 'sector', 'category', 'type'],
   city: ['city', 'town', 'location'],
   country: ['country'],
-  storeCount: ['stores', 'storecount', 'branches', 'outlets', 'noofstores', 'numberofstores', 'locations'],
+  storeCount: [
+    'stores',
+    'storecount',
+    'branches',
+    'outlets',
+    'noofstores',
+    'numberofstores',
+    'locations',
+  ],
   estimatedValue: ['value', 'budget', 'dealvalue', 'estimatedvalue', 'monthlyvalue', 'amount'],
   notes: ['notes', 'note', 'remarks', 'comment', 'comments', 'details', 'description'],
 };
@@ -62,13 +100,17 @@ const phoneKey = (p: string | null | undefined) => {
   return digits.length >= 7 ? digits.slice(-10) : null;
 };
 const companyKey = (c: string | null | undefined) =>
-  (c ?? '').toLowerCase().replace(/\b(pvt|private|ltd|limited|llc|inc|co|company)\b/g, '').replace(/[^a-z0-9]/g, '') || null;
+  (c ?? '')
+    .toLowerCase()
+    .replace(/\b(pvt|private|ltd|limited|llc|inc|co|company)\b/g, '')
+    .replace(/[^a-z0-9]/g, '') || null;
 
 /** Minimal CSV reader: commas or semicolons, quoted fields, BOM. */
 function parseCsv(text: string): string[][] {
   const clean = text.startsWith('﻿') ? text.slice(1) : text;
   const firstLine = clean.split(/\r?\n/, 1)[0] ?? '';
-  const sep = (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ',';
+  const sep =
+    (firstLine.match(/;/g)?.length ?? 0) > (firstLine.match(/,/g)?.length ?? 0) ? ';' : ',';
   const rows: string[][] = [];
   let row: string[] = [];
   let cell = '';
@@ -100,7 +142,53 @@ function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((c) => c.trim()));
 }
 
+/** Unpacked size limit for an .xlsx (a zip): stops "zip bombs" before they are opened. */
+const MAX_UNZIPPED_BYTES = 40 * 1024 * 1024;
+const MAX_ZIP_ENTRIES = 400;
+
+/**
+ * Reads the zip's central directory (without unpacking anything) and rejects archives that
+ * would unpack too large, have too many files, or use ZIP64.
+ */
+export function assertSafeZip(buffer: Buffer): void {
+  const bad = () =>
+    ApiError.validation(
+      'This file could not be read. Save it again as .xlsx or .csv.',
+      'contentBase64',
+    );
+  // End of central directory: in the last 22 + 65,535 bytes.
+  let eocd = -1;
+  for (let i = buffer.length - 22; i >= Math.max(0, buffer.length - 22 - 0xffff); i--) {
+    if (buffer.readUInt32LE(i) === 0x06054b50) {
+      eocd = i;
+      break;
+    }
+  }
+  if (eocd < 0) throw bad();
+  const entries = buffer.readUInt16LE(eocd + 10);
+  let offset = buffer.readUInt32LE(eocd + 16);
+  if (entries === 0xffff || offset === 0xffffffff || entries > MAX_ZIP_ENTRIES) throw bad();
+  let total = 0;
+  for (let n = 0; n < entries; n++) {
+    if (offset + 46 > buffer.length || buffer.readUInt32LE(offset) !== 0x02014b50) throw bad();
+    const size = buffer.readUInt32LE(offset + 24);
+    if (size === 0xffffffff) throw bad();
+    total += size;
+    if (total > MAX_UNZIPPED_BYTES)
+      throw ApiError.validation(
+        'This file is too big once opened. Split it into smaller files.',
+        'contentBase64',
+      );
+    offset +=
+      46 +
+      buffer.readUInt16LE(offset + 28) +
+      buffer.readUInt16LE(offset + 30) +
+      buffer.readUInt16LE(offset + 32);
+  }
+}
+
 async function parseXlsx(buffer: Buffer): Promise<string[][]> {
+  assertSafeZip(buffer);
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buffer as unknown as ArrayBuffer);
   const ws = wb.worksheets[0];
@@ -175,7 +263,8 @@ export class LeadImportService {
   async preview(actor: Actor, request: LeadImportPreviewRequest): Promise<LeadImportPreviewDto> {
     const tenantId = await this.requireManage(actor);
     const buffer = Buffer.from(request.contentBase64, 'base64');
-    if (buffer.length > MAX_BYTES) throw ApiError.validation('The file is too big (4 MB at most).', 'contentBase64');
+    if (buffer.length > MAX_BYTES)
+      throw ApiError.validation('The file is too big (4 MB at most).', 'contentBase64');
     const name = request.fileName.toLowerCase();
     let table: string[][];
     try {
@@ -184,9 +273,16 @@ export class LeadImportService {
       else throw ApiError.validation('Use an Excel (.xlsx) or CSV file.', 'fileName');
     } catch (error) {
       if (error instanceof ApiError) throw error;
-      throw ApiError.validation('This file could not be read. Save it again as .xlsx or .csv.', 'contentBase64');
+      throw ApiError.validation(
+        'This file could not be read. Save it again as .xlsx or .csv.',
+        'contentBase64',
+      );
     }
-    if (table.length < 2) throw ApiError.validation('The file needs a heading row and at least one lead.', 'contentBase64');
+    if (table.length < 2)
+      throw ApiError.validation(
+        'The file needs a heading row and at least one lead.',
+        'contentBase64',
+      );
     const headings = table[0]!.map((h, i) => h.trim() || `Column ${i + 1}`);
     const mapping: Partial<Record<LeadImportField, string>> = {};
     const used = new Set<number>();
@@ -197,7 +293,9 @@ export class LeadImportService {
         const idx = headings.findIndex((h, i) => {
           if (used.has(i)) return false;
           const n = norm(h);
-          return pass === 'exact' ? SYNONYMS[field].includes(n) : SYNONYMS[field].some((s) => s.length > 3 && n.includes(s));
+          return pass === 'exact'
+            ? SYNONYMS[field].includes(n)
+            : SYNONYMS[field].some((s) => s.length > 3 && n.includes(s));
         });
         if (idx >= 0) {
           mapping[field] = headings[idx]!;
@@ -220,20 +318,34 @@ export class LeadImportService {
         values.country = c.length === 2 ? c.toUpperCase() : (COUNTRIES[c.toLowerCase()] ?? '');
         if (!values.country) delete values.country;
       }
-      if (values.storeCount) values.storeCount = String(parseInt(values.storeCount.replace(/\D/g, ''), 10) || '');
-      if (values.estimatedValue) values.estimatedValue = String(Math.round(Number(values.estimatedValue.replace(/[^\d.]/g, ''))) || '');
+      if (values.storeCount)
+        values.storeCount = String(parseInt(values.storeCount.replace(/\D/g, ''), 10) || '');
+      if (values.estimatedValue)
+        values.estimatedValue = String(
+          Math.round(Number(values.estimatedValue.replace(/[^\d.]/g, ''))) || '',
+        );
       if (!values.contactName && values.companyName) values.contactName = values.companyName;
       const errors: string[] = [];
-      if (!values.companyName || values.companyName.length < 2) errors.push('Company name is missing');
-      if (values.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email)) errors.push('Email looks wrong');
+      if (!values.companyName || values.companyName.length < 2)
+        errors.push('Company name is missing');
+      if (values.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(values.email))
+        errors.push('Email looks wrong');
       if (values.phone && phoneKey(values.phone) === null) errors.push('Phone number is too short');
       let duplicate = this.match(index, values);
       // Repeated inside the same file.
-      const keys = [values.email?.toLowerCase(), phoneKey(values.phone), companyKey(values.companyName)].filter(Boolean) as string[];
+      const keys = [
+        values.email?.toLowerCase(),
+        phoneKey(values.phone),
+        companyKey(values.companyName),
+      ].filter(Boolean) as string[];
       if (!duplicate)
         for (const k of keys) {
           if (seen.has(k)) {
-            duplicate = { id: '', companyName: values.companyName ?? '', reason: `Same as row ${seen.get(k)! + 2} in this file` };
+            duplicate = {
+              id: '',
+              companyName: values.companyName ?? '',
+              reason: `Same as row ${seen.get(k)! + 2} in this file`,
+            };
             break;
           }
         }
@@ -258,17 +370,24 @@ export class LeadImportService {
             user: { status: 'ACTIVE', deletedAt: null },
           },
         });
-        if (!isSalesPerson) throw ApiError.validation('Choose someone from the sales team.', 'ownerId');
+        if (!isSalesPerson)
+          throw ApiError.validation('Choose someone from the sales team.', 'ownerId');
       }
       ownerId = request.ownerId;
     }
     const index = await this.existingIndex(teamId);
-    const direction = (OUTBOUND_SOURCES as readonly string[]).includes(request.source) ? 'OUTBOUND' : 'INBOUND';
+    const direction = (OUTBOUND_SOURCES as readonly string[]).includes(request.source)
+      ? 'OUTBOUND'
+      : 'INBOUND';
     let created = 0;
     let skipped = 0;
     const seen = new Set<string>();
     for (const row of request.rows) {
-      const keys = [row.email?.toLowerCase(), phoneKey(row.phone), companyKey(row.companyName)].filter(Boolean) as string[];
+      const keys = [
+        row.email?.toLowerCase(),
+        phoneKey(row.phone),
+        companyKey(row.companyName),
+      ].filter(Boolean) as string[];
       const dup = this.match(index, row) || keys.some((k) => seen.has(k));
       keys.forEach((k) => seen.add(k));
       if (dup && request.skipDuplicates) {
@@ -290,7 +409,13 @@ export class LeadImportService {
           select: { id: true },
         });
         await tx.leadActivity.create({
-          data: { leadId: lead.id, type: 'CREATED', toStage: 'NEW', actorId: actor.userId, body: 'Imported from a file' },
+          data: {
+            leadId: lead.id,
+            type: 'CREATED',
+            toStage: 'NEW',
+            actorId: actor.userId,
+            body: 'Imported from a file',
+          },
         });
       });
       created += 1;
@@ -304,10 +429,15 @@ export class LeadImportService {
   }
 
   /** Possible duplicates while typing a new lead. */
-  async duplicates(actor: Actor, values: { companyName?: string; email?: string; phone?: string }): Promise<LeadDuplicateDto[]> {
+  async duplicates(
+    actor: Actor,
+    values: { companyName?: string; email?: string; phone?: string },
+  ): Promise<LeadDuplicateDto[]> {
     const tenantId = await this.requireManage(actor);
     const or = [
-      values.email ? { email: { equals: values.email.trim(), mode: 'insensitive' as const } } : null,
+      values.email
+        ? { email: { equals: values.email.trim(), mode: 'insensitive' as const } }
+        : null,
       values.companyName && values.companyName.trim().length >= 3
         ? { companyName: { contains: values.companyName.trim(), mode: 'insensitive' as const } }
         : null,

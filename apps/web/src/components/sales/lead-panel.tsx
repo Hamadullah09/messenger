@@ -106,7 +106,15 @@ export function LeadPanel({
     outcome: ActivityOutcome | '';
     /** null: decide from whether the planned follow-up is due. */
     completes: boolean | null;
-  }>({ type: 'CALL', body: '', next: '', nextKind: '', nextNote: '', outcome: '', completes: null });
+  }>({
+    type: 'CALL',
+    body: '',
+    next: '',
+    nextKind: '',
+    nextNote: '',
+    outcome: '',
+    completes: null,
+  });
   const done = (data: LeadDetailDto) => {
     client.setQueryData(['lead', leadId], data);
     void client.invalidateQueries({ queryKey: ['leads'] });
@@ -135,7 +143,8 @@ export function LeadPanel({
   const plannedAt = lead.data?.nextFollowUpAt ? new Date(lead.data.nextFollowUpAt) : null;
   const followUpDue =
     !!plannedAt && plannedAt.getTime() < new Date(new Date().setHours(24, 0, 0, 0)).getTime();
-  const completesFollowUp = !!plannedAt && activity.type !== 'NOTE' && (activity.completes ?? followUpDue);
+  const completesFollowUp =
+    !!plannedAt && activity.type !== 'NOTE' && (activity.completes ?? followUpDue);
   const log = useMutation({
     mutationFn: () =>
       api<LeadDetailDto>(`/sales/leads/${leadId}/activities`, {
@@ -155,7 +164,15 @@ export function LeadPanel({
         },
       }),
     onSuccess: (data) => {
-      setActivity({ type: activity.type, body: '', next: '', nextKind: '', nextNote: '', outcome: '', completes: null });
+      setActivity({
+        type: activity.type,
+        body: '',
+        next: '',
+        nextKind: '',
+        nextNote: '',
+        outcome: '',
+        completes: null,
+      });
       done(data);
     },
   });
@@ -409,7 +426,11 @@ export function LeadPanel({
             )}
           </section>
 
-          <LeadDeals lead={{ id: l.id, companyName: l.companyName }} context={context} team={team} />
+          <LeadDeals
+            lead={{ id: l.id, companyName: l.companyName }}
+            context={context}
+            team={team}
+          />
 
           {l.notes && (
             <section>
@@ -479,7 +500,8 @@ export function LeadPanel({
                     checked={completesFollowUp}
                     onChange={(e) => setActivity({ ...activity, completes: e.target.checked })}
                   />
-                  This was the planned {FOLLOW_UP_LABEL[l.nextFollowUpKind ?? 'OTHER'].toLowerCase()} (
+                  This was the planned{' '}
+                  {FOLLOW_UP_LABEL[l.nextFollowUpKind ?? 'OTHER'].toLowerCase()} (
                   {formatDay(l.nextFollowUpAt)} {formatTime(l.nextFollowUpAt)})
                 </label>
               )}

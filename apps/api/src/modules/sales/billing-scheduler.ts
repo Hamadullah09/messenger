@@ -1,4 +1,9 @@
-import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import { MailService } from '../../infra/mail/mail.service';
 import { MarketingChannelsService } from '../../infra/mail/marketing-channels.service';
 import { PrismaService } from '../../infra/prisma/prisma.service';
@@ -16,6 +21,7 @@ import {
   today,
   type DocumentForEmail,
 } from './crm-core';
+import { SMA_PLANS, type SmaPlanKey } from '@storeline/shared';
 import { nextPeriod } from './billing.service';
 
 const TICK_MS = 10 * 60_000;
@@ -44,12 +50,32 @@ export class BillingRunner {
       include: {
         items: { orderBy: { position: 'asc' } },
         business: { select: { name: true, email: true, phone: true, address: true } },
-        lead: { select: { companyName: true, email: true, phone: true, city: true, country: true } },
+        lead: {
+          select: { companyName: true, email: true, phone: true, city: true, country: true },
+        },
       },
       take: 100,
     });
     let count = 0;
     for (const sub of due) {
+      // SMA plans priced per store bill for today's number of stores.
+      const plan = await this.prisma.businessPlan.findUnique({
+        where: { subscriptionId: sub.id },
+        select: { plan: true, businessId: true },
+      });
+      if (plan && SMA_PLANS[plan.plan as SmaPlanKey].perStore) {
+        const stores = Math.max(
+          1,
+          await this.prisma.store.count({
+            where: { businessId: plan.businessId, status: 'ACTIVE' },
+          }),
+        );
+        await this.prisma.subscriptionItem.updateMany({
+          where: { subscriptionId: sub.id },
+          data: { quantity: stores },
+        });
+        for (const item of sub.items) item.quantity = stores;
+      }
       const periodStart = sub.nextInvoiceAt;
       const periodEnd = nextPeriod(periodStart, sub.interval as 'MONTHLY' | 'YEARLY');
       try {
@@ -123,9 +149,12 @@ export class BillingRunner {
     return count;
   }
 
-  private async documentFor(
-    invoiceId: string,
-  ): Promise<{ doc: DocumentForEmail; email: string | null; phone: string | null; tenantId: string } | null> {
+  private async documentFor(invoiceId: string): Promise<{
+    doc: DocumentForEmail;
+    email: string | null;
+    phone: string | null;
+    tenantId: string;
+  } | null> {
     const i = await this.prisma.invoice.findUnique({
       where: { id: invoiceId },
       include: { items: { orderBy: { position: 'asc' } } },
@@ -180,7 +209,11 @@ export class BillingRunner {
       text: documentText(found.doc, s, intro ?? undefined),
       html: documentHtml(found.doc, s, intro ?? undefined),
     });
-    if (sent) await this.prisma.invoice.update({ where: { id: invoiceId }, data: { lastEmailedAt: new Date() } });
+    if (sent)
+      await this.prisma.invoice.update({
+        where: { id: invoiceId },
+        data: { lastEmailedAt: new Date() },
+      });
     return sent;
   }
 
@@ -238,10 +271,56 @@ export class BillingRunner {
     // retried every round; the invoice page shows how many reminders went out.
     await this.prisma.invoice.update({
       where: { id: invoiceId },
-      data: { reminderCount: step ?? { increment: 1 }, ...(delivered ? { lastReminderAt: new Date() } : {}) },
+      data: {
+        reminderCount: step ?? { increment: 1 },
+        ...(delivered ? { lastReminderAt: new Date() } : {}),
+      },
     });
     return delivered;
   }
+}
+
+/**
+ * SMA plan status: an ended trial, or an SMA invoice more than 7 days overdue, makes the plan
+ * PAST_DUE (admins see a notice); paying brings it back to ACTIVE. Suspension stays manual.
+ */
+export async function sweepPlanStatuses(prisma: PrismaService): Promise<number> {
+  const now = new Date();
+  let changed = (
+    await prisma.businessPlan.updateMany({
+      where: { status: 'TRIAL', trialEndsAt: { lt: now } },
+      data: { status: 'PAST_DUE' },
+    })
+  ).count;
+  const sma = await prisma.business.findFirst({
+    where: { internal: true, deletedAt: null },
+    select: { id: true },
+  });
+  if (!sma) return changed;
+  const overdue = await prisma.invoice.findMany({
+    where: {
+      tenantId: sma.id,
+      businessId: { not: null },
+      status: { in: ['ISSUED', 'PARTIALLY_PAID'] },
+      dueDate: { lt: dateOnly(new Date(now.getTime() - 7 * 86_400_000)) },
+    },
+    select: { businessId: true },
+    distinct: ['businessId'],
+  });
+  const late = overdue.map((i) => i.businessId!);
+  changed += (
+    await prisma.businessPlan.updateMany({
+      where: { status: 'ACTIVE', businessId: { in: late } },
+      data: { status: 'PAST_DUE' },
+    })
+  ).count;
+  changed += (
+    await prisma.businessPlan.updateMany({
+      where: { status: 'PAST_DUE', plan: { not: 'TRIAL' }, businessId: { notIn: late } },
+      data: { status: 'ACTIVE' },
+    })
+  ).count;
+  return changed;
 }
 
 /** Worker: runs billing every 10 minutes and expires old quotes. */
@@ -271,6 +350,8 @@ export class BillingScheduler implements OnApplicationBootstrap, OnModuleDestroy
     try {
       const invoiced = await this.runner.billSubscriptions();
       const reminded = await this.runner.sendReminders();
+      const plans = await sweepPlanStatuses(this.prisma);
+      if (plans) this.logger.log({ plans }, 'SMA plan statuses updated');
       const expired = await this.prisma.quote.updateMany({
         where: { status: { in: ['DRAFT', 'SENT'] }, validUntil: { lt: today() } },
         data: { status: 'EXPIRED' },

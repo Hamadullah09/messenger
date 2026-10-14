@@ -12,7 +12,13 @@
  */
 import '../src/load-env';
 import { randomBytes } from 'node:crypto';
-import { PrismaClient, type DealStatus, type DealType, type QuoteStatus, type ServiceBilling } from '@prisma/client';
+import {
+  PrismaClient,
+  type DealStatus,
+  type DealType,
+  type QuoteStatus,
+  type ServiceBilling,
+} from '@prisma/client';
 import type { AppConfig } from '../src/infra/config/config';
 import { CryptoService } from '../src/infra/crypto/crypto.service';
 
@@ -37,17 +43,84 @@ const SERVICES: Array<{
   billing: ServiceBilling;
   description: string;
 }> = [
-  { name: 'SMA Starter', category: 'Plans', price: 29, billing: 'MONTHLY', description: 'Team chat, groups and emergency button for one store.' },
-  { name: 'SMA Business', category: 'Plans', price: 49, billing: 'MONTHLY', description: 'Everything in Starter plus campaigns, store customers and admin roles, per store.' },
-  { name: 'SMA Enterprise', category: 'Plans', price: 499, billing: 'MONTHLY', description: 'Unlimited stores, priority support and a dedicated account manager.' },
-  { name: 'WhatsApp campaigns', category: 'Add-ons', price: 39, billing: 'MONTHLY', description: 'Send approved WhatsApp campaigns to store customers.' },
-  { name: 'SMS campaigns', category: 'Add-ons', price: 25, billing: 'MONTHLY', description: 'Send SMS campaigns to store customers.' },
-  { name: 'Emergency alert system', category: 'Add-ons', price: 19, billing: 'MONTHLY', description: 'Escalating emergency alerts with acknowledgement, per store.' },
-  { name: 'Extra 100 GB storage', category: 'Add-ons', price: 15, billing: 'MONTHLY', description: 'More space for photos, videos and documents.' },
-  { name: 'Priority support', category: 'Add-ons', price: 99, billing: 'MONTHLY', description: 'Same-day answers and a WhatsApp support line.' },
-  { name: 'Setup & onboarding', category: 'Services', price: 300, billing: 'ONE_TIME', description: 'Stores, staff, roles and groups set up for you.' },
-  { name: 'Staff training session', category: 'Services', price: 150, billing: 'ONE_TIME', description: 'Two-hour training for store teams, on site or online.' },
-  { name: 'Data migration', category: 'Services', price: 450, billing: 'ONE_TIME', description: 'Bring contacts, customers and history from your old tools.' },
+  {
+    name: 'SMA Starter',
+    category: 'Plans',
+    price: 29,
+    billing: 'MONTHLY',
+    description: 'Team chat, groups and emergency button for one store.',
+  },
+  {
+    name: 'SMA Business',
+    category: 'Plans',
+    price: 49,
+    billing: 'MONTHLY',
+    description:
+      'Everything in Starter plus campaigns, store customers and admin roles, per store.',
+  },
+  {
+    name: 'SMA Enterprise',
+    category: 'Plans',
+    price: 499,
+    billing: 'MONTHLY',
+    description: 'Unlimited stores, priority support and a dedicated account manager.',
+  },
+  {
+    name: 'WhatsApp campaigns',
+    category: 'Add-ons',
+    price: 39,
+    billing: 'MONTHLY',
+    description: 'Send approved WhatsApp campaigns to store customers.',
+  },
+  {
+    name: 'SMS campaigns',
+    category: 'Add-ons',
+    price: 25,
+    billing: 'MONTHLY',
+    description: 'Send SMS campaigns to store customers.',
+  },
+  {
+    name: 'Emergency alert system',
+    category: 'Add-ons',
+    price: 19,
+    billing: 'MONTHLY',
+    description: 'Escalating emergency alerts with acknowledgement, per store.',
+  },
+  {
+    name: 'Extra 100 GB storage',
+    category: 'Add-ons',
+    price: 15,
+    billing: 'MONTHLY',
+    description: 'More space for photos, videos and documents.',
+  },
+  {
+    name: 'Priority support',
+    category: 'Add-ons',
+    price: 99,
+    billing: 'MONTHLY',
+    description: 'Same-day answers and a WhatsApp support line.',
+  },
+  {
+    name: 'Setup & onboarding',
+    category: 'Services',
+    price: 300,
+    billing: 'ONE_TIME',
+    description: 'Stores, staff, roles and groups set up for you.',
+  },
+  {
+    name: 'Staff training session',
+    category: 'Services',
+    price: 150,
+    billing: 'ONE_TIME',
+    description: 'Two-hour training for store teams, on site or online.',
+  },
+  {
+    name: 'Data migration',
+    category: 'Services',
+    price: 450,
+    billing: 'ONE_TIME',
+    description: 'Bring contacts, customers and history from your old tools.',
+  },
 ];
 
 type Line = [service: string, quantity: number, discountPct?: number];
@@ -68,7 +141,12 @@ interface DemoDeal {
     issued: Date;
     dueDays: number;
     draft?: boolean;
-    payments?: Array<{ fraction: number; at: Date; method: 'BANK_TRANSFER' | 'CARD' | 'CASH' | 'CHEQUE'; reference?: string }>;
+    payments?: Array<{
+      fraction: number;
+      at: Date;
+      method: 'BANK_TRANSFER' | 'CARD' | 'CASH' | 'CHEQUE';
+      reference?: string;
+    }>;
   };
 }
 
@@ -80,7 +158,11 @@ const DEALS: DemoDeal[] = [
     status: 'WON',
     owner: 'sales.bilal',
     customer: 'ABC Retail Group',
-    lines: [['SMA Enterprise', 12], ['Data migration', 1], ['Staff training session', 2]],
+    lines: [
+      ['SMA Enterprise', 12],
+      ['Data migration', 1],
+      ['Staff training session', 2],
+    ],
     closedAt: monthsAgo(4, 18),
     invoice: {
       issued: monthsAgo(4, 19),
@@ -98,12 +180,18 @@ const DEALS: DemoDeal[] = [
     status: 'WON',
     owner: 'sales.hira',
     lead: 'Khadi',
-    lines: [['SMA Business', 36], ['Setup & onboarding', 1], ['Staff training session', 1]],
+    lines: [
+      ['SMA Business', 36],
+      ['Setup & onboarding', 1],
+      ['Staff training session', 1],
+    ],
     closedAt: monthsAgo(2, 9),
     invoice: {
       issued: monthsAgo(2, 10),
       dueDays: 14,
-      payments: [{ fraction: 1, at: monthsAgo(2, 21), method: 'BANK_TRANSFER', reference: 'MCB-41102' }],
+      payments: [
+        { fraction: 1, at: monthsAgo(2, 21), method: 'BANK_TRANSFER', reference: 'MCB-41102' },
+      ],
     },
   },
   {
@@ -113,12 +201,17 @@ const DEALS: DemoDeal[] = [
     status: 'WON',
     owner: 'sales.hira',
     lead: 'SMA Business',
-    lines: [['SMA Starter', 24], ['Setup & onboarding', 1]],
+    lines: [
+      ['SMA Starter', 24],
+      ['Setup & onboarding', 1],
+    ],
     closedAt: monthsAgo(1, 6),
     invoice: {
       issued: monthsAgo(1, 7),
       dueDays: 14,
-      payments: [{ fraction: 0.5, at: monthsAgo(1, 15), method: 'CHEQUE', reference: 'Cheque 004512' }],
+      payments: [
+        { fraction: 0.5, at: monthsAgo(1, 15), method: 'CHEQUE', reference: 'Cheque 004512' },
+      ],
     },
   },
   {
@@ -128,7 +221,10 @@ const DEALS: DemoDeal[] = [
     status: 'WON',
     owner: 'sales.hira',
     customer: 'Khaadi',
-    lines: [['WhatsApp campaigns', 12], ['Emergency alert system', 36, 10]],
+    lines: [
+      ['WhatsApp campaigns', 12],
+      ['Emergency alert system', 36, 10],
+    ],
     closedAt: daysAgo(6),
     invoice: { issued: daysAgo(5), dueDays: 14 },
   },
@@ -154,7 +250,10 @@ const DEALS: DemoDeal[] = [
     status: 'WON',
     owner: 'sales.bilal',
     lead: 'Green Valley Pharmacy',
-    lines: [['SMA Starter', 48], ['Setup & onboarding', 1]],
+    lines: [
+      ['SMA Starter', 48],
+      ['Setup & onboarding', 1],
+    ],
     closedAt: daysAgo(3),
     invoice: { issued: daysAgo(2), dueDays: 14, draft: true },
   },
@@ -165,7 +264,10 @@ const DEALS: DemoDeal[] = [
     status: 'OPEN',
     owner: 'sales.manager',
     customer: 'SMA Business',
-    lines: [['Extra 100 GB storage', 12], ['SMS campaigns', 12]],
+    lines: [
+      ['Extra 100 GB storage', 12],
+      ['SMS campaigns', 12],
+    ],
     expectedCloseAt: daysAgo(-7),
   },
   {
@@ -175,7 +277,10 @@ const DEALS: DemoDeal[] = [
     status: 'OPEN',
     owner: 'sales.manager',
     lead: 'Hyperstar Express',
-    lines: [['SMA Enterprise', 12], ['Data migration', 1]],
+    lines: [
+      ['SMA Enterprise', 12],
+      ['Data migration', 1],
+    ],
     expectedCloseAt: daysAgo(-12),
   },
   {
@@ -185,7 +290,10 @@ const DEALS: DemoDeal[] = [
     status: 'OPEN',
     owner: 'sales.manager',
     lead: 'Gourmet Foods',
-    lines: [['SMA Business', 60], ['Setup & onboarding', 1]],
+    lines: [
+      ['SMA Business', 60],
+      ['Setup & onboarding', 1],
+    ],
     expectedCloseAt: daysAgo(-20),
   },
   {
@@ -195,7 +303,10 @@ const DEALS: DemoDeal[] = [
     status: 'OPEN',
     owner: 'sales.bilal',
     lead: 'Imtiaz Super Market',
-    lines: [['SMA Business', 96, 5], ['Staff training session', 2]],
+    lines: [
+      ['SMA Business', 96, 5],
+      ['Staff training session', 2],
+    ],
     expectedCloseAt: daysAgo(-15),
   },
   {
@@ -215,7 +326,10 @@ const DEALS: DemoDeal[] = [
     status: 'OPEN',
     owner: 'sales.bilal',
     lead: 'Dawood Pharmacy',
-    lines: [['SMA Starter', 72], ['Emergency alert system', 72]],
+    lines: [
+      ['SMA Starter', 72],
+      ['Emergency alert system', 72],
+    ],
     expectedCloseAt: daysAgo(-30),
   },
   {
@@ -290,7 +404,12 @@ async function main(): Promise<void> {
   let dealsAdded = 0;
   for (const demo of DEALS) {
     const marker = `${DEMO} ${demo.key}`;
-    if (await prisma.deal.findFirst({ where: { notes: { startsWith: marker } }, select: { id: true } }))
+    if (
+      await prisma.deal.findFirst({
+        where: { notes: { startsWith: marker } },
+        select: { id: true },
+      })
+    )
       continue;
     const ownerId = users.get(demo.owner) ?? manager;
     const lead = demo.lead
@@ -451,7 +570,14 @@ async function main(): Promise<void> {
       });
       if (exists) continue;
       await prisma.salesTarget.create({
-        data: { tenantId, userId, month, amount: amounts[i]!, currency: CURRENCY, setById: manager },
+        data: {
+          tenantId,
+          userId,
+          month,
+          amount: amounts[i]!,
+          currency: CURRENCY,
+          setById: manager,
+        },
       });
       targets += 1;
     }
@@ -459,7 +585,9 @@ async function main(): Promise<void> {
   console.log(`Targets: added ${targets}.`);
 
   // 4. CRM settings (only the ones not set yet). Pay-to accounts are clearly marked as demo.
-  const crypto = new CryptoService({ DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY ?? '' } as AppConfig);
+  const crypto = new CryptoService({
+    DATA_ENCRYPTION_KEY: process.env.DATA_ENCRYPTION_KEY ?? '',
+  } as AppConfig);
   const settings: Record<string, string> = {
     CRM_USD_PKR_RATE: '280',
     CRM_TAX_NAME: 'GST',
@@ -474,30 +602,80 @@ async function main(): Promise<void> {
   };
   let settingsAdded = 0;
   for (const [key, value] of Object.entries(settings)) {
-    if (await prisma.platformSetting.findUnique({ where: { key }, select: { key: true } })) continue;
-    await prisma.platformSetting.create({ data: { key, valueEnc: crypto.encrypt(value, `setting:${key}`) } });
+    if (await prisma.platformSetting.findUnique({ where: { key }, select: { key: true } }))
+      continue;
+    await prisma.platformSetting.create({
+      data: { key, valueEnc: crypto.encrypt(value, `setting:${key}`) },
+    });
     settingsAdded += 1;
   }
   console.log(`CRM settings: added ${settingsAdded}.`);
 
   // 5. Commission: 3% up to the target, 6% above it, on deals won.
-  if (!(await prisma.commissionPlan.findUnique({ where: { tenantId_scope: { tenantId, scope: 'team' } } }))) {
+  if (
+    !(await prisma.commissionPlan.findUnique({
+      where: { tenantId_scope: { tenantId, scope: 'team' } },
+    }))
+  ) {
     await prisma.commissionPlan.create({
-      data: { tenantId, scope: 'team', baseRate: 3, bonusRate: 6, basis: 'WON', updatedById: manager },
+      data: {
+        tenantId,
+        scope: 'team',
+        baseRate: 3,
+        bonusRate: 6,
+        basis: 'WON',
+        updatedById: manager,
+      },
     });
     console.log('Commission: team plan added (3% up to target, 6% above).');
   } else console.log('Commission: already present, skipped.');
 
   // 6. Quotes.
-  const QUOTES: Array<{ key: string; lead: string; status: QuoteStatus; lines: Line[]; days: number }> = [
-    { key: 'q-sent', lead: 'Green Valley Pharmacy', status: 'SENT', lines: [['SMA Business', 3], ['Setup & onboarding', 1]], days: 2 },
-    { key: 'q-draft', lead: 'Hyperstar Express', status: 'DRAFT', lines: [['SMA Starter', 2], ['SMS campaigns', 1]], days: 0 },
-    { key: 'q-declined', lead: 'Metro Bakers', status: 'DECLINED', lines: [['SMA Enterprise', 1]], days: 12 },
+  const QUOTES: Array<{
+    key: string;
+    lead: string;
+    status: QuoteStatus;
+    lines: Line[];
+    days: number;
+  }> = [
+    {
+      key: 'q-sent',
+      lead: 'Green Valley Pharmacy',
+      status: 'SENT',
+      lines: [
+        ['SMA Business', 3],
+        ['Setup & onboarding', 1],
+      ],
+      days: 2,
+    },
+    {
+      key: 'q-draft',
+      lead: 'Hyperstar Express',
+      status: 'DRAFT',
+      lines: [
+        ['SMA Starter', 2],
+        ['SMS campaigns', 1],
+      ],
+      days: 0,
+    },
+    {
+      key: 'q-declined',
+      lead: 'Metro Bakers',
+      status: 'DECLINED',
+      lines: [['SMA Enterprise', 1]],
+      days: 12,
+    },
   ];
   let quotes = 0;
   for (const q of QUOTES) {
     const marker = `${DEMO} ${q.key}`;
-    if (await prisma.quote.findFirst({ where: { notes: { startsWith: marker } }, select: { id: true } })) continue;
+    if (
+      await prisma.quote.findFirst({
+        where: { notes: { startsWith: marker } },
+        select: { id: true },
+      })
+    )
+      continue;
     const lead = await prisma.lead.findFirst({
       where: { companyName: q.lead, deletedAt: null },
       select: { id: true, companyName: true, email: true, phone: true },
@@ -510,7 +688,15 @@ async function main(): Promise<void> {
       const svc = services.get(name);
       if (!svc) throw new Error(`Unknown service ${name}`);
       const unitPrice = Number(svc.price);
-      return { serviceId: svc.id, name, quantity, unitPrice, total: round2(unitPrice * quantity), billing: svc.billing, position };
+      return {
+        serviceId: svc.id,
+        name,
+        quantity,
+        unitPrice,
+        total: round2(unitPrice * quantity),
+        billing: svc.billing,
+        position,
+      };
     });
     const subtotal = round2(items.reduce((a, i) => a + i.total, 0));
     const taxAmount = round2(subtotal * 0.18);
@@ -555,7 +741,12 @@ async function main(): Promise<void> {
   });
   const plan = services.get('SMA Enterprise');
   const addon = services.get('Priority support');
-  if (abc && plan && addon && (await prisma.subscription.count({ where: { businessId: abc.id } })) === 0) {
+  if (
+    abc &&
+    plan &&
+    addon &&
+    (await prisma.subscription.count({ where: { businessId: abc.id } })) === 0
+  ) {
     await prisma.subscription.create({
       data: {
         tenantId,
@@ -570,13 +761,27 @@ async function main(): Promise<void> {
         createdById: manager,
         items: {
           create: [
-            { serviceId: plan.id, name: plan.name, quantity: 1, unitPrice: Number(plan.price), position: 0 },
-            { serviceId: addon.id, name: addon.name, quantity: 1, unitPrice: Number(addon.price), position: 1 },
+            {
+              serviceId: plan.id,
+              name: plan.name,
+              quantity: 1,
+              unitPrice: Number(plan.price),
+              position: 0,
+            },
+            {
+              serviceId: addon.id,
+              name: addon.name,
+              quantity: 1,
+              unitPrice: Number(addon.price),
+              position: 1,
+            },
           ],
         },
       },
     });
-    console.log('Monthly billing: added for ABC Retail Group (first invoice on the 1st of next month).');
+    console.log(
+      'Monthly billing: added for ABC Retail Group (first invoice on the 1st of next month).',
+    );
   } else console.log('Monthly billing: already present or customer missing, skipped.');
 }
 

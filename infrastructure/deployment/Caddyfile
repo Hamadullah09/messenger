@@ -1,4 +1,8 @@
 # TLS (automatic certificates) and routing for SMA.
+
+# Optional extra sites, e.g. LiveKit (sites/livekit.caddy.example).
+import /etc/caddy/sites/*.caddy
+
 {$SMA_DOMAIN} {
 	encode zstd gzip
 

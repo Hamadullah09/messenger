@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { ApiRequestError, refreshSession } from '@/lib/api';
 import { useAuth } from '@/lib/auth-store';
 import { hydrateChatPrefs } from '@/lib/chat-prefs';
+import { listenForCrashes } from '@/lib/error-reporter';
 import { RealtimeProvider } from '@/lib/realtime';
 
 /**
@@ -13,6 +14,7 @@ import { RealtimeProvider } from '@/lib/realtime';
  */
 function SessionBootstrap() {
   useEffect(() => hydrateChatPrefs(), []);
+  useEffect(() => listenForCrashes(), []);
   useEffect(() => {
     if (useAuth.getState().status !== 'loading') return;
     let cancelled = false;

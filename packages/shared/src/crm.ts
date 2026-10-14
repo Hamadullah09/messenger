@@ -16,7 +16,14 @@ export const DEAL_STATUSES = ['OPEN', 'WON', 'LOST'] as const;
 export type DealStatus = (typeof DEAL_STATUSES)[number];
 export const INVOICE_STATUSES = ['DRAFT', 'ISSUED', 'PARTIALLY_PAID', 'PAID', 'VOID'] as const;
 export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
-export const PAYMENT_METHODS = ['CASH', 'BANK_TRANSFER', 'CARD', 'CHEQUE', 'ONLINE', 'OTHER'] as const;
+export const PAYMENT_METHODS = [
+  'CASH',
+  'BANK_TRANSFER',
+  'CARD',
+  'CHEQUE',
+  'ONLINE',
+  'OTHER',
+] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
 const text = (max: number) => z.string().trim().max(max);
@@ -264,6 +271,8 @@ export interface InvoiceDto {
   billToEmail: string | null;
   billToPhone: string | null;
   billToAddress: string | null;
+  /** Buyer NTN/CNIC (FBR invoices). */
+  billToTaxNumber: string | null;
   issueDate: string;
   dueDate: string;
   currency: string;
@@ -296,6 +305,14 @@ export interface InvoiceDto {
   /** The customer's pay page (null for drafts and void invoices). */
   payUrl: string | null;
   pendingClaims: number;
+  /** FBR Digital Invoicing: the number FBR gave (with a QR code to print), or the last error. */
+  fbr: {
+    invoiceNumber: string | null;
+    submittedAt: string | null;
+    sandbox: boolean | null;
+    error: string | null;
+    qrDataUrl: string | null;
+  } | null;
   createdAt: string;
   canManage: boolean;
 }
@@ -349,7 +366,12 @@ export interface TargetProgressDto {
   collected: number;
   /** Commission earned this month (in the targets' currency). */
   commission: number;
-  commissionPlan: { baseRate: number; bonusRate: number; basis: 'WON' | 'COLLECTED'; custom: boolean };
+  commissionPlan: {
+    baseRate: number;
+    bonusRate: number;
+    basis: 'WON' | 'COLLECTED';
+    custom: boolean;
+  };
 }
 
 export interface TargetsDto {

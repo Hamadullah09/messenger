@@ -71,9 +71,17 @@ const DAY = 86_400_000;
  * clears them too.
  */
 function followUpData(
-  request: { nextFollowUpAt?: Date | null; nextFollowUpKind?: FollowUpKind | null; nextFollowUpNote?: string | null },
+  request: {
+    nextFollowUpAt?: Date | null;
+    nextFollowUpKind?: FollowUpKind | null;
+    nextFollowUpNote?: string | null;
+  },
   current: { nextFollowUpAt: Date | null } | null,
-): { nextFollowUpAt?: Date | null; nextFollowUpKind?: FollowUpKind | null; nextFollowUpNote?: string | null } {
+): {
+  nextFollowUpAt?: Date | null;
+  nextFollowUpKind?: FollowUpKind | null;
+  nextFollowUpNote?: string | null;
+} {
   if (request.nextFollowUpAt === null)
     return { nextFollowUpAt: null, nextFollowUpKind: null, nextFollowUpNote: null };
   if (request.nextFollowUpAt)
@@ -84,8 +92,12 @@ function followUpData(
     };
   if (!current?.nextFollowUpAt) return {};
   return {
-    ...(request.nextFollowUpKind !== undefined ? { nextFollowUpKind: request.nextFollowUpKind } : {}),
-    ...(request.nextFollowUpNote !== undefined ? { nextFollowUpNote: request.nextFollowUpNote } : {}),
+    ...(request.nextFollowUpKind !== undefined
+      ? { nextFollowUpKind: request.nextFollowUpKind }
+      : {}),
+    ...(request.nextFollowUpNote !== undefined
+      ? { nextFollowUpNote: request.nextFollowUpNote }
+      : {}),
   };
 }
 
@@ -228,7 +240,9 @@ export class SalesService {
       .filter((g) => g.scope.type === 'BUSINESS' && g.permissions.has('sales.access'))
       .map((g) => (g.scope as { businessId: string }).businessId);
     const candidates = [
-      ...(actor.businessHint && ownBusinesses.includes(actor.businessHint) ? [actor.businessHint] : []),
+      ...(actor.businessHint && ownBusinesses.includes(actor.businessHint)
+        ? [actor.businessHint]
+        : []),
       platform.businessId,
       ...ownBusinesses,
     ];
@@ -239,7 +253,12 @@ export class SalesService {
         select: { id: true, name: true, slug: true, internal: true },
       });
       if (business)
-        return { businessId: business.id, platform: business.internal, name: business.name, slug: business.slug };
+        return {
+          businessId: business.id,
+          platform: business.internal,
+          name: business.name,
+          slug: business.slug,
+        };
     }
     throw ApiError.forbidden('You do not have access to Sales & Marketing.');
   }
@@ -454,7 +473,12 @@ export class SalesService {
 
   async update(actor: Actor, leadId: string, request: UpdateLeadRequest): Promise<LeadDetailDto> {
     const lead = await this.requireEditable(actor, leadId);
-    const { nextFollowUpAt: _at, nextFollowUpKind: _kind, nextFollowUpNote: _note, ...fields } = request;
+    const {
+      nextFollowUpAt: _at,
+      nextFollowUpKind: _kind,
+      nextFollowUpNote: _note,
+      ...fields
+    } = request;
     await this.prisma.lead.update({
       where: { id: leadId },
       data: { ...fields, ...followUpData(request, lead), lastActivityAt: new Date() },
@@ -878,7 +902,11 @@ export class SalesService {
     });
     const counts = await this.prisma.lead.groupBy({
       by: ['ownerId', 'stage'],
-      where: { tenantId: businessId, deletedAt: null, ownerId: { in: assignments.map((a) => a.user.id) } },
+      where: {
+        tenantId: businessId,
+        deletedAt: null,
+        ownerId: { in: assignments.map((a) => a.user.id) },
+      },
       _count: { _all: true },
     });
     const people = new Map<string, SalesUserDto>();

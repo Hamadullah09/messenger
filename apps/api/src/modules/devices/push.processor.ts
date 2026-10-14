@@ -210,7 +210,10 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
             token: this.crypto.decrypt(device.pushTokenEnc!, pushTokenAad(device.id)),
           },
           payload,
-          options ?? { urgency: emergency ? 'high' : 'normal', ttlSeconds: emergency ? 3600 : 24 * 3600 },
+          options ?? {
+            urgency: emergency ? 'high' : 'normal',
+            ttlSeconds: emergency ? 3600 : 24 * 3600,
+          },
         );
         if (outcome === 'gone') {
           await this.prisma.device.update({

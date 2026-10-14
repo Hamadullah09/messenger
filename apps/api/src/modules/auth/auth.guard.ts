@@ -41,7 +41,9 @@ export class AuthGuard implements CanActivate {
     }
     const hint = request.headers['x-business-id'];
     request.actor =
-      typeof hint === 'string' && UUID.test(hint) ? { ...actor, businessHint: hint.toLowerCase() } : actor;
+      typeof hint === 'string' && UUID.test(hint)
+        ? { ...actor, businessHint: hint.toLowerCase() }
+        : actor;
     return true;
   }
 }

@@ -53,9 +53,7 @@ export const locationContentSchema = z.object({
   name: text(120).optional(),
   address: text(300).optional(),
   /** Share live location for this many minutes (updates while the sender's app is open). */
-  liveMinutes: z
-    .union([z.literal(15), z.literal(60), z.literal(480)])
-    .optional(),
+  liveMinutes: z.union([z.literal(15), z.literal(60), z.literal(480)]).optional(),
 });
 
 export const contactContentSchema = z.object({
@@ -118,7 +116,15 @@ export type AudioDetails = z.infer<typeof audioDetailsSchema>;
 
 export const pollVoteRequestSchema = z.object({
   /** Chosen option indexes; empty removes the vote. */
-  options: z.array(z.number().int().min(0).max(POLL_OPTIONS_MAX - 1)).max(POLL_OPTIONS_MAX),
+  options: z
+    .array(
+      z
+        .number()
+        .int()
+        .min(0)
+        .max(POLL_OPTIONS_MAX - 1),
+    )
+    .max(POLL_OPTIONS_MAX),
 });
 export type PollVoteRequest = z.infer<typeof pollVoteRequestSchema>;
 

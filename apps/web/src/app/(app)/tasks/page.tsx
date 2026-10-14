@@ -80,11 +80,18 @@ function TasksScreen() {
           }
         />
         {!businessId ? (
-          <EmptyState icon={<ClipboardList className="size-9" aria-hidden />} title="Choose a business" />
+          <EmptyState
+            icon={<ClipboardList className="size-9" aria-hidden />}
+            title="Choose a business"
+          />
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex gap-1 rounded-xl bg-surface-2 p-1" role="tablist" aria-label="Sections">
+              <div
+                className="flex gap-1 rounded-xl bg-surface-2 p-1"
+                role="tablist"
+                aria-label="Sections"
+              >
                 {TABS.map((t) => (
                   <button
                     key={t}
@@ -97,7 +104,15 @@ function TasksScreen() {
                       tab === t ? 'bg-surface shadow-card' : 'text-muted',
                     )}
                   >
-                    {{ tasks: 'Tasks', shifts: 'Shifts', attendance: 'Attendance', checklists: 'Checklists', leave: 'Leave' }[t]}
+                    {
+                      {
+                        tasks: 'Tasks',
+                        shifts: 'Shifts',
+                        attendance: 'Attendance',
+                        checklists: 'Checklists',
+                        leave: 'Leave',
+                      }[t]
+                    }
                   </button>
                 ))}
               </div>
@@ -118,16 +133,38 @@ function TasksScreen() {
               )}
             </div>
             {tab === 'tasks' && (
-              <TasksTab businessId={businessId} storeId={storeId} stores={stores} canManage={canManage} myId={me.user.id} />
+              <TasksTab
+                businessId={businessId}
+                storeId={storeId}
+                stores={stores}
+                canManage={canManage}
+                myId={me.user.id}
+              />
             )}
             {tab === 'shifts' && (
-              <ShiftsTab businessId={businessId} storeId={storeId} stores={stores} canManage={canManage} myId={me.user.id} />
+              <ShiftsTab
+                businessId={businessId}
+                storeId={storeId}
+                stores={stores}
+                canManage={canManage}
+                myId={me.user.id}
+              />
             )}
             {tab === 'attendance' && (
-              <AttendanceTab businessId={businessId} storeId={storeId} stores={stores} canManage={canManage} />
+              <AttendanceTab
+                businessId={businessId}
+                storeId={storeId}
+                stores={stores}
+                canManage={canManage}
+              />
             )}
             {tab === 'checklists' && (
-              <ChecklistsTab businessId={businessId} storeId={storeId} stores={stores} canManage={canManage} />
+              <ChecklistsTab
+                businessId={businessId}
+                storeId={storeId}
+                stores={stores}
+                canManage={canManage}
+              />
             )}
             {tab === 'leave' && <LeaveTab businessId={businessId} stores={stores} />}
           </>
@@ -168,7 +205,12 @@ function TasksTab({
     queryKey: ['tasks', businessId, storeId, status, mine],
     queryFn: () =>
       api<TaskDto[]>('/tasks', {
-        query: { businessId, storeId: storeId || undefined, status, mine: mine ? 'true' : undefined },
+        query: {
+          businessId,
+          storeId: storeId || undefined,
+          status,
+          mine: mine ? 'true' : undefined,
+        },
       }),
   });
   const update = useMutation({
@@ -192,28 +234,47 @@ function TasksTab({
               role="radio"
               aria-checked={status === s}
               onClick={() => setStatus(s)}
-              className={cx('min-h-10 rounded-lg px-3 text-sm font-semibold', status === s ? 'bg-surface shadow-card' : 'text-muted')}
+              className={cx(
+                'min-h-10 rounded-lg px-3 text-sm font-semibold',
+                status === s ? 'bg-surface shadow-card' : 'text-muted',
+              )}
             >
               {s === 'OPEN' ? 'To do' : s === 'DONE' ? 'Done' : 'All'}
             </button>
           ))}
         </div>
         <label className="flex min-h-11 items-center gap-2 px-2">
-          <input type="checkbox" className="size-5 accent-[var(--color-brand)]" checked={mine} onChange={(e) => setMine(e.target.checked)} />
+          <input
+            type="checkbox"
+            className="size-5 accent-[var(--color-brand)]"
+            checked={mine}
+            onChange={(e) => setMine(e.target.checked)}
+          />
           Only mine
         </label>
         {canManage && (
-          <Button className="ml-auto" icon={<Plus className="size-5" aria-hidden />} onClick={() => setEditing('new')}>
+          <Button
+            className="ml-auto"
+            icon={<Plus className="size-5" aria-hidden />}
+            onClick={() => setEditing('new')}
+          >
             New task
           </Button>
         )}
       </div>
-      {(update.isError || remove.isError) && <Alert tone="error">{errorMessage(update.error ?? remove.error)}</Alert>}
+      {(update.isError || remove.isError) && (
+        <Alert tone="error">{errorMessage(update.error ?? remove.error)}</Alert>
+      )}
       {tasks.isPending && <Spinner label="Loading tasks" />}
       {tasks.isError && <Alert tone="error">{errorMessage(tasks.error)}</Alert>}
       {tasks.data?.length === 0 && (
-        <EmptyState icon={<ClipboardList className="size-9" aria-hidden />} title={status === 'DONE' ? 'Nothing done yet' : 'All clear'}>
-          {canManage ? 'Add a task and give it to someone in the store.' : 'No tasks for you right now.'}
+        <EmptyState
+          icon={<ClipboardList className="size-9" aria-hidden />}
+          title={status === 'DONE' ? 'Nothing done yet' : 'All clear'}
+        >
+          {canManage
+            ? 'Add a task and give it to someone in the store.'
+            : 'No tasks for you right now.'}
         </EmptyState>
       )}
       <ul className="flex flex-col gap-2">
@@ -221,17 +282,27 @@ function TasksTab({
           const overdue = t.status === 'OPEN' && t.dueAt && Date.parse(t.dueAt) < now;
           const done = t.status === 'DONE';
           return (
-            <li key={t.id} className={cx('flex items-start gap-3 rounded-2xl border border-line bg-surface p-3 shadow-card', done && 'opacity-70')}>
+            <li
+              key={t.id}
+              className={cx(
+                'flex items-start gap-3 rounded-2xl border border-line bg-surface p-3 shadow-card',
+                done && 'opacity-70',
+              )}
+            >
               <button
                 type="button"
                 role="checkbox"
                 aria-checked={done}
                 aria-label={done ? `Mark “${t.title}” as not done` : `Mark “${t.title}” as done`}
                 disabled={!t.canComplete || update.isPending}
-                onClick={() => update.mutate({ id: t.id, body: { status: done ? 'OPEN' : 'DONE' } })}
+                onClick={() =>
+                  update.mutate({ id: t.id, body: { status: done ? 'OPEN' : 'DONE' } })
+                }
                 className={cx(
                   'mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-40',
-                  done ? 'border-success bg-success text-white' : 'border-line-strong hover:border-brand',
+                  done
+                    ? 'border-success bg-success text-white'
+                    : 'border-line-strong hover:border-brand',
                 )}
               >
                 {done && <Check className="size-4" strokeWidth={3} aria-hidden />}
@@ -239,14 +310,29 @@ function TasksTab({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={cx('font-semibold', done && 'line-through')}>{t.title}</span>
-                  <span className={cx('rounded-full px-2 py-0.5 text-xs font-bold', PRIORITY[t.priority].cls)}>{PRIORITY[t.priority].label}</span>
+                  <span
+                    className={cx(
+                      'rounded-full px-2 py-0.5 text-xs font-bold',
+                      PRIORITY[t.priority].cls,
+                    )}
+                  >
+                    {PRIORITY[t.priority].label}
+                  </span>
                 </div>
-                {t.notes && <p className="mt-0.5 text-sm whitespace-pre-wrap text-muted">{t.notes}</p>}
+                {t.notes && (
+                  <p className="mt-0.5 text-sm whitespace-pre-wrap text-muted">{t.notes}</p>
+                )}
                 <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted">
                   <span>{t.storeName}</span>
                   {t.dueAt && (
-                    <span className={cx('flex items-center gap-1', overdue && 'font-semibold text-danger')}>
-                      <CalendarClock className="size-4" aria-hidden /> {overdue ? 'Overdue · ' : 'Due '}
+                    <span
+                      className={cx(
+                        'flex items-center gap-1',
+                        overdue && 'font-semibold text-danger',
+                      )}
+                    >
+                      <CalendarClock className="size-4" aria-hidden />{' '}
+                      {overdue ? 'Overdue · ' : 'Due '}
                       {formatDay(t.dueAt)}, {formatTime(t.dueAt)}
                     </span>
                   )}
@@ -260,15 +346,29 @@ function TasksTab({
                       'Anyone in the store'
                     )}
                   </span>
-                  {done && t.completedBy && <span>Done by {t.completedBy.id === myId ? 'you' : t.completedBy.displayName}</span>}
+                  {done && t.completedBy && (
+                    <span>
+                      Done by {t.completedBy.id === myId ? 'you' : t.completedBy.displayName}
+                    </span>
+                  )}
                 </p>
               </div>
               {t.canEdit && (
                 <div className="flex shrink-0 gap-1">
-                  <button type="button" aria-label={`Edit ${t.title}`} onClick={() => setEditing(t)} className="inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2">
+                  <button
+                    type="button"
+                    aria-label={`Edit ${t.title}`}
+                    onClick={() => setEditing(t)}
+                    className="inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2"
+                  >
                     <Pencil className="size-4" aria-hidden />
                   </button>
-                  <button type="button" aria-label={`Delete ${t.title}`} onClick={() => remove.mutate(t.id)} className="inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-danger">
+                  <button
+                    type="button"
+                    aria-label={`Delete ${t.title}`}
+                    onClick={() => remove.mutate(t.id)}
+                    className="inline-flex size-9 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-danger"
+                  >
                     <Trash2 className="size-4" aria-hidden />
                   </button>
                 </div>
@@ -337,7 +437,15 @@ function TaskDialog({
       >
         {save.isError && <Alert tone="error">{errorMessage(save.error)}</Alert>}
         {!task && (
-          <SelectField label="Store" required value={storeId} onChange={(e) => { setStoreId(e.target.value); setAssigneeId(''); }}>
+          <SelectField
+            label="Store"
+            required
+            value={storeId}
+            onChange={(e) => {
+              setStoreId(e.target.value);
+              setAssigneeId('');
+            }}
+          >
             {stores.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
@@ -345,19 +453,45 @@ function TaskDialog({
             ))}
           </SelectField>
         )}
-        <TextField label="Task" required maxLength={160} value={title} placeholder="e.g. Restock the drinks fridge" onChange={(e) => setTitle(e.target.value)} />
-        <TextArea label="Details (optional)" rows={3} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
+        <TextField
+          label="Task"
+          required
+          maxLength={160}
+          value={title}
+          placeholder="e.g. Restock the drinks fridge"
+          onChange={(e) => setTitle(e.target.value)}
+        />
+        <TextArea
+          label="Details (optional)"
+          rows={3}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <SelectField label="Priority" value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority)}>
+          <SelectField
+            label="Priority"
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as TaskPriority)}
+          >
             {(Object.keys(PRIORITY) as TaskPriority[]).map((p) => (
               <option key={p} value={p}>
                 {PRIORITY[p].label}
               </option>
             ))}
           </SelectField>
-          <TextField label="Due" type="datetime-local" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+          <TextField
+            label="Due"
+            type="datetime-local"
+            value={dueAt}
+            onChange={(e) => setDueAt(e.target.value)}
+          />
         </div>
-        <SelectField label="Give it to" value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)}>
+        <SelectField
+          label="Give it to"
+          value={assigneeId}
+          onChange={(e) => setAssigneeId(e.target.value)}
+        >
           <option value="">Anyone in the store</option>
           {staff.data?.people.map((p) => (
             <option key={p.id} value={p.id}>
@@ -404,15 +538,26 @@ function ShiftsTab({
   const [week, setWeek] = useState(() => startOfWeek(new Date()));
   const [adding, setAdding] = useState<Date | null>(null);
   const days = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => new Date(week.getFullYear(), week.getMonth(), week.getDate() + i)),
+    () =>
+      Array.from(
+        { length: 7 },
+        (_, i) => new Date(week.getFullYear(), week.getMonth(), week.getDate() + i),
+      ),
     [week],
   );
-  const end = days[6] ? new Date(days[6].getFullYear(), days[6].getMonth(), days[6].getDate() + 1) : week;
+  const end = days[6]
+    ? new Date(days[6].getFullYear(), days[6].getMonth(), days[6].getDate() + 1)
+    : week;
   const shifts = useQuery({
     queryKey: ['shifts', businessId, storeId, week.toISOString()],
     queryFn: () =>
       api<ShiftDto[]>('/shifts', {
-        query: { businessId, storeId: storeId || undefined, from: week.toISOString(), to: end.toISOString() },
+        query: {
+          businessId,
+          storeId: storeId || undefined,
+          from: week.toISOString(),
+          to: end.toISOString(),
+        },
       }),
   });
   const remove = useMutation({
@@ -423,25 +568,43 @@ function ShiftsTab({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" aria-label="Previous week" onClick={() => setWeek(new Date(week.getTime() - 7 * 86_400_000))} className="inline-flex size-11 items-center justify-center rounded-xl hover:bg-surface-2">
+        <button
+          type="button"
+          aria-label="Previous week"
+          onClick={() => setWeek(new Date(week.getTime() - 7 * 86_400_000))}
+          className="inline-flex size-11 items-center justify-center rounded-xl hover:bg-surface-2"
+        >
           <ChevronLeft className="size-5" aria-hidden />
         </button>
         <h2 className="min-w-52 text-center font-bold">
           {days[0]!.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} –{' '}
-          {days[6]!.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+          {days[6]!.toLocaleDateString(undefined, {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          })}
         </h2>
-        <button type="button" aria-label="Next week" onClick={() => setWeek(new Date(week.getTime() + 7 * 86_400_000))} className="inline-flex size-11 items-center justify-center rounded-xl hover:bg-surface-2">
+        <button
+          type="button"
+          aria-label="Next week"
+          onClick={() => setWeek(new Date(week.getTime() + 7 * 86_400_000))}
+          className="inline-flex size-11 items-center justify-center rounded-xl hover:bg-surface-2"
+        >
           <ChevronRight className="size-5" aria-hidden />
         </button>
         <Button size="sm" variant="ghost" onClick={() => setWeek(startOfWeek(new Date()))}>
           This week
         </Button>
       </div>
-      {(shifts.isError || remove.isError) && <Alert tone="error">{errorMessage(shifts.error ?? remove.error)}</Alert>}
+      {(shifts.isError || remove.isError) && (
+        <Alert tone="error">{errorMessage(shifts.error ?? remove.error)}</Alert>
+      )}
       {shifts.isPending && <Spinner label="Loading shifts" />}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-7">
         {days.map((day) => {
-          const list = (shifts.data ?? []).filter((s) => new Date(s.startsAt).toDateString() === day.toDateString());
+          const list = (shifts.data ?? []).filter(
+            (s) => new Date(s.startsAt).toDateString() === day.toDateString(),
+          );
           return (
             <section
               key={day.toISOString()}
@@ -451,9 +614,16 @@ function ShiftsTab({
               )}
             >
               <h3 className="flex items-center justify-between text-sm font-bold">
-                <span>{day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}</span>
+                <span>
+                  {day.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' })}
+                </span>
                 {canManage && (
-                  <button type="button" aria-label={`Add a shift on ${day.toLocaleDateString()}`} onClick={() => setAdding(day)} className="inline-flex size-7 items-center justify-center rounded-lg text-muted hover:bg-surface-2">
+                  <button
+                    type="button"
+                    aria-label={`Add a shift on ${day.toLocaleDateString()}`}
+                    onClick={() => setAdding(day)}
+                    className="inline-flex size-7 items-center justify-center rounded-lg text-muted hover:bg-surface-2"
+                  >
                     <Plus className="size-4" aria-hidden />
                   </button>
                 )}
@@ -475,7 +645,11 @@ function ShiftsTab({
                     {[s.title, !storeId ? s.storeName : null].filter(Boolean).join(' · ')}
                   </p>
                   {s.canEdit && (
-                    <button type="button" onClick={() => remove.mutate(s.id)} className="mt-1 text-xs font-semibold text-danger">
+                    <button
+                      type="button"
+                      onClick={() => remove.mutate(s.id)}
+                      className="mt-1 text-xs font-semibold text-danger"
+                    >
                       Remove
                     </button>
                   )}
@@ -539,7 +713,11 @@ function ShiftDialog({
     },
   });
   return (
-    <Dialog open onClose={onClose} title={`Shift on ${day.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}`}>
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Shift on ${day.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}`}
+    >
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -548,14 +726,26 @@ function ShiftDialog({
         }}
       >
         {save.isError && <Alert tone="error">{errorMessage(save.error)}</Alert>}
-        <SelectField label="Store" value={storeId} onChange={(e) => { setStoreId(e.target.value); setUserId(''); }}>
+        <SelectField
+          label="Store"
+          value={storeId}
+          onChange={(e) => {
+            setStoreId(e.target.value);
+            setUserId('');
+          }}
+        >
           {stores.map((s) => (
             <option key={s.id} value={s.id}>
               {s.name}
             </option>
           ))}
         </SelectField>
-        <SelectField label="Person" required value={userId} onChange={(e) => setUserId(e.target.value)}>
+        <SelectField
+          label="Person"
+          required
+          value={userId}
+          onChange={(e) => setUserId(e.target.value)}
+        >
           <option value="">Choose…</option>
           {staff.data?.people.map((p) => (
             <option key={p.id} value={p.id}>
@@ -564,10 +754,29 @@ function ShiftDialog({
           ))}
         </SelectField>
         <div className="grid grid-cols-2 gap-3">
-          <TextField label="Starts" type="time" required value={start} onChange={(e) => setStart(e.target.value)} />
-          <TextField label="Ends" type="time" required value={end} hint={end <= start ? 'Ends the next day' : undefined} onChange={(e) => setEnd(e.target.value)} />
+          <TextField
+            label="Starts"
+            type="time"
+            required
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+          />
+          <TextField
+            label="Ends"
+            type="time"
+            required
+            value={end}
+            hint={end <= start ? 'Ends the next day' : undefined}
+            onChange={(e) => setEnd(e.target.value)}
+          />
         </div>
-        <TextField label="Role or note (optional)" maxLength={60} value={title} placeholder="e.g. Cashier, Morning" onChange={(e) => setTitle(e.target.value)} />
+        <TextField
+          label="Role or note (optional)"
+          maxLength={60}
+          value={title}
+          placeholder="e.g. Cashier, Morning"
+          onChange={(e) => setTitle(e.target.value)}
+        />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel

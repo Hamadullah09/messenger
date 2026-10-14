@@ -59,7 +59,19 @@ const KIND_LABEL: Record<string, string> = {
   STICKER: 'Stickers',
 };
 
-function Kpi({ Icon, label, value, hint, tone = 'brand' }: { Icon: LucideIcon; label: string; value: string | number; hint?: string; tone?: 'brand' | 'success' | 'warn' | 'danger' }) {
+function Kpi({
+  Icon,
+  label,
+  value,
+  hint,
+  tone = 'brand',
+}: {
+  Icon: LucideIcon;
+  label: string;
+  value: string | number;
+  hint?: string;
+  tone?: 'brand' | 'success' | 'warn' | 'danger';
+}) {
   const tones = {
     brand: 'bg-brand-soft text-brand-strong',
     success: 'bg-success-soft text-success',
@@ -68,7 +80,9 @@ function Kpi({ Icon, label, value, hint, tone = 'brand' }: { Icon: LucideIcon; l
   };
   return (
     <div className="rounded-3xl border border-line bg-surface p-5 shadow-card">
-      <span className={cx('inline-flex size-11 items-center justify-center rounded-2xl', tones[tone])}>
+      <span
+        className={cx('inline-flex size-11 items-center justify-center rounded-2xl', tones[tone])}
+      >
         <Icon className="size-5" aria-hidden />
       </span>
       <p className="mt-3 text-sm text-muted">{label}</p>
@@ -79,7 +93,15 @@ function Kpi({ Icon, label, value, hint, tone = 'brand' }: { Icon: LucideIcon; l
 }
 
 /** Messages per day: one series, one axis, hover/focus tooltip and a table view. */
-function DailyChart({ perDay, from, to }: { perDay: ReportDto['messages']['perDay']; from: string; to: string }) {
+function DailyChart({
+  perDay,
+  from,
+  to,
+}: {
+  perDay: ReportDto['messages']['perDay'];
+  from: string;
+  to: string;
+}) {
   const [hover, setHover] = useState<number | null>(null);
   const [table, setTable] = useState(false);
   const days = useMemo(() => {
@@ -92,12 +114,17 @@ function DailyChart({ perDay, from, to }: { perDay: ReportDto['messages']['perDa
     return list;
   }, [perDay, from, to]);
   const max = Math.max(1, ...days.map((d) => d.count));
-  const label = (day: string) => new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  const label = (day: string) =>
+    new Date(`${day}T12:00:00Z`).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
   return (
     <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
       <div className="mb-3 flex items-center justify-between gap-2">
         <h2 className="font-bold">Messages per day</h2>
-        <button type="button" className="text-sm font-semibold text-brand underline-offset-2 hover:underline" onClick={() => setTable((v) => !v)}>
+        <button
+          type="button"
+          className="text-sm font-semibold text-brand underline-offset-2 hover:underline"
+          onClick={() => setTable((v) => !v)}
+        >
           {table ? 'Show chart' : 'Show table'}
         </button>
       </div>
@@ -136,7 +163,11 @@ function DailyChart({ perDay, from, to }: { perDay: ReportDto['messages']['perDa
               >
                 <span
                   className="w-full rounded-t"
-                  style={{ height: `${d.count > 0 ? Math.max(2, (d.count / max) * 100) : 0}%`, background: 'var(--series-1)', opacity: hover === null || hover === i ? 1 : 0.55 }}
+                  style={{
+                    height: `${d.count > 0 ? Math.max(2, (d.count / max) * 100) : 0}%`,
+                    background: 'var(--series-1)',
+                    opacity: hover === null || hover === i ? 1 : 0.55,
+                  }}
                 />
                 {hover === i && (
                   <span className="absolute bottom-full left-1/2 z-10 mb-2 w-max -translate-x-1/2 rounded-xl border border-line bg-surface px-3 py-1.5 text-xs shadow-pop">
@@ -157,7 +188,13 @@ function DailyChart({ perDay, from, to }: { perDay: ReportDto['messages']['perDa
   );
 }
 
-function BarList({ title, rows }: { title: string; rows: Array<{ label: string; value: number; display?: string }> }) {
+function BarList({
+  title,
+  rows,
+}: {
+  title: string;
+  rows: Array<{ label: string; value: number; display?: string }>;
+}) {
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
     <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
@@ -167,10 +204,19 @@ function BarList({ title, rows }: { title: string; rows: Array<{ label: string; 
       ) : (
         <ul className="flex flex-col gap-2">
           {rows.map((r) => (
-            <li key={r.label} className="grid grid-cols-[minmax(6rem,10rem)_1fr_auto] items-center gap-3 text-sm">
+            <li
+              key={r.label}
+              className="grid grid-cols-[minmax(6rem,10rem)_1fr_auto] items-center gap-3 text-sm"
+            >
               <span className="truncate font-semibold">{r.label}</span>
               <span className="h-3 overflow-hidden rounded-full bg-surface-2">
-                <span className="block h-full rounded-full" style={{ width: `${Math.max(2, (r.value / max) * 100)}%`, background: 'var(--series-1)' }} />
+                <span
+                  className="block h-full rounded-full"
+                  style={{
+                    width: `${Math.max(2, (r.value / max) * 100)}%`,
+                    background: 'var(--series-1)',
+                  }}
+                />
               </span>
               <span className="text-right tabular-nums text-muted">{r.display ?? r.value}</span>
             </li>
@@ -193,7 +239,11 @@ export default function ReportsPage() {
     enabled: platform,
   });
   const { from, to } = rangeDates(range);
-  const query = { from: from.toISOString(), to: to.toISOString(), ...(scope ? { businessId: scope } : {}) };
+  const query = {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    ...(scope ? { businessId: scope } : {}),
+  };
   const report = useQuery({
     queryKey: ['report', query],
     queryFn: () => api<ReportDto>('/reports', { query }),
@@ -201,7 +251,10 @@ export default function ReportsPage() {
   });
   const exporting = useMutation({
     mutationFn: () =>
-      downloadFile(`/reports/export.xlsx?${new URLSearchParams(query).toString()}`, 'sma-report.xlsx'),
+      downloadFile(
+        `/reports/export.xlsx?${new URLSearchParams(query).toString()}`,
+        'sma-report.xlsx',
+      ),
   });
   const r = report.data;
   const pct = (v: number | null) => (v === null ? '—' : `${Math.round(v * 100)}%`);
@@ -224,7 +277,11 @@ export default function ReportsPage() {
           }
         />
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1" role="radiogroup" aria-label="Period">
+          <div
+            className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1"
+            role="radiogroup"
+            aria-label="Period"
+          >
             {RANGES.map((x) => (
               <button
                 key={x.key}
@@ -232,7 +289,10 @@ export default function ReportsPage() {
                 role="radio"
                 aria-checked={range === x.key}
                 onClick={() => setRange(x.key)}
-                className={cx('min-h-10 rounded-lg px-3 text-sm font-semibold', range === x.key ? 'bg-surface shadow-card' : 'text-muted')}
+                className={cx(
+                  'min-h-10 rounded-lg px-3 text-sm font-semibold',
+                  range === x.key ? 'bg-surface shadow-card' : 'text-muted',
+                )}
               >
                 {x.label}
               </button>
@@ -256,18 +316,30 @@ export default function ReportsPage() {
         </div>
         {exporting.isError && <Alert tone="error">{errorMessage(exporting.error)}</Alert>}
         {!platform && !scope && (
-          <EmptyState icon={<BarChart3 className="size-9" aria-hidden />} title="Choose a business" />
+          <EmptyState
+            icon={<BarChart3 className="size-9" aria-hidden />}
+            title="Choose a business"
+          />
         )}
         {report.isPending && (platform || scope) && <Spinner label="Building the report" />}
         {report.isError && <Alert tone="error">{errorMessage(report.error)}</Alert>}
         {r && (
           <>
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <Kpi Icon={MessageCircle} label="Messages sent" value={r.messages.total.toLocaleString()} hint={`${r.messages.activeSenders} people sent messages`} />
+              <Kpi
+                Icon={MessageCircle}
+                label="Messages sent"
+                value={r.messages.total.toLocaleString()}
+                hint={`${r.messages.activeSenders} people sent messages`}
+              />
               <Kpi
                 Icon={Clock}
                 label="Median reply time"
-                value={r.messages.medianReplyMinutes === null ? '—' : `${r.messages.medianReplyMinutes} min`}
+                value={
+                  r.messages.medianReplyMinutes === null
+                    ? '—'
+                    : `${r.messages.medianReplyMinutes} min`
+                }
                 hint={`${pct(r.messages.repliedWithin15m)} answered within 15 min`}
                 tone="success"
               />
@@ -275,25 +347,52 @@ export default function ReportsPage() {
                 Icon={Siren}
                 label="Emergency alerts"
                 value={r.emergencies.total}
-                hint={r.emergencies.medianAckMinutes === null ? 'None acknowledged' : `Acknowledged in ${r.emergencies.medianAckMinutes} min (median)`}
+                hint={
+                  r.emergencies.medianAckMinutes === null
+                    ? 'None acknowledged'
+                    : `Acknowledged in ${r.emergencies.medianAckMinutes} min (median)`
+                }
                 tone={r.emergencies.total > 0 ? 'warn' : 'brand'}
               />
               <Kpi
                 Icon={CheckCircle2}
                 label="Tasks completed"
                 value={`${r.tasks.completed} / ${r.tasks.created}`}
-                hint={r.tasks.overdueOpen > 0 ? `${r.tasks.overdueOpen} open tasks are overdue` : 'Nothing overdue'}
+                hint={
+                  r.tasks.overdueOpen > 0
+                    ? `${r.tasks.overdueOpen} open tasks are overdue`
+                    : 'Nothing overdue'
+                }
                 tone={r.tasks.overdueOpen > 0 ? 'danger' : 'brand'}
               />
             </div>
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-              <Kpi Icon={Megaphone} label="Campaign messages sent" value={r.campaigns.sent} hint={`${r.campaigns.total} campaigns · ${r.campaigns.failed} failed`} />
-              <Kpi Icon={Users} label="Store customers" value={r.customers.total} hint={`${r.customers.newInPeriod} new · ${r.customers.optedIn} accept marketing`} />
+              <Kpi
+                Icon={Megaphone}
+                label="Campaign messages sent"
+                value={r.campaigns.sent}
+                hint={`${r.campaigns.total} campaigns · ${r.campaigns.failed} failed`}
+              />
+              <Kpi
+                Icon={Users}
+                label="Store customers"
+                value={r.customers.total}
+                hint={`${r.customers.newInPeriod} new · ${r.customers.optedIn} accept marketing`}
+              />
               {r.leads && (
                 <>
-                  <Kpi Icon={BarChart3} label="Leads created" value={r.leads.created} hint={`${r.leads.won} won · ${r.leads.lost} lost`} />
                   <Kpi
-                    Icon={r.leads.conversionRate !== null && r.leads.conversionRate < 0.2 ? AlertTriangle : CheckCircle2}
+                    Icon={BarChart3}
+                    label="Leads created"
+                    value={r.leads.created}
+                    hint={`${r.leads.won} won · ${r.leads.lost} lost`}
+                  />
+                  <Kpi
+                    Icon={
+                      r.leads.conversionRate !== null && r.leads.conversionRate < 0.2
+                        ? AlertTriangle
+                        : CheckCircle2
+                    }
                     label="Win rate"
                     value={pct(r.leads.conversionRate)}
                     hint="Won ÷ closed leads"
@@ -306,7 +405,10 @@ export default function ReportsPage() {
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <BarList
                 title="Message types"
-                rows={r.messages.byKind.map((k) => ({ label: KIND_LABEL[k.kind] ?? k.kind, value: k.count }))}
+                rows={r.messages.byKind.map((k) => ({
+                  label: KIND_LABEL[k.kind] ?? k.kind,
+                  value: k.count,
+                }))}
               />
               <BarList
                 title="Busiest stores"
@@ -315,7 +417,8 @@ export default function ReportsPage() {
               <BarList
                 title="Campaigns by channel"
                 rows={r.campaigns.byChannel.map((c) => ({
-                  label: c.channel === 'WHATSAPP' ? 'WhatsApp' : c.channel === 'SMS' ? 'SMS' : 'Email',
+                  label:
+                    c.channel === 'WHATSAPP' ? 'WhatsApp' : c.channel === 'SMS' ? 'SMS' : 'Email',
                   value: c.sent,
                   display: `${c.sent} sent · ${c.failed} failed`,
                 }))}
@@ -323,7 +426,10 @@ export default function ReportsPage() {
               {r.leads && (
                 <BarList
                   title="New leads by source"
-                  rows={r.leads.bySource.map((s) => ({ label: s.source.replace(/_/g, ' ').toLowerCase(), value: s.count }))}
+                  rows={r.leads.bySource.map((s) => ({
+                    label: s.source.replace(/_/g, ' ').toLowerCase(),
+                    value: s.count,
+                  }))}
                 />
               )}
             </div>

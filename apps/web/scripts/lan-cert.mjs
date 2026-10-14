@@ -74,14 +74,33 @@ if (!existsSync(at('sma-local-ca.crt')) || !existsSync(at('sma-local-ca.key'))) 
     ].join('\n'),
   );
   run(
-    'req', '-x509', '-new', '-newkey', 'rsa:2048', '-nodes', '-sha256', '-days', '1825',
-    '-keyout', at('sma-local-ca.key'), '-out', at('sma-local-ca.crt'), '-config', at('ca.cnf'),
+    'req',
+    '-x509',
+    '-new',
+    '-newkey',
+    'rsa:2048',
+    '-nodes',
+    '-sha256',
+    '-days',
+    '1825',
+    '-keyout',
+    at('sma-local-ca.key'),
+    '-out',
+    at('sma-local-ca.crt'),
+    '-config',
+    at('ca.cnf'),
   );
-  process.stdout.write('Created a new local certificate authority (install it on each phone once).\n');
+  process.stdout.write(
+    'Created a new local certificate authority (install it on each phone once).\n',
+  );
 }
 
 // 2. The server certificate (397 days: the longest browsers accept).
-const names = ['DNS.1 = localhost', 'IP.1 = 127.0.0.1', ...ips.map((ip, i) => `IP.${i + 2} = ${ip}`)];
+const names = [
+  'DNS.1 = localhost',
+  'IP.1 = 127.0.0.1',
+  ...ips.map((ip, i) => `IP.${i + 2} = ${ip}`),
+];
 writeFileSync(
   at('lan.cnf'),
   [
@@ -101,11 +120,38 @@ writeFileSync(
     '',
   ].join('\n'),
 );
-run('req', '-new', '-newkey', 'rsa:2048', '-nodes', '-keyout', at('lan.key'), '-out', at('lan.csr'), '-config', at('lan.cnf'));
 run(
-  'x509', '-req', '-in', at('lan.csr'), '-CA', at('sma-local-ca.crt'), '-CAkey', at('sma-local-ca.key'),
-  '-CAcreateserial', '-out', at('lan.crt'), '-days', '397', '-sha256',
-  '-extfile', at('lan.cnf'), '-extensions', 'ext',
+  'req',
+  '-new',
+  '-newkey',
+  'rsa:2048',
+  '-nodes',
+  '-keyout',
+  at('lan.key'),
+  '-out',
+  at('lan.csr'),
+  '-config',
+  at('lan.cnf'),
+);
+run(
+  'x509',
+  '-req',
+  '-in',
+  at('lan.csr'),
+  '-CA',
+  at('sma-local-ca.crt'),
+  '-CAkey',
+  at('sma-local-ca.key'),
+  '-CAcreateserial',
+  '-out',
+  at('lan.crt'),
+  '-days',
+  '397',
+  '-sha256',
+  '-extfile',
+  at('lan.cnf'),
+  '-extensions',
+  'ext',
 );
 
 process.stdout.write(

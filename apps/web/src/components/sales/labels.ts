@@ -110,7 +110,10 @@ export const FOLLOW_UP_LABEL: Record<FollowUpKind, string> = {
 };
 
 /** The activity to log when a planned follow-up is done. */
-export const FOLLOW_UP_ACTIVITY: Record<FollowUpKind, 'CALL' | 'MEETING' | 'WHATSAPP' | 'EMAIL' | 'NOTE'> = {
+export const FOLLOW_UP_ACTIVITY: Record<
+  FollowUpKind,
+  'CALL' | 'MEETING' | 'WHATSAPP' | 'EMAIL' | 'NOTE'
+> = {
   MEETING: 'MEETING',
   VISIT: 'MEETING',
   CALL: 'CALL',

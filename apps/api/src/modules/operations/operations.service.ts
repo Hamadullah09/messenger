@@ -65,11 +65,18 @@ export class OperationsService {
       visible,
       canManage: (storeId: string) => manageStores === null || manageStores.has(storeId),
       canWork: (storeId: string) =>
-        workStores === null || manageStores === null || !!workStores?.has(storeId) || !!manageStores?.has(storeId),
+        workStores === null ||
+        manageStores === null ||
+        !!workStores?.has(storeId) ||
+        !!manageStores?.has(storeId),
     };
   }
 
-  private toTask(row: TaskRow, actor: Actor, scope: Awaited<ReturnType<OperationsService['scope']>>): TaskDto {
+  private toTask(
+    row: TaskRow,
+    actor: Actor,
+    scope: Awaited<ReturnType<OperationsService['scope']>>,
+  ): TaskDto {
     const canEdit = scope.canManage(row.storeId);
     return {
       id: row.id,
@@ -114,7 +121,11 @@ export class OperationsService {
         ...(query.mine ? { assigneeId: actor.userId } : {}),
       },
       include: taskInclude,
-      orderBy: [{ status: 'asc' }, { dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+      orderBy: [
+        { status: 'asc' },
+        { dueAt: { sort: 'asc', nulls: 'last' } },
+        { createdAt: 'desc' },
+      ],
       take: 500,
     });
     return rows.map((r) => this.toTask(r, actor, scope));
@@ -179,7 +190,8 @@ export class OperationsService {
     const dto = this.toTask(task, actor, scope);
     const { status, ...edits } = request;
     const editing = Object.values(edits).some((v) => v !== undefined);
-    if (editing && !dto.canEdit) throw ApiError.forbidden('Only the store manager can change tasks.');
+    if (editing && !dto.canEdit)
+      throw ApiError.forbidden('Only the store manager can change tasks.');
     if (status !== undefined && !dto.canComplete)
       throw ApiError.forbidden('This task is assigned to someone else.');
     if (edits.assigneeId) await this.requireStaff(task.businessId, task.storeId, edits.assigneeId);
@@ -260,10 +272,17 @@ export class OperationsService {
 
   async createShift(actor: Actor, request: CreateShiftRequest): Promise<ShiftDto> {
     const store = await this.requireStore(request.storeId);
-    await this.authz.require(actor, 'task.manage', { businessId: store.businessId, storeId: store.id });
+    await this.authz.require(actor, 'task.manage', {
+      businessId: store.businessId,
+      storeId: store.id,
+    });
     await this.requireStaff(store.businessId, store.id, request.userId);
     const overlap = await this.prisma.shift.findFirst({
-      where: { userId: request.userId, startsAt: { lt: request.endsAt }, endsAt: { gt: request.startsAt } },
+      where: {
+        userId: request.userId,
+        startsAt: { lt: request.endsAt },
+        endsAt: { gt: request.startsAt },
+      },
       select: { store: { select: { name: true } } },
     });
     if (overlap)

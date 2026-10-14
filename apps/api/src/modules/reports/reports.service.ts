@@ -127,7 +127,12 @@ export class ReportsService {
             where: { ...businessWhere, deletedAt: null, createdAt: { gte: from, lt: to } },
           }),
           this.prisma.storeCustomer.count({
-            where: { ...businessWhere, deletedAt: null, marketingOptIn: true, unsubscribedAt: null },
+            where: {
+              ...businessWhere,
+              deletedAt: null,
+              marketingOptIn: true,
+              unsubscribedAt: null,
+            },
           }),
         ]),
       ]);
@@ -136,12 +141,20 @@ export class ReportsService {
       .filter((i) => i.acknowledgedAt)
       .map((i) => (i.acknowledgedAt!.getTime() - i.createdAt.getTime()) / 60_000)
       .sort((a, b) => a - b);
-    const byChannel = new Map<string, { channel: string; campaigns: number; sent: number; failed: number }>();
+    const byChannel = new Map<
+      string,
+      { channel: string; campaigns: number; sent: number; failed: number }
+    >();
     let sent = 0;
     let failed = 0;
     let skipped = 0;
     for (const c of campaigns) {
-      const row = byChannel.get(c.channel) ?? { channel: c.channel, campaigns: 0, sent: 0, failed: 0 };
+      const row = byChannel.get(c.channel) ?? {
+        channel: c.channel,
+        campaigns: 0,
+        sent: 0,
+        failed: 0,
+      };
       row.campaigns += 1;
       for (const r of c.recipients) {
         if (r.state === 'SENT') {
@@ -186,9 +199,12 @@ export class ReportsService {
       },
       customers: { total: customers[0], newInPeriod: customers[1], optedIn: customers[2] },
       // SMA's own sales funnel on the platform report; a business's own funnel on its report.
-      leads: platform && !businessId ? await this.leads(from, to, null) : businessId && (await this.authz.can(actor, 'sales.lead.read_all', { businessId }))
-          ? await this.leads(from, to, businessId)
-          : null,
+      leads:
+        platform && !businessId
+          ? await this.leads(from, to, null)
+          : businessId && (await this.authz.can(actor, 'sales.lead.read_all', { businessId }))
+            ? await this.leads(from, to, businessId)
+            : null,
     };
   }
 
@@ -197,7 +213,9 @@ export class ReportsService {
     to: Date,
     businessId: string | null,
   ): Promise<NonNullable<ReportDto['leads']>> {
-    const tenant: Prisma.LeadWhereInput = businessId ? { tenantId: businessId } : { tenant: { internal: true } };
+    const tenant: Prisma.LeadWhereInput = businessId
+      ? { tenantId: businessId }
+      : { tenant: { internal: true } };
     const [created, closed] = await Promise.all([
       this.prisma.lead.findMany({
         where: { ...tenant, deletedAt: null, createdAt: { gte: from, lt: to } },
@@ -205,7 +223,12 @@ export class ReportsService {
       }),
       this.prisma.lead.groupBy({
         by: ['stage'],
-        where: { ...tenant, deletedAt: null, closedAt: { gte: from, lt: to }, stage: { in: ['WON', 'LOST'] } },
+        where: {
+          ...tenant,
+          deletedAt: null,
+          closedAt: { gte: from, lt: to },
+          stage: { in: ['WON', 'LOST'] },
+        },
         _count: { _all: true },
       }),
     ]);
@@ -231,14 +254,21 @@ export class ReportsService {
   async excel(actor: Actor, query: ReportQuery): Promise<{ buffer: Buffer; fileName: string }> {
     const r = await this.report(actor, query);
     const name = r.businessId
-      ? ((await this.prisma.business.findUnique({ where: { id: r.businessId }, select: { name: true } }))
-          ?.name ?? 'Business')
+      ? ((
+          await this.prisma.business.findUnique({
+            where: { id: r.businessId },
+            select: { name: true },
+          })
+        )?.name ?? 'Business')
       : 'SMA platform';
     const wb = new ExcelJS.Workbook();
     wb.creator = 'SMA Technology';
     wb.created = new Date();
     const period = `${r.from.slice(0, 10)} to ${new Date(Date.parse(r.to) - 1).toISOString().slice(0, 10)}`;
-    const sheet = (title: string, columns: Array<{ header: string; key: string; width: number }>) => {
+    const sheet = (
+      title: string,
+      columns: Array<{ header: string; key: string; width: number }>,
+    ) => {
       const ws = wb.addWorksheet(title);
       ws.columns = columns;
       ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
@@ -259,7 +289,9 @@ export class ReportsService {
       ['Median reply time (minutes)', r.messages.medianReplyMinutes],
       [
         'Replies within 15 minutes',
-        r.messages.repliedWithin15m === null ? null : `${Math.round(r.messages.repliedWithin15m * 100)}%`,
+        r.messages.repliedWithin15m === null
+          ? null
+          : `${Math.round(r.messages.repliedWithin15m * 100)}%`,
       ],
       ['Emergency alerts', r.emergencies.total],
       ['Median time to acknowledge (minutes)', r.emergencies.medianAckMinutes],

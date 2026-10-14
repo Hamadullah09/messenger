@@ -133,12 +133,21 @@ export class BroadcastService {
           `A broadcast list can have at most ${BROADCAST_LIST_MAX_RECIPIENTS} people.`,
           'addUserIds',
         );
-      if (count === 0) throw ApiError.validation('Keep at least one person on the list.', 'removeUserIds');
+      if (count === 0)
+        throw ApiError.validation('Keep at least one person on the list.', 'removeUserIds');
       if (request.name) {
-        await tx.conversation.update({ where: { id: conversationId }, data: { title: request.name } });
+        await tx.conversation.update({
+          where: { id: conversationId },
+          data: { title: request.name },
+        });
       }
       return [
-        await this.outbox.add(tx, 'conversation.updated', { conversationId }, conversation.businessId),
+        await this.outbox.add(
+          tx,
+          'conversation.updated',
+          { conversationId },
+          conversation.businessId,
+        ),
       ];
     });
     await this.outbox.dispatch(events);
@@ -164,7 +173,11 @@ export class BroadcastService {
    * After a message is written in a list: send a copy to each recipient's direct chat (created
    * when missing). People who can no longer be reached are skipped.
    */
-  async fanOut(actor: Actor, listConversationId: string, messageId: string): Promise<BroadcastDeliveryDto> {
+  async fanOut(
+    actor: Actor,
+    listConversationId: string,
+    messageId: string,
+  ): Promise<BroadcastDeliveryDto> {
     const [list, message] = await Promise.all([
       this.prisma.conversation.findUniqueOrThrow({
         where: { id: listConversationId },
@@ -259,7 +272,12 @@ export class BroadcastService {
           directKey,
           createdById: a,
           memberCount: 2,
-          members: { create: [{ userId: a, addedById: a }, { userId: b, addedById: a }] },
+          members: {
+            create: [
+              { userId: a, addedById: a },
+              { userId: b, addedById: a },
+            ],
+          },
         },
         select: { id: true },
       });

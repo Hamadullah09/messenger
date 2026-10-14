@@ -24,6 +24,7 @@
     "@storeline/shared": "^0.1.0",
     "@tanstack/react-query": "^5.104.1",
     "@tanstack/react-virtual": "^3.14.14",
+    "livekit-client": "^2.22.4",
     "lucide-react": "^1.55.0",
     "next": "^15.5.27",
     "react": "^19.2.8",

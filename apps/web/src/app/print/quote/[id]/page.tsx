@@ -30,7 +30,8 @@ export default function PrintQuotePage() {
   useEffect(() => {
     if (quote.data) document.title = `Quotation ${quote.data.number}`;
   }, [quote.data]);
-  if (status !== 'signed-in' || quote.isPending || settings.isPending) return <Spinner label="Preparing quote" />;
+  if (status !== 'signed-in' || quote.isPending || settings.isPending)
+    return <Spinner label="Preparing quote" />;
   if (quote.isError || settings.isError)
     return (
       <div className="p-6">
@@ -43,7 +44,14 @@ export default function PrintQuotePage() {
     <PublicDocument
       kind="Quotation"
       number={q.number}
-      company={{ name: s.companyName, address: s.companyAddress, email: s.companyEmail, phone: s.companyPhone, taxNumber: s.taxNumber, taxName: s.taxName }}
+      company={{
+        name: s.companyName,
+        address: s.companyAddress,
+        email: s.companyEmail,
+        phone: s.companyPhone,
+        taxNumber: s.taxNumber,
+        taxName: s.taxName,
+      }}
       billToName={q.billToName}
       dates={[
         ['Date', q.issueDate],
@@ -60,7 +68,11 @@ export default function PrintQuotePage() {
     >
       {q.notes && <p className="whitespace-pre-line">{q.notes}</p>}
       {q.terms && <p className="text-sm whitespace-pre-line text-muted">{q.terms}</p>}
-      <button type="button" onClick={() => window.print()} className="mx-auto rounded-xl bg-brand px-4 py-2 font-semibold text-brand-contrast print:hidden">
+      <button
+        type="button"
+        onClick={() => window.print()}
+        className="mx-auto rounded-xl bg-brand px-4 py-2 font-semibold text-brand-contrast print:hidden"
+      >
         Print / Save as PDF
       </button>
     </PublicDocument>

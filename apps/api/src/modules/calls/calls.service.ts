@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import type {
   CallConfigDto,
@@ -8,6 +8,7 @@ import type {
   CallSignal,
   MessageMeta,
   PublicUserDto,
+  SfuTokenDto,
   StartCallRequest,
 } from '@storeline/shared';
 import { APP_CONFIG, type AppConfig } from '../../infra/config/config';
@@ -38,6 +39,8 @@ interface CallState {
   joined: Record<string, string>;
   /** Group calls: did anyone besides the caller join? */
   everJoined: boolean;
+  /** Media through the LiveKit server (big groups) instead of device to device. */
+  sfu?: boolean;
   state: 'ringing' | 'active' | 'ended';
   startedAt: string;
   answeredAt: string | null;
@@ -51,11 +54,13 @@ const CALL_TTL_SECONDS = 4 * 3600;
 const callKey = (id: string) => `call:${id}`;
 const busyKey = (userId: string) => `call-busy:${userId}`;
 
+const base64url = (value: string | Buffer) => Buffer.from(value).toString('base64url');
+
 /**
- * Voice and video calls (WebRTC, peer to peer). One-to-one in direct chats; group calls in
- * groups (up to 8 people, everyone connected to everyone). The server rings, relays signalling
- * between the devices in the call and records the call in the chat. Media never passes through
- * the server.
+ * Voice and video calls (WebRTC). One-to-one in direct chats; group calls in groups — up to 8
+ * people device to device, or through the self-hosted LiveKit server for bigger groups when it
+ * is set up. The server rings, relays signalling between the devices and records the call in
+ * the chat. Media never passes through this API (only through TURN/LiveKit when used).
  */
 @Injectable()
 export class CallsService {
@@ -69,8 +74,71 @@ export class CallsService {
     private readonly realtime: RealtimeEmitter,
   ) {}
 
-  configFor(): CallConfigDto {
-    return { iceServers: this.config.CALL_ICE_SERVERS, ringSeconds: this.config.CALL_RING_SECONDS };
+  private get liveKit(): { url: string; key: string; secret: string } | null {
+    const c = this.config;
+    return c.LIVEKIT_URL && c.LIVEKIT_API_KEY && c.LIVEKIT_API_SECRET
+      ? { url: c.LIVEKIT_URL, key: c.LIVEKIT_API_KEY, secret: c.LIVEKIT_API_SECRET }
+      : null;
+  }
+
+  private maxFor(call: Pick<CallState, 'sfu'>): number {
+    return call.sfu ? this.config.LIVEKIT_MAX_PARTICIPANTS : GROUP_CALL_MAX;
+  }
+
+  /**
+   * ICE servers for this person: the configured STUN servers plus TURN with short-lived
+   * credentials (TURN REST API: username "expiry:userId", password HMAC-SHA1 of it with the
+   * secret shared with coturn).
+   */
+  configFor(actor: Actor): CallConfigDto {
+    const iceServers = [...this.config.CALL_ICE_SERVERS];
+    const {
+      TURN_URLS: urls,
+      TURN_SHARED_SECRET: secret,
+      TURN_CREDENTIAL_TTL_SECONDS: ttl,
+    } = this.config;
+    if (urls.length > 0 && secret) {
+      const username = `${Math.floor(Date.now() / 1000) + ttl}:${actor.userId}`;
+      iceServers.push({
+        urls,
+        username,
+        credential: createHmac('sha1', secret).update(username).digest('base64'),
+      });
+    }
+    return {
+      iceServers,
+      ringSeconds: this.config.CALL_RING_SECONDS,
+      maxGroupParticipants: this.liveKit ? this.config.LIVEKIT_MAX_PARTICIPANTS : GROUP_CALL_MAX,
+    };
+  }
+
+  /** A LiveKit room token (HS256 JWT, LiveKit's format) for someone in a big group call. */
+  async sfuToken(actor: Actor, callId: string): Promise<SfuTokenDto> {
+    const call = await this.requireParty(actor, callId);
+    const lk = this.liveKit;
+    if (!call.sfu || !lk) throw ApiError.conflict('This call does not use the media server.');
+    if (call.state === 'ended') throw ApiError.conflict('This call has ended.');
+    if (call.joined[actor.userId] !== actor.sessionId)
+      throw ApiError.forbidden('Join the call first.');
+    const now = Math.floor(Date.now() / 1000);
+    const claims = {
+      iss: lk.key,
+      sub: actor.userId,
+      name: call.members[actor.userId]?.displayName ?? '',
+      nbf: now - 10,
+      exp: now + 4 * 3600,
+      jti: randomUUID(),
+      video: {
+        room: `call-${call.id}`,
+        roomJoin: true,
+        canPublish: true,
+        canSubscribe: true,
+        canPublishData: false,
+      },
+    };
+    const unsigned = `${base64url(JSON.stringify({ alg: 'HS256', typ: 'JWT' }))}.${base64url(JSON.stringify(claims))}`;
+    const signature = createHmac('sha256', lk.secret).update(unsigned).digest('base64url');
+    return { url: lk.url, token: `${unsigned}.${signature}` };
   }
 
   private toDto(call: CallState): CallDto {
@@ -79,10 +147,13 @@ export class CallsService {
       conversationId: call.conversationId,
       media: call.media,
       group: call.group,
+      sfu: !!call.sfu,
       title: call.title,
       caller: call.caller,
       callee: call.callee,
-      participants: Object.keys(call.joined).map((id) => call.members[id]!).filter(Boolean),
+      participants: Object.keys(call.joined)
+        .map((id) => call.members[id]!)
+        .filter(Boolean),
       state: call.state,
       startedAt: call.startedAt,
       answeredAt: call.answeredAt,
@@ -155,6 +226,8 @@ export class CallsService {
       members,
       joined: { [actor.userId]: actor.sessionId },
       everJoined: false,
+      // Groups bigger than a device-to-device call can carry use LiveKit when it is set up.
+      sfu: group && !!this.liveKit && rows.length > GROUP_CALL_MAX,
       state: group ? 'active' : 'ringing',
       startedAt: new Date().toISOString(),
       answeredAt: group ? new Date().toISOString() : null,
@@ -167,7 +240,8 @@ export class CallsService {
     }
     await this.save(call);
     await this.redis.client.set(busyKey(actor.userId), call.id, 'EX', CALL_TTL_SECONDS);
-    if (group) await this.redis.client.set(`group-call:${conversation.id}`, call.id, 'EX', CALL_TTL_SECONDS);
+    if (group)
+      await this.redis.client.set(`group-call:${conversation.id}`, call.id, 'EX', CALL_TTL_SECONDS);
     const invite = this.everyone(call).filter((id) => id !== actor.userId);
     this.realtime.toUsers(invite, 'call.incoming', this.toDto(call));
     return this.toDto(call);
@@ -183,8 +257,8 @@ export class CallsService {
   async join(actor: Actor, callId: string): Promise<CallDto> {
     const call = await this.requireParty(actor, callId);
     if (call.state === 'ended') throw ApiError.conflict('This call has ended.');
-    if (!(actor.userId in call.joined) && Object.keys(call.joined).length >= GROUP_CALL_MAX)
-      throw ApiError.conflict(`Group calls can have up to ${GROUP_CALL_MAX} people.`);
+    if (!(actor.userId in call.joined) && Object.keys(call.joined).length >= this.maxFor(call))
+      throw ApiError.conflict(`This call can have up to ${this.maxFor(call)} people.`);
     if (!(actor.userId in call.joined) && (await this.busy(actor.userId)))
       throw ApiError.conflict('You are already in a call.');
     call.joined[actor.userId] = actor.sessionId;
@@ -222,7 +296,11 @@ export class CallsService {
   }
 
   /** Hang up (either person / leave a group call), cancel (caller while ringing) or time out. */
-  async end(actor: Actor, callId: string, reason: 'hangup' | 'timeout' | 'failed'): Promise<CallDto> {
+  async end(
+    actor: Actor,
+    callId: string,
+    reason: 'hangup' | 'timeout' | 'failed',
+  ): Promise<CallDto> {
     const call = await this.requireParty(actor, callId);
     if (call.state === 'ended') return this.toDto(call);
     if (call.group) {
@@ -257,7 +335,9 @@ export class CallsService {
     const now = new Date();
     const since = call.answeredAt ?? call.startedAt;
     const durationSec =
-      outcome === 'answered' ? Math.max(0, Math.round((now.getTime() - Date.parse(since)) / 1000)) : 0;
+      outcome === 'answered'
+        ? Math.max(0, Math.round((now.getTime() - Date.parse(since)) / 1000))
+        : 0;
     call.state = 'ended';
     call.outcome = outcome;
     call.endedAt = now.toISOString();
@@ -312,7 +392,8 @@ export class CallsService {
     const fromCaller = call.caller.id === actor.userId;
     if (fromCaller && actor.sessionId !== call.joined[call.caller.id]) throw ApiError.forbidden();
     const calleeSession = call.joined[call.callee.id];
-    if (!fromCaller && calleeSession && actor.sessionId !== calleeSession) throw ApiError.forbidden();
+    if (!fromCaller && calleeSession && actor.sessionId !== calleeSession)
+      throw ApiError.forbidden();
     const target = fromCaller ? calleeSession : call.joined[call.caller.id];
     if (!target) throw ApiError.conflict('The call has not been answered yet.');
     this.realtime.toSessions([target], 'call.signal', {
@@ -357,7 +438,11 @@ export class CallsService {
       if (meta?.type !== 'call' || !peerUser) return [];
       const peer =
         r.conversation.type === 'GROUP'
-          ? { ...toPublicUser(peerUser), id: peerUser.id, displayName: r.conversation.title ?? 'Group' }
+          ? {
+              ...toPublicUser(peerUser),
+              id: peerUser.id,
+              displayName: r.conversation.title ?? 'Group',
+            }
           : toPublicUser(peerUser);
       return [
         {

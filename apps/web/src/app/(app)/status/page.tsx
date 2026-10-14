@@ -22,7 +22,18 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { Alert, Avatar, Button, cx, Dialog, EmptyState, PageHeader, SelectField, Spinner, TextArea } from '@/components/ui';
+import {
+  Alert,
+  Avatar,
+  Button,
+  cx,
+  Dialog,
+  EmptyState,
+  PageHeader,
+  SelectField,
+  Spinner,
+  TextArea,
+} from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { useAuth } from '@/lib/auth-store';
 import { formatRelativeShort, formatTime } from '@/lib/format';
@@ -31,7 +42,17 @@ import { uploadFile } from '@/lib/uploads';
 
 const SHOW_MS = 5_000;
 
-function Ring({ name, posts, seen, size = 52 }: { name: string; posts: number; seen: boolean; size?: number }) {
+function Ring({
+  name,
+  posts,
+  seen,
+  size = 52,
+}: {
+  name: string;
+  posts: number;
+  seen: boolean;
+  size?: number;
+}) {
   // WhatsApp's segmented ring: one arc per update, brand colour until seen.
   const r = size / 2 - 2;
   const c = 2 * Math.PI * r;
@@ -68,12 +89,15 @@ export default function StatusPage() {
   const [viewing, setViewing] = useState<{ posts: StatusPostDto[]; index: number } | null>(null);
   const feed = useQuery({
     queryKey: ['status', businessId],
-    queryFn: () => api<StatusFeedDto>('/status', { query: { businessId: businessId ?? undefined } }),
+    queryFn: () =>
+      api<StatusFeedDto>('/status', { query: { businessId: businessId ?? undefined } }),
     enabled: !!businessId,
     refetchInterval: 60_000,
   });
   const canPost = me.grants.some(
-    (g) => g.permissions.includes('status.post') && (g.scope.type === 'PLATFORM' || g.scope.businessId === businessId),
+    (g) =>
+      g.permissions.includes('status.post') &&
+      (g.scope.type === 'PLATFORM' || g.scope.businessId === businessId),
   );
 
   return (
@@ -84,14 +108,20 @@ export default function StatusPage() {
           subtitle="Updates for your team that disappear after 24 hours. Store announcements reach only that store."
           actions={
             canPost && businessId ? (
-              <Button icon={<Plus className="size-5" aria-hidden />} onClick={() => setComposing(true)}>
+              <Button
+                icon={<Plus className="size-5" aria-hidden />}
+                onClick={() => setComposing(true)}
+              >
                 Add status
               </Button>
             ) : undefined
           }
         />
         {!businessId && (
-          <EmptyState icon={<CircleDashed className="size-9" aria-hidden />} title="Choose a business">
+          <EmptyState
+            icon={<CircleDashed className="size-9" aria-hidden />}
+            title="Choose a business"
+          >
             Status updates belong to a business. Pick one from the switcher at the top.
           </EmptyState>
         )}
@@ -130,7 +160,9 @@ export default function StatusPage() {
               </button>
             </section>
             <section>
-              <h2 className="mb-2 text-sm font-bold tracking-wide text-muted uppercase">Recent updates</h2>
+              <h2 className="mb-2 text-sm font-bold tracking-wide text-muted uppercase">
+                Recent updates
+              </h2>
               {feed.data.others.length === 0 ? (
                 <p className="text-muted">No updates from your team in the last 24 hours.</p>
               ) : (
@@ -142,17 +174,28 @@ export default function StatusPage() {
                         onClick={() =>
                           setViewing({
                             posts: g.posts,
-                            index: Math.max(0, g.posts.findIndex((p) => !p.viewed)),
+                            index: Math.max(
+                              0,
+                              g.posts.findIndex((p) => !p.viewed),
+                            ),
                           })
                         }
                         className="flex w-full items-center gap-3 rounded-2xl p-2 text-left hover:bg-surface-2"
                       >
-                        <Ring name={g.author.displayName} posts={g.posts.length} seen={g.allViewed} />
+                        <Ring
+                          name={g.author.displayName}
+                          posts={g.posts.length}
+                          seen={g.allViewed}
+                        />
                         <span className="min-w-0">
-                          <span className="block truncate font-semibold">{g.author.displayName}</span>
+                          <span className="block truncate font-semibold">
+                            {g.author.displayName}
+                          </span>
                           <span className="block truncate text-sm text-muted">
                             {formatRelativeShort(g.posts.at(-1)!.createdAt)}
-                            {g.posts.some((p) => p.storeName) ? ` · ${g.posts.find((p) => p.storeName)!.storeName}` : ''}
+                            {g.posts.some((p) => p.storeName)
+                              ? ` · ${g.posts.find((p) => p.storeName)!.storeName}`
+                              : ''}
                           </span>
                         </span>
                       </button>
@@ -164,7 +207,9 @@ export default function StatusPage() {
           </>
         )}
       </div>
-      {composing && businessId && <StatusComposer businessId={businessId} onClose={() => setComposing(false)} />}
+      {composing && businessId && (
+        <StatusComposer businessId={businessId} onClose={() => setComposing(false)} />
+      )}
       {viewing && (
         <StatusViewer
           posts={viewing.posts}
@@ -177,7 +222,15 @@ export default function StatusPage() {
   );
 }
 
-function StatusMedia({ post, onVideoEnd, paused }: { post: StatusPostDto; onVideoEnd: () => void; paused: boolean }) {
+function StatusMedia({
+  post,
+  onVideoEnd,
+  paused,
+}: {
+  post: StatusPostDto;
+  onVideoEnd: () => void;
+  paused: boolean;
+}) {
   const url = useMediaUrl(post.media!.mediaId, 'original');
   const video = useRef<HTMLVideoElement>(null);
   useEffect(() => {
@@ -185,11 +238,23 @@ function StatusMedia({ post, onVideoEnd, paused }: { post: StatusPostDto; onVide
     if (paused) video.current.pause();
     else void video.current.play().catch(() => undefined);
   }, [paused, url.data]);
-  if (!url.data) return <Loader2 className="size-10 animate-spin text-white" aria-label="Loading" />;
+  if (!url.data)
+    return <Loader2 className="size-10 animate-spin text-white" aria-label="Loading" />;
   return post.media!.kind === 'VIDEO' ? (
-    <video ref={video} src={url.data.url} autoPlay playsInline onEnded={onVideoEnd} className="max-h-full max-w-full" />
+    <video
+      ref={video}
+      src={url.data.url}
+      autoPlay
+      playsInline
+      onEnded={onVideoEnd}
+      className="max-h-full max-w-full"
+    />
   ) : (
-    <img src={url.data.url} alt={post.text ?? `Status from ${post.author.displayName}`} className="max-h-full max-w-full object-contain" />
+    <img
+      src={url.data.url}
+      alt={post.text ?? `Status from ${post.author.displayName}`}
+      className="max-h-full max-w-full object-contain"
+    />
   );
 }
 
@@ -250,13 +315,27 @@ function StatusViewer({
   });
   if (!post) return null;
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Status from ${post.author.displayName}`} className="fixed inset-0 z-[70] flex flex-col bg-black text-white">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Status from ${post.author.displayName}`}
+      className="fixed inset-0 z-[70] flex flex-col bg-black text-white"
+    >
       <div className="flex gap-1 px-3 pt-3">
         {posts.map((p, i) => (
           <span key={p.id} className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/30">
             <span
               className="block h-full bg-white"
-              style={{ width: i < index ? '100%' : i > index ? '0%' : isVideo ? '100%' : `${Math.min(100, (elapsed / SHOW_MS) * 100)}%` }}
+              style={{
+                width:
+                  i < index
+                    ? '100%'
+                    : i > index
+                      ? '0%'
+                      : isVideo
+                        ? '100%'
+                        : `${Math.min(100, (elapsed / SHOW_MS) * 100)}%`,
+              }}
             />
           </span>
         ))}
@@ -271,11 +350,21 @@ function StatusViewer({
           </p>
         </div>
         {mine && (
-          <button type="button" aria-label="Delete this update" onClick={() => remove.mutate()} className="inline-flex size-10 items-center justify-center rounded-full hover:bg-white/15">
+          <button
+            type="button"
+            aria-label="Delete this update"
+            onClick={() => remove.mutate()}
+            className="inline-flex size-10 items-center justify-center rounded-full hover:bg-white/15"
+          >
             <Trash2 className="size-5" aria-hidden />
           </button>
         )}
-        <button type="button" aria-label="Close" onClick={onClose} className="inline-flex size-10 items-center justify-center rounded-full hover:bg-white/15">
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          className="inline-flex size-10 items-center justify-center rounded-full hover:bg-white/15"
+        >
           <X className="size-6" aria-hidden />
         </button>
       </div>
@@ -289,12 +378,24 @@ function StatusViewer({
         {post.media ? (
           <StatusMedia post={post} paused={paused || viewers} onVideoEnd={next} />
         ) : (
-          <p className="max-w-2xl px-8 text-center text-3xl leading-snug font-semibold whitespace-pre-wrap sm:text-4xl">{post.text}</p>
+          <p className="max-w-2xl px-8 text-center text-3xl leading-snug font-semibold whitespace-pre-wrap sm:text-4xl">
+            {post.text}
+          </p>
         )}
-        <button type="button" aria-label="Previous" onClick={prev} className="absolute inset-y-0 left-0 w-1/4 focus-visible:bg-white/10">
+        <button
+          type="button"
+          aria-label="Previous"
+          onClick={prev}
+          className="absolute inset-y-0 left-0 w-1/4 focus-visible:bg-white/10"
+        >
           <ChevronLeft className="ml-2 size-8 opacity-0 sm:opacity-60" aria-hidden />
         </button>
-        <button type="button" aria-label="Next" onClick={next} className="absolute inset-y-0 right-0 flex w-1/4 items-center justify-end focus-visible:bg-white/10">
+        <button
+          type="button"
+          aria-label="Next"
+          onClick={next}
+          className="absolute inset-y-0 right-0 flex w-1/4 items-center justify-end focus-visible:bg-white/10"
+        >
           <ChevronRight className="mr-2 size-8 opacity-0 sm:opacity-60" aria-hidden />
         </button>
       </div>
@@ -347,9 +448,12 @@ function StatusComposer({ businessId, onClose }: { businessId: string; onClose: 
   const [preview, setPreview] = useState<{ url: string; kind: MediaKind } | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => () => {
-    if (preview) URL.revokeObjectURL(preview.url);
-  }, [preview]);
+  useEffect(
+    () => () => {
+      if (preview) URL.revokeObjectURL(preview.url);
+    },
+    [preview],
+  );
   const post = useMutation({
     mutationFn: async () => {
       let mediaId: string | undefined;
@@ -402,7 +506,9 @@ function StatusComposer({ businessId, onClose }: { businessId: string; onClose: 
               onClick={() => setMode(key)}
               className={cx(
                 'flex min-h-12 items-center justify-center gap-2 rounded-xl border font-semibold',
-                mode === key ? 'border-brand bg-brand-soft text-brand-strong' : 'border-line hover:bg-surface-2',
+                mode === key
+                  ? 'border-brand bg-brand-soft text-brand-strong'
+                  : 'border-line hover:bg-surface-2',
               )}
             >
               <Icon className="size-5" aria-hidden /> {label}
@@ -435,7 +541,10 @@ function StatusComposer({ businessId, onClose }: { businessId: string; onClose: 
                   aria-checked={background === c}
                   aria-label={`Background ${c}`}
                   onClick={() => setBackground(c)}
-                  className={cx('size-9 rounded-full border-2', background === c ? 'border-fg' : 'border-transparent')}
+                  className={cx(
+                    'size-9 rounded-full border-2',
+                    background === c ? 'border-fg' : 'border-transparent',
+                  )}
                   style={{ background: c }}
                 />
               ))}
@@ -451,7 +560,14 @@ function StatusComposer({ businessId, onClose }: { businessId: string; onClose: 
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null;
                 setFile(f);
-                setPreview(f ? { url: URL.createObjectURL(f), kind: f.type.startsWith('video') ? 'VIDEO' : 'IMAGE' } : null);
+                setPreview(
+                  f
+                    ? {
+                        url: URL.createObjectURL(f),
+                        kind: f.type.startsWith('video') ? 'VIDEO' : 'IMAGE',
+                      }
+                    : null,
+                );
                 e.target.value = '';
               }}
             />
@@ -472,11 +588,21 @@ function StatusComposer({ businessId, onClose }: { businessId: string; onClose: 
                 </span>
               )}
             </button>
-            <TextArea label="Caption (optional)" rows={2} maxLength={700} value={text} onChange={(e) => setText(e.target.value)} />
+            <TextArea
+              label="Caption (optional)"
+              rows={2}
+              maxLength={700}
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+            />
           </>
         )}
         {stores.length > 0 && (
-          <SelectField label="Who can see it" value={storeId} onChange={(e) => setStoreId(e.target.value)}>
+          <SelectField
+            label="Who can see it"
+            value={storeId}
+            onChange={(e) => setStoreId(e.target.value)}
+          >
             <option value="">Everyone in the business</option>
             {stores.map((s) => (
               <option key={s.id} value={s.id}>
@@ -486,7 +612,9 @@ function StatusComposer({ businessId, onClose }: { businessId: string; onClose: 
           </SelectField>
         )}
         {progress !== null && (
-          <p className="text-sm text-muted">{progress >= 1 ? 'Checking the file…' : `Uploading ${Math.round(progress * 100)}%`}</p>
+          <p className="text-sm text-muted">
+            {progress >= 1 ? 'Checking the file…' : `Uploading ${Math.round(progress * 100)}%`}
+          </p>
         )}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>

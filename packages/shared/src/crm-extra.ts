@@ -80,7 +80,10 @@ export const updateCrmSettingsRequestSchema = z.object({
     })
     .optional(),
   reminderDays: z.array(z.number().int().min(0).max(120)).max(6).optional(),
-  reminderChannels: z.array(z.enum(['EMAIL', 'WHATSAPP', 'SMS'])).max(3).optional(),
+  reminderChannels: z
+    .array(z.enum(['EMAIL', 'WHATSAPP', 'SMS']))
+    .max(3)
+    .optional(),
 });
 export type UpdateCrmSettingsRequest = z.infer<typeof updateCrmSettingsRequestSchema>;
 
@@ -175,12 +178,26 @@ export interface QuoteDto {
 export interface PublicQuoteDto {
   number: string;
   status: QuoteStatus;
-  company: { name: string; address: string | null; email: string | null; phone: string | null; taxNumber: string | null; taxName: string };
+  company: {
+    name: string;
+    address: string | null;
+    email: string | null;
+    phone: string | null;
+    taxNumber: string | null;
+    taxName: string;
+  };
   billToName: string;
   issueDate: string;
   validUntil: string;
   currency: string;
-  items: Array<{ name: string; description: string | null; quantity: number; unitPrice: number; total: number; billing: ServiceBilling }>;
+  items: Array<{
+    name: string;
+    description: string | null;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+    billing: ServiceBilling;
+  }>;
   subtotal: number;
   discount: number;
   taxRate: number;
@@ -202,31 +219,36 @@ export type RespondToQuoteRequest = z.infer<typeof respondToQuoteRequestSchema>;
 
 // ── Subscriptions (monthly / yearly billing) ──
 
-export const createSubscriptionRequestSchema = z.object({
-  /** An SMA customer business, or (a business's own CRM) the won lead. */
-  businessId: idSchema.nullable().optional(),
-  leadId: idSchema.nullable().optional(),
-  dealId: idSchema.nullable().optional(),
-  name: text(160).min(1, 'Name the plan'),
-  currency: currencySchema.optional(),
-  interval: z.enum(['MONTHLY', 'YEARLY']),
-  /** First invoice date (today or later). */
-  startDate: z.coerce.date(),
-  dueDays: z.coerce.number().int().min(0).max(90).default(14),
-  taxRate: z.coerce.number().min(0).max(100).optional(),
-  autoEmail: z.boolean().default(true),
-  items: z
-    .array(
-      z.object({
-        serviceId: idSchema.nullable().optional(),
-        name: text(160).min(1),
-        quantity: z.coerce.number().int().min(1).max(100_000),
-        unitPrice: money,
-      }),
-    )
-    .min(1, 'Add at least one item')
-    .max(50),
-}).refine((d) => !!d.businessId || !!d.leadId, { message: 'Choose the customer', path: ['businessId'] });
+export const createSubscriptionRequestSchema = z
+  .object({
+    /** An SMA customer business, or (a business's own CRM) the won lead. */
+    businessId: idSchema.nullable().optional(),
+    leadId: idSchema.nullable().optional(),
+    dealId: idSchema.nullable().optional(),
+    name: text(160).min(1, 'Name the plan'),
+    currency: currencySchema.optional(),
+    interval: z.enum(['MONTHLY', 'YEARLY']),
+    /** First invoice date (today or later). */
+    startDate: z.coerce.date(),
+    dueDays: z.coerce.number().int().min(0).max(90).default(14),
+    taxRate: z.coerce.number().min(0).max(100).optional(),
+    autoEmail: z.boolean().default(true),
+    items: z
+      .array(
+        z.object({
+          serviceId: idSchema.nullable().optional(),
+          name: text(160).min(1),
+          quantity: z.coerce.number().int().min(1).max(100_000),
+          unitPrice: money,
+        }),
+      )
+      .min(1, 'Add at least one item')
+      .max(50),
+  })
+  .refine((d) => !!d.businessId || !!d.leadId, {
+    message: 'Choose the customer',
+    path: ['businessId'],
+  });
 export type CreateSubscriptionRequest = z.infer<typeof createSubscriptionRequestSchema>;
 
 export const updateSubscriptionRequestSchema = z.object({
@@ -263,12 +285,25 @@ export interface SubscriptionDto {
 export interface PublicInvoiceDto {
   number: string;
   status: string;
-  company: { name: string; address: string | null; email: string | null; phone: string | null; taxNumber: string | null; taxName: string };
+  company: {
+    name: string;
+    address: string | null;
+    email: string | null;
+    phone: string | null;
+    taxNumber: string | null;
+    taxName: string;
+  };
   billToName: string;
   issueDate: string;
   dueDate: string;
   currency: string;
-  items: Array<{ name: string; description: string | null; quantity: number; unitPrice: number; total: number }>;
+  items: Array<{
+    name: string;
+    description: string | null;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }>;
   subtotal: number;
   discount: number;
   taxRate: number;
@@ -280,6 +315,8 @@ export interface PublicInvoiceDto {
   paymentDetails: string | null;
   /** Payments the customer reported that are waiting for confirmation. */
   pendingClaims: number;
+  /** Online payment (JazzCash/Easypaisa) the business has turned on, and how to pay with it. */
+  gateways: Array<{ gateway: PaymentGateway; methods: GatewayMethod[]; sandbox: boolean }>;
 }
 
 export const submitPaymentClaimSchema = z.object({
@@ -413,3 +450,125 @@ export interface LeadDuplicateDto {
   owner: PublicUserDto | null;
   reason: string;
 }
+
+// ── Online payments (JazzCash, Easypaisa) ──
+
+export const PAYMENT_GATEWAYS = ['JAZZCASH', 'EASYPAISA'] as const;
+export type PaymentGateway = (typeof PAYMENT_GATEWAYS)[number];
+/** How the customer pays at the gateway: their mobile wallet or a debit/credit card. */
+export const GATEWAY_METHODS = ['WALLET', 'CARD'] as const;
+export type GatewayMethod = (typeof GATEWAY_METHODS)[number];
+
+/** One gateway as shown in Sales → CRM settings (secrets never come back, only whether set). */
+export interface PaymentGatewaySettingsDto {
+  gateway: PaymentGateway;
+  enabled: boolean;
+  sandbox: boolean;
+  /** JazzCash merchant id / Easypaisa store id. */
+  merchantId: string | null;
+  /** Which secrets are saved (values are never returned). */
+  saved: {
+    password: boolean;
+    integritySalt: boolean;
+    hashKey: boolean;
+    inquiryUsername: boolean;
+    inquiryPassword: boolean;
+  };
+  /** Easypaisa: the merchant account number (for checking transactions). */
+  accountNumber: string | null;
+  methods: GatewayMethod[];
+  /** Addresses to register in the gateway portal. */
+  callbackUrls: { returnUrl: string; ipnUrl: string };
+}
+
+export const updatePaymentGatewayRequestSchema = z.object({
+  enabled: z.boolean(),
+  sandbox: z.boolean(),
+  merchantId: z.string().trim().min(2).max(64),
+  methods: z.array(z.enum(GATEWAY_METHODS)).min(1).max(2),
+  accountNumber: z.string().trim().max(40).nullable().optional(),
+  /** Secrets: omitted = keep the saved value. */
+  password: z.string().max(200).optional(),
+  integritySalt: z.string().max(200).optional(),
+  hashKey: z.string().max(200).optional(),
+  inquiryUsername: z.string().max(200).optional(),
+  inquiryPassword: z.string().max(200).optional(),
+});
+export type UpdatePaymentGatewayRequest = z.infer<typeof updatePaymentGatewayRequestSchema>;
+
+export const checkoutRequestSchema = z.object({
+  gateway: z.enum(PAYMENT_GATEWAYS),
+  method: z.enum(GATEWAY_METHODS),
+  /** The customer's wallet number (03xxxxxxxxx), needed by Easypaisa wallet payments. */
+  mobile: z
+    .string()
+    .trim()
+    .regex(/^03\d{9}$/, 'Enter the mobile number as 03XXXXXXXXX')
+    .optional(),
+  email: z.string().trim().email().max(254).optional(),
+});
+export type CheckoutRequest = z.infer<typeof checkoutRequestSchema>;
+
+/** The browser posts these fields to the gateway (a normal form submit, no secrets in it). */
+export interface CheckoutDto {
+  action: string;
+  fields: Record<string, string>;
+}
+
+// ── FBR Digital Invoicing (Pakistan) ──
+
+/** Province names as FBR's Digital Invoicing reference data spells them. */
+export const FBR_PROVINCES = [
+  'PUNJAB',
+  'SINDH',
+  'KHYBER PAKHTUNKHWA',
+  'BALOCHISTAN',
+  'CAPITAL TERRITORY',
+  'GILGIT BALTISTAN',
+  'AZAD JAMMU AND KASHMIR',
+] as const;
+export type FbrProvince = (typeof FBR_PROVINCES)[number];
+
+export interface FbrSettingsDto {
+  enabled: boolean;
+  sandbox: boolean;
+  tokenSaved: boolean;
+  sellerNtnCnic: string;
+  sellerBusinessName: string;
+  sellerProvince: string;
+  sellerAddress: string;
+  defaultHsCode: string;
+  defaultSaleType: string;
+  defaultUom: string;
+  scenarioId: string | null;
+}
+
+export const updateFbrSettingsRequestSchema = z.object({
+  enabled: z.boolean(),
+  sandbox: z.boolean(),
+  /** PRAL security token; omitted = keep the saved one. */
+  token: z.string().trim().min(10).max(2000).optional(),
+  sellerNtnCnic: z
+    .string()
+    .trim()
+    .regex(/^(\d{7}|\d{13})$/, 'NTN (7 digits) or CNIC (13 digits)'),
+  sellerBusinessName: z.string().trim().min(2).max(160),
+  sellerProvince: z.enum(FBR_PROVINCES),
+  sellerAddress: z.string().trim().min(5).max(300),
+  defaultHsCode: z.string().trim().min(4).max(20),
+  defaultSaleType: z.string().trim().min(3).max(120),
+  defaultUom: z.string().trim().min(1).max(60),
+  scenarioId: z.string().trim().max(10).nullable().optional(),
+});
+export type UpdateFbrSettingsRequest = z.infer<typeof updateFbrSettingsRequestSchema>;
+
+export const submitToFbrRequestSchema = z.object({
+  /** Buyer's NTN (7 digits) or CNIC (13); empty for an unregistered buyer. */
+  buyerNtnCnic: z
+    .string()
+    .trim()
+    .regex(/^(\d{7}|\d{13})?$/, 'NTN (7 digits) or CNIC (13 digits)')
+    .optional(),
+  buyerProvince: z.enum(FBR_PROVINCES),
+});
+export type SubmitToFbrRequest = z.infer<typeof submitToFbrRequestSchema>;

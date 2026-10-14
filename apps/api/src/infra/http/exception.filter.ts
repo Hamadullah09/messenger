@@ -9,6 +9,7 @@ import {
 import { Prisma } from '@prisma/client';
 import type { ApiErrorBody, ApiErrorCode } from '@storeline/shared';
 import type { Request, Response } from 'express';
+import { reportError } from '../error-reporting';
 import { ApiError } from './api-error';
 
 const HTTP_CODE_MAP: Partial<Record<number, ApiErrorCode>> = {
@@ -78,6 +79,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     if (status >= 500) {
       this.logger.error({ err: exception, requestId }, 'Unhandled error');
+      reportError(exception, {
+        requestId,
+        route: (request.route as { path?: string } | undefined)?.path,
+      });
     }
     response.status(status).json(body);
   }

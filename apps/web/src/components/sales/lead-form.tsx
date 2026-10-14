@@ -80,7 +80,10 @@ export function LeadFormDialog({
         notes: nullable(form.notes),
         nextFollowUpAt: form.nextFollowUpAt ? new Date(form.nextFollowUpAt).toISOString() : null,
         ...(form.nextFollowUpAt
-          ? { nextFollowUpKind: form.nextFollowUpKind || null, nextFollowUpNote: nullable(form.nextFollowUpNote) }
+          ? {
+              nextFollowUpKind: form.nextFollowUpKind || null,
+              nextFollowUpNote: nullable(form.nextFollowUpNote),
+            }
           : {}),
         ...(!lead && canAssign ? { ownerId: form.ownerId || null } : {}),
       };
@@ -95,7 +98,9 @@ export function LeadFormDialog({
       ? save.error.details.find((d) => d.path === path)?.message
       : undefined;
 
-  const dupKey = useDebounced(`${form.companyName.trim()}|${form.email.trim()}|${form.phone.trim()}`);
+  const dupKey = useDebounced(
+    `${form.companyName.trim()}|${form.email.trim()}|${form.phone.trim()}`,
+  );
   const [dupCompany, dupEmail, dupPhone] = dupKey.split('|');
   const duplicates = useQuery({
     queryKey: ['lead-duplicates', dupKey],
@@ -107,7 +112,8 @@ export function LeadFormDialog({
           phone: dupPhone || undefined,
         },
       }),
-    enabled: !lead && ((dupCompany?.length ?? 0) >= 3 || !!dupEmail || (dupPhone?.length ?? 0) >= 7),
+    enabled:
+      !lead && ((dupCompany?.length ?? 0) >= 3 || !!dupEmail || (dupPhone?.length ?? 0) >= 7),
   });
 
   return (
@@ -272,7 +278,10 @@ export function LeadFormDialog({
             onChange={(e) => set({ nextFollowUpAt: e.target.value })}
           />
           {form.nextFollowUpAt && (
-            <FollowUpKindField value={form.nextFollowUpKind} onChange={(v) => set({ nextFollowUpKind: v })} />
+            <FollowUpKindField
+              value={form.nextFollowUpKind}
+              onChange={(v) => set({ nextFollowUpKind: v })}
+            />
           )}
           {form.nextFollowUpAt && (
             <TextField

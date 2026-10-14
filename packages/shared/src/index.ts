@@ -20,3 +20,4 @@ export * from './feature-types';
 export * from './crm';
 export * from './crm-extra';
 export * from './ops-types';
+export * from './sma-plans';

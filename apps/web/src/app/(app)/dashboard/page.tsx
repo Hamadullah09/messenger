@@ -22,6 +22,7 @@ import {
 import Link from 'next/link';
 import { useMemo, useState, type ReactNode } from 'react';
 import { NewChatDialog, NewGroupDialog } from '@/components/chat/dialogs';
+import { SetupChecklist } from '@/components/manage/setup-checklist';
 import {
   BusinessDashboard,
   dashboardKind,
@@ -145,6 +146,9 @@ export default function DashboardPage() {
   return (
     <div className="scroll-thin flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 p-4 sm:p-6">
+        {businessId && hasPermission(me, 'business.update', businessId) && (
+          <SetupChecklist businessId={businessId} />
+        )}
         {/* Hero: date, greeting and the most common actions */}
         <section className="flex flex-col gap-5 rounded-3xl border border-line bg-surface p-5 shadow-card sm:p-7 lg:flex-row lg:items-center">
           <div className="flex items-center gap-4">

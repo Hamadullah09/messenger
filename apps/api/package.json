@@ -44,6 +44,7 @@
     "@opentelemetry/sdk-node": "^0.222.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
     "@prisma/client": "^6.19.3",
+    "@sentry/node": "^11.7.0",
     "@socket.io/redis-adapter": "^8.3.0",
     "@socket.io/redis-emitter": "^5.1.0",
     "@storeline/shared": "^0.1.0",

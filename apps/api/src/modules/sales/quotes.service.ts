@@ -130,7 +130,10 @@ export class QuotesService {
   private visibleWhere(actor: Actor, a: QuoteAccess): Prisma.QuoteWhereInput {
     return a.billing || a.seeAll
       ? { tenantId: a.tenantId }
-      : { tenantId: a.tenantId, OR: [{ createdById: actor.userId }, { deal: { ownerId: actor.userId } }] };
+      : {
+          tenantId: a.tenantId,
+          OR: [{ createdById: actor.userId }, { deal: { ownerId: actor.userId } }],
+        };
   }
 
   async list(actor: Actor, query: { status?: string; dealId?: string }): Promise<QuoteDto[]> {
@@ -163,14 +166,17 @@ export class QuotesService {
 
   private async billTo(a: QuoteAccess, businessId: string | null, leadId: string | null) {
     if (businessId) {
-      if (!a.platform) throw ApiError.validation('Choose the customer from your leads.', 'businessId');
+      if (!a.platform)
+        throw ApiError.validation('Choose the customer from your leads.', 'businessId');
       const b = await this.prisma.business.findFirst({
         where: { id: businessId, internal: false, deletedAt: null },
         select: { name: true, email: true, phone: true, address: true },
       });
       if (!b) throw ApiError.validation('Choose an SMA customer.', 'businessId');
       const addr = (b.address ?? {}) as Record<string, string | undefined>;
-      const address = [addr.line1, addr.line2, addr.city, addr.region, addr.country].filter(Boolean).join(', ');
+      const address = [addr.line1, addr.line2, addr.city, addr.region, addr.country]
+        .filter(Boolean)
+        .join(', ');
       return { name: b.name, email: b.email, phone: b.phone, address: address || null };
     }
     if (leadId) {
@@ -248,15 +254,19 @@ export class QuotesService {
     if (items.length === 0) throw ApiError.validation('Add at least one item.', 'items');
     if (items.some((i) => i.serviceId)) {
       const ids = [...new Set(items.map((i) => i.serviceId).filter((v): v is string => !!v))];
-      const found = await this.prisma.crmService.count({ where: { id: { in: ids }, tenantId: a.tenantId } });
-      if (found !== ids.length) throw ApiError.validation('A chosen service was not found.', 'items');
+      const found = await this.prisma.crmService.count({
+        where: { id: { in: ids }, tenantId: a.tenantId },
+      });
+      if (found !== ids.length)
+        throw ApiError.validation('A chosen service was not found.', 'items');
     }
     const party = await this.billTo(a, businessId, leadId);
     const name = request.billToName ?? party.name;
     if (!name) throw ApiError.validation('Who is the quote for?', 'billToName');
     const issueDate = today();
     const validUntil = dateOnly(request.validUntil ?? new Date(Date.now() + 14 * 86_400_000));
-    if (validUntil < issueDate) throw ApiError.validation('The quote must be valid until today or later.', 'validUntil');
+    if (validUntil < issueDate)
+      throw ApiError.validation('The quote must be valid until today or later.', 'validUntil');
     const id = await this.prisma.$transaction(async (tx) => {
       const quote = await tx.quote.create({
         data: {
@@ -268,7 +278,8 @@ export class QuotesService {
           billToName: name,
           billToEmail: request.billToEmail !== undefined ? request.billToEmail : party.email,
           billToPhone: request.billToPhone !== undefined ? request.billToPhone : party.phone,
-          billToAddress: request.billToAddress !== undefined ? request.billToAddress : party.address,
+          billToAddress:
+            request.billToAddress !== undefined ? request.billToAddress : party.address,
           issueDate,
           validUntil,
           currency,
@@ -289,15 +300,21 @@ export class QuotesService {
   }
 
   /** Marks it sent and emails the link when email works (otherwise share the link yourself). */
-  async send(actor: Actor, quoteId: string, email: boolean): Promise<QuoteDto & { emailed: boolean }> {
+  async send(
+    actor: Actor,
+    quoteId: string,
+    email: boolean,
+  ): Promise<QuoteDto & { emailed: boolean }> {
     const quote = await this.get(actor, quoteId);
     if (!quote.canManage) throw ApiError.forbidden();
     if (quote.status === 'ACCEPTED' || quote.status === 'DECLINED')
       throw ApiError.conflict('The customer already answered this quote.');
     let emailed = false;
     if (email) {
-      if (!quote.billToEmail) throw ApiError.validation('Add the customer’s email address first.', 'billToEmail');
-      if (!this.mail.enabled) throw ApiError.conflict('Email is not set up yet. Add the mail server in Integrations.');
+      if (!quote.billToEmail)
+        throw ApiError.validation('Add the customer’s email address first.', 'billToEmail');
+      if (!this.mail.enabled)
+        throw ApiError.conflict('Email is not set up yet. Add the mail server in Integrations.');
       const settings = (await this.access(actor)).settings;
       const doc = {
         kind: 'Quotation' as const,
@@ -323,7 +340,8 @@ export class QuotesService {
         text: documentText(doc, settings),
         html: documentHtml(doc, settings),
       });
-      if (!emailed) throw ApiError.conflict('The mail server did not accept the email. Try again later.');
+      if (!emailed)
+        throw ApiError.conflict('The mail server did not accept the email. Try again later.');
     }
     await this.prisma.quote.update({
       where: { id: quoteId },
@@ -335,7 +353,8 @@ export class QuotesService {
   async remove(actor: Actor, quoteId: string): Promise<void> {
     const quote = await this.get(actor, quoteId);
     if (!quote.canManage) throw ApiError.forbidden();
-    if (quote.status === 'ACCEPTED') throw ApiError.conflict('An accepted quote cannot be deleted.');
+    if (quote.status === 'ACCEPTED')
+      throw ApiError.conflict('An accepted quote cannot be deleted.');
     await this.prisma.quote.delete({ where: { id: quoteId } });
   }
 
@@ -359,7 +378,9 @@ export class QuotesService {
     return row;
   }
 
-  private async publicDto(row: Awaited<ReturnType<QuotesService['byToken']>>): Promise<PublicQuoteDto> {
+  private async publicDto(
+    row: Awaited<ReturnType<QuotesService['byToken']>>,
+  ): Promise<PublicQuoteDto> {
     const s = await this.settings.load(row.tenantId);
     return {
       number: row.number,
@@ -400,15 +421,21 @@ export class QuotesService {
     await this.rateLimiter.consume(PUBLIC_LIMIT, ipHash);
     await this.expireOld();
     const row = await this.byToken(token);
-    if (!row.viewedAt) await this.prisma.quote.update({ where: { id: row.id }, data: { viewedAt: new Date() } });
+    if (!row.viewedAt)
+      await this.prisma.quote.update({ where: { id: row.id }, data: { viewedAt: new Date() } });
     return this.publicDto(row);
   }
 
-  async respond(token: string, request: RespondToQuoteRequest, ipHash: string): Promise<PublicQuoteDto> {
+  async respond(
+    token: string,
+    request: RespondToQuoteRequest,
+    ipHash: string,
+  ): Promise<PublicQuoteDto> {
     await this.rateLimiter.consume(PUBLIC_LIMIT, ipHash);
     await this.expireOld();
     const quote = await this.byToken(token);
-    if (quote.status === 'EXPIRED') throw ApiError.conflict('This quote has expired. Please ask for a new one.');
+    if (quote.status === 'EXPIRED')
+      throw ApiError.conflict('This quote has expired. Please ask for a new one.');
     if (quote.status !== 'SENT') throw ApiError.conflict('This quote was already answered.');
     await this.prisma.$transaction(async (tx) => {
       // Only one answer, even if the button is pressed twice.
@@ -429,20 +456,33 @@ export class QuotesService {
           select: { status: true, leadId: true, type: true, title: true },
         });
         if (deal && deal.status === 'OPEN') {
-          await tx.deal.update({ where: { id: quote.dealId }, data: { status: 'WON', closedAt: new Date() } });
+          await tx.deal.update({
+            where: { id: quote.dealId },
+            data: { status: 'WON', closedAt: new Date() },
+          });
           if (deal.leadId) {
-            const lead = await tx.lead.findUnique({ where: { id: deal.leadId }, select: { stage: true } });
+            const lead = await tx.lead.findUnique({
+              where: { id: deal.leadId },
+              select: { stage: true },
+            });
             const open = lead && !['WON', 'LOST'].includes(lead.stage);
             if (open && deal.type === 'NEW_BUSINESS')
               await tx.lead.update({
                 where: { id: deal.leadId },
-                data: { stage: 'WON', closedAt: new Date(), stageChangedAt: new Date(), lastActivityAt: new Date() },
+                data: {
+                  stage: 'WON',
+                  closedAt: new Date(),
+                  stageChangedAt: new Date(),
+                  lastActivityAt: new Date(),
+                },
               });
             await tx.leadActivity.create({
               data: {
                 leadId: deal.leadId,
                 type: open && deal.type === 'NEW_BUSINESS' ? 'STAGE_CHANGED' : 'NOTE',
-                ...(open && deal.type === 'NEW_BUSINESS' ? { fromStage: lead!.stage, toStage: 'WON' as const } : {}),
+                ...(open && deal.type === 'NEW_BUSINESS'
+                  ? { fromStage: lead!.stage, toStage: 'WON' as const }
+                  : {}),
                 body: `Quote ${quote.number} accepted by ${request.name} — deal won`,
               },
             });

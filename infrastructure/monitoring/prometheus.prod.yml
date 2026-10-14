@@ -1,0 +1,45 @@
+# Prometheus in production (profile "monitoring" of compose.prod.yaml). Scrapes every api and
+# worker replica on the private network, checks the public site from outside (blackbox), and
+# sends alerts to Alertmanager. If METRICS_TOKEN is set, put it in ./secrets/metrics-token.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ['alertmanager:9093']
+
+scrape_configs:
+  - job_name: sma-api
+    dns_sd_configs:
+      - names: ['api']
+        type: A
+        port: 9464
+    # authorization: { credentials_file: /run/secrets/metrics-token }
+  - job_name: sma-worker
+    dns_sd_configs:
+      - names: ['worker']
+        type: A
+        port: 9465
+    # authorization: { credentials_file: /run/secrets/metrics-token }
+
+  # Uptime and certificate checks of the public addresses, like a user would see them.
+  - job_name: sma-uptime
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - https://__SMA_DOMAIN__/
+          - https://__SMA_DOMAIN__/api/v1/health/ready
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115

@@ -44,6 +44,34 @@ An independent assessment is required before production.
 | 5 | Medium (packaging) | Runtime image dropped workspace-local dependencies (`@opentelemetry/resources`) and shipped the web app's dependencies | Copy workspace `node_modules`; install/prune only api + shared |
 | 6 | Low | CI did not pin background-timer intervals for integration tests (possible flaky races) | Intervals and `METRICS_ENABLED=false` set in CI |
 
+## Follow-up review (2026-10-14): per-business CRM and new public surfaces
+
+Scope: Sales & Marketing for every business (`tenantId` on every CRM table), public quote and
+pay links, payment claims, website lead forms per business, lead import, store work photos,
+disappearing messages, chat export, calls (one-to-one and group), map tile proxy and
+follow-up reminders.
+
+| Area | Status | Evidence / notes |
+| --- | --- | --- |
+| CRM tenant isolation | ✅ | Every CRM query filters by the tenant resolved server-side. `X-Business-Id` is only a hint, used only when the actor holds Sales rights granted **in** that business (platform-wide admins never open a business's CRM through it). `test/crm-tenancy.e2e-spec.ts`: listing, reading and changing another business's leads, deals, quotes, invoices, payments, subscriptions, services, targets and commission return empty/404/400; cross-business references (leads, deals, services, people) are refused |
+| Public quote / pay links | ✅ | 192-bit random tokens; drafts and voided invoices not served; rate-limited per IP hash; company details from the issuing business only |
+| Payment claims | ✅ | Honeypot, rate limit, at most 5 pending per invoice, amount ≤ balance; a payment is recorded only when a manager confirms |
+| Website lead forms | ✅ | Business chosen by public short name; unknown or inactive businesses → 404; honeypot and per-IP rate limit |
+| Lead import | ✅ fixed | 4 MB file, 2,000 rows. **Fixed:** an .xlsx is a zip, so a small file could unpack to gigabytes; the central directory is checked first (≤ 40 MB unpacked, ≤ 400 entries, no ZIP64) — `lead-import.spec.ts` |
+| Store work photos | ✅ | Upload context `forOps` requires `task.work` in that store; photos readable only by people with access to the checklist run |
+| Calls | ✅ | Signalling relayed only between participants of the call (group: the addressed participant's sessions); media is peer-to-peer and never stored |
+| Map tiles | ✅ | Integer z/x/y validated; provider URL from configuration only (no user-controlled URL); rate-limited; bounded cache |
+| Reminders | ✅ | Sent once per planned time (atomic claim); lock-screen text follows the user's preview setting and the business privacy policy |
+| Dependencies | ✅ fixed | `uuid` < 11.1.1 via `exceljs` (moderate) fixed with an override; the Prisma CLI exception is unchanged |
+
+| Online payments (JazzCash/Easypaisa) | ✅ | Merchant credentials AES-256-GCM encrypted per business, never returned; an invoice is paid only from a signed JazzCash answer (HMAC-SHA256, constant-time compare) or a server-side Easypaisa inquiry, with the amount matching; one settlement per attempt (atomic claim); form posts accepted only on the callback paths; anything unconfirmed goes to a manager (`test/online-payments.e2e-spec.ts`, `gateways.spec.ts`) |
+| FBR Digital Invoicing | ✅ | PRAL token encrypted per business; billing managers only; outbound to the fixed FBR host only |
+| SMA plans | ✅ | Only the platform changes plans (`business.create`, MFA); outsiders get 404 on a business's billing (`test/sma-plans.e2e-spec.ts`) |
+| Data export / erasure | ✅ | Export: owners/admins with two-step login, audited, 3 a day, secrets (pay/quote tokens) left out. Erasure 30 days after deletion in one transaction; people in another business keep their account; SMA's own invoices and the audit log are kept (`test/business-data.e2e-spec.ts`) |
+| Calls relay / LiveKit / errors | ✅ | TURN credentials short-lived per user (HMAC), private ranges denied in coturn; LiveKit tokens only for joined participants of a big group call; error reports carry no bodies, cookies, query strings or user details |
+
+The external penetration test is scoped in [pentest-scope.md](pentest-scope.md).
+
 ## Open items (tracked)
 
 - External penetration test and dependency review before production.

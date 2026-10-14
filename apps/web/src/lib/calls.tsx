@@ -1,6 +1,13 @@
 'use client';
 
-import type { CallConfigDto, CallDto, CallSignal, PublicUserDto } from '@storeline/shared';
+import type {
+  CallConfigDto,
+  CallDto,
+  CallSignal,
+  PublicUserDto,
+  SfuTokenDto,
+} from '@storeline/shared';
+import type { LocalTrackPublication, Room } from 'livekit-client';
 import { Mic, MicOff, Phone, PhoneOff, Users, Video, VideoOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
@@ -45,6 +52,9 @@ export const useCallStore = create<CallStore>(() => initial);
 /** One peer connection per other person (one-to-one: one; group: up to 7). */
 const peers = new Map<string, { pc: RTCPeerConnection; pendingIce: RTCIceCandidateInit[] }>();
 let ringTimer: number | null = null;
+/** Big group calls: the LiveKit room and what this device publishes to it. */
+let room: Room | null = null;
+let published: LocalTrackPublication[] = [];
 let config: CallConfigDto | null = null;
 let emitSignal: ((payload: CallSignal) => void) | null = null;
 let myUserId = '';
@@ -73,10 +83,18 @@ function cleanup(message: string | null = null) {
   if (ringTimer) window.clearTimeout(ringTimer);
   ringTimer = null;
   for (const id of [...peers.keys()]) closePeer(id);
+  room?.disconnect().catch(() => undefined);
+  room = null;
+  published = [];
   ringtone.stop();
   stopTracks(useCallStore.getState().local);
   if (message) {
-    useCallStore.setState({ ...initial, phase: 'ended', message, call: useCallStore.getState().call });
+    useCallStore.setState({
+      ...initial,
+      phase: 'ended',
+      message,
+      call: useCallStore.getState().call,
+    });
     window.setTimeout(() => {
       if (useCallStore.getState().phase === 'ended') useCallStore.setState(initial);
     }, 6000);
@@ -114,11 +132,17 @@ async function getMedia(video: boolean): Promise<MediaStream> {
           // fall through to the message below
         }
       }
-      throw new MediaError('No microphone was found on this device. Connect one (or use a phone) to call.');
+      throw new MediaError(
+        'No microphone was found on this device. Connect one (or use a phone) to call.',
+      );
     }
     if (name === 'NotReadableError' || name === 'AbortError')
-      throw new MediaError('The microphone or camera is being used by another app. Close it and try again.');
-    throw new MediaError('The microphone or camera could not be started. Check the browser permissions and try again.');
+      throw new MediaError(
+        'The microphone or camera is being used by another app. Close it and try again.',
+      );
+    throw new MediaError(
+      'The microphone or camera could not be started. Check the browser permissions and try again.',
+    );
   }
 }
 
@@ -161,7 +185,10 @@ async function peerFor(callId: string, userId: string): Promise<RTCPeerConnectio
       if (state.call?.group) {
         closePeer(userId);
       } else if (state.call) {
-        void api(`/calls/${state.call.id}/end`, { method: 'POST', body: { reason: 'failed' } }).catch(() => undefined);
+        void api(`/calls/${state.call.id}/end`, {
+          method: 'POST',
+          body: { reason: 'failed' },
+        }).catch(() => undefined);
         cleanup('The connection failed.');
       }
     }
@@ -228,6 +255,58 @@ export function useCallControls() {
   return { start: startCall };
 }
 
+/**
+ * Big group calls: joins the LiveKit room (media through the server), publishes this device's
+ * microphone/camera and shows everyone else's streams.
+ */
+async function connectSfu(call: CallDto) {
+  const { url, token } = await api<SfuTokenDto>(`/calls/${call.id}/sfu-token`, { method: 'POST' });
+  const lk = await import('livekit-client');
+  const r = new lk.Room({ adaptiveStream: true, dynacast: true });
+  room = r;
+  const refresh = () => {
+    if (room !== r) return;
+    const remotes: Record<string, MediaStream> = {};
+    const cameraOffBy: Record<string, boolean> = {};
+    for (const p of r.remoteParticipants.values()) {
+      const tracks: MediaStreamTrack[] = [];
+      let videoOn = false;
+      for (const pub of p.trackPublications.values()) {
+        if (pub.track && !pub.isMuted) tracks.push(pub.track.mediaStreamTrack);
+        if (pub.kind === lk.Track.Kind.Video && pub.track && !pub.isMuted) videoOn = true;
+      }
+      if (tracks.length) remotes[p.identity] = new MediaStream(tracks);
+      cameraOffBy[p.identity] = !videoOn;
+    }
+    const state = useCallStore.getState();
+    useCallStore.setState({
+      remotes,
+      cameraOffBy,
+      phase: 'active',
+      connectedAt: state.connectedAt ?? Date.now(),
+    });
+  };
+  r.on(lk.RoomEvent.TrackSubscribed, refresh)
+    .on(lk.RoomEvent.TrackUnsubscribed, refresh)
+    .on(lk.RoomEvent.TrackMuted, refresh)
+    .on(lk.RoomEvent.TrackUnmuted, refresh)
+    .on(lk.RoomEvent.ParticipantDisconnected, refresh)
+    .on(lk.RoomEvent.Disconnected, () => {
+      if (room === r && useCallStore.getState().phase !== 'ended') {
+        void api(`/calls/${call.id}/end`, { method: 'POST', body: { reason: 'failed' } }).catch(
+          () => undefined,
+        );
+        cleanup('The call was disconnected.');
+      }
+    });
+  await r.connect(url, token);
+  const local = useCallStore.getState().local;
+  published = [];
+  for (const track of local?.getTracks() ?? [])
+    published.push(await r.localParticipant.publishTrack(track));
+  refresh();
+}
+
 /** Starts a call in a chat (one-to-one) or a group (others join). */
 export async function startCall(conversationId: string, media: 'audio' | 'video'): Promise<void> {
   if (useCallStore.getState().phase && useCallStore.getState().phase !== 'ended') return;
@@ -238,11 +317,20 @@ export async function startCall(conversationId: string, media: 'audio' | 'video'
     const call = await api<CallDto>('/calls', { method: 'POST', body: { conversationId, media } });
     if (call.state === 'ended') {
       stopTracks(local);
-      cleanup(call.outcome === 'busy' ? `${call.callee.displayName} is on another call.` : 'The call could not be made.');
+      cleanup(
+        call.outcome === 'busy'
+          ? `${call.callee.displayName} is on another call.`
+          : 'The call could not be made.',
+      );
       return;
     }
     useCallStore.setState({ call });
     if (call.group) {
+      if (call.sfu) {
+        useCallStore.setState({ phase: 'connecting' });
+        await connectSfu(call);
+        return;
+      }
       // Joined a call that was already running: connect to everyone in it.
       useCallStore.setState({ phase: call.participants.length > 1 ? 'connecting' : 'active' });
       for (const p of call.participants) if (p.id !== myUserId) await offerTo(call.id, p.id);
@@ -251,7 +339,9 @@ export async function startCall(conversationId: string, media: 'audio' | 'video'
     const { ringSeconds } = await callConfig();
     ringTimer = window.setTimeout(() => {
       if (useCallStore.getState().phase === 'outgoing') {
-        void api(`/calls/${call.id}/end`, { method: 'POST', body: { reason: 'timeout' } }).catch(() => undefined);
+        void api(`/calls/${call.id}/end`, { method: 'POST', body: { reason: 'timeout' } }).catch(
+          () => undefined,
+        );
         cleanup('No answer.');
       }
     }, ringSeconds * 1000);
@@ -272,6 +362,10 @@ async function acceptCall() {
     if (call.group) {
       const joined = await api<CallDto>(`/calls/${call.id}/join`, { method: 'POST' });
       useCallStore.setState({ call: joined });
+      if (joined.sfu) {
+        await connectSfu(joined);
+        return;
+      }
       for (const p of joined.participants) if (p.id !== myUserId) await offerTo(joined.id, p.id);
       if (joined.participants.length <= 1) useCallStore.setState({ phase: 'active' });
       return;
@@ -279,34 +373,46 @@ async function acceptCall() {
     await peerFor(call.id, call.caller.id);
     await api<CallDto>(`/calls/${call.id}/accept`, { method: 'POST' });
   } catch (error) {
-    if (!call.group) void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
+    if (!call.group)
+      void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
     cleanup(callError(error));
   }
 }
 
 async function declineCall() {
   const { call } = useCallStore.getState();
-  if (call && !call.group) void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
+  if (call && !call.group)
+    void api(`/calls/${call.id}/decline`, { method: 'POST' }).catch(() => undefined);
   cleanup();
 }
 
 async function hangUp() {
   const { call } = useCallStore.getState();
-  if (call) void api(`/calls/${call.id}/end`, { method: 'POST', body: { reason: 'hangup' } }).catch(() => undefined);
+  if (call)
+    void api(`/calls/${call.id}/end`, { method: 'POST', body: { reason: 'hangup' } }).catch(
+      () => undefined,
+    );
   cleanup();
 }
 
 function toggleMute() {
   const { local, muted } = useCallStore.getState();
   local?.getAudioTracks().forEach((t) => (t.enabled = muted));
+  // LiveKit: mute the published track so others see it as muted.
+  for (const pub of published)
+    if (pub.track?.mediaStreamTrack.kind === 'audio') void (muted ? pub.unmute() : pub.mute());
   useCallStore.setState({ muted: !muted });
 }
 
 function toggleCamera() {
   const { local, cameraOff, call } = useCallStore.getState();
   local?.getVideoTracks().forEach((t) => (t.enabled = cameraOff));
+  for (const pub of published)
+    if (pub.track?.mediaStreamTrack.kind === 'video') void (cameraOff ? pub.unmute() : pub.mute());
   useCallStore.setState({ cameraOff: !cameraOff });
-  if (call) for (const id of peers.keys()) send(call.id, id, { type: 'media', audio: true, video: cameraOff });
+  if (call)
+    for (const id of peers.keys())
+      send(call.id, id, { type: 'media', audio: true, video: cameraOff });
 }
 
 /** Listens for calls on the live connection and shows the call screen. Mount once. */
@@ -363,7 +469,11 @@ export function CallHost() {
         }
       }
     };
-    const onSignal = async (event: { callId: string; fromUserId: string; data: CallSignal['data'] }) => {
+    const onSignal = async (event: {
+      callId: string;
+      fromUserId: string;
+      data: CallSignal['data'];
+    }) => {
       const state = useCallStore.getState();
       if (!state.call || state.call.id !== event.callId || !state.ownsCall) return;
       const { data, fromUserId: from } = event;
@@ -387,7 +497,9 @@ export function CallHost() {
         if (p?.pc.remoteDescription) await p.pc.addIceCandidate(candidate).catch(() => undefined);
         else if (p) p.pendingIce.push(candidate);
       } else if (data.type === 'media') {
-        useCallStore.setState({ cameraOffBy: { ...useCallStore.getState().cameraOffBy, [from]: !data.video } });
+        useCallStore.setState({
+          cameraOffBy: { ...useCallStore.getState().cameraOffBy, [from]: !data.video },
+        });
       }
     };
     socket.on('call.incoming', onIncoming);
@@ -404,7 +516,15 @@ export function CallHost() {
   return <CallScreen myId={myId ?? ''} />;
 }
 
-function VideoView({ stream, muted, className }: { stream: MediaStream | null; muted?: boolean; className?: string }) {
+function VideoView({
+  stream,
+  muted,
+  className,
+}: {
+  stream: MediaStream | null;
+  muted?: boolean;
+  className?: string;
+}) {
   const ref = useRef<HTMLVideoElement>(null);
   useEffect(() => {
     if (ref.current && ref.current.srcObject !== stream) ref.current.srcObject = stream;
@@ -457,7 +577,10 @@ function RoundButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={cx('inline-flex size-16 items-center justify-center rounded-full transition-colors', tones[tone])}
+      className={cx(
+        'inline-flex size-16 items-center justify-center rounded-full transition-colors',
+        tones[tone],
+      )}
     >
       {children}
     </button>
@@ -465,7 +588,17 @@ function RoundButton({
 }
 
 /** One person in a group call: their video, or their picture when the camera is off. */
-function Tile({ user, stream, video, cameraOff }: { user: PublicUserDto; stream: MediaStream | null; video: boolean; cameraOff: boolean }) {
+function Tile({
+  user,
+  stream,
+  video,
+  cameraOff,
+}: {
+  user: PublicUserDto;
+  stream: MediaStream | null;
+  video: boolean;
+  cameraOff: boolean;
+}) {
   return (
     <div className="relative flex aspect-video items-center justify-center overflow-hidden rounded-2xl bg-neutral-800">
       {video && stream && !cameraOff ? (
@@ -476,8 +609,14 @@ function Tile({ user, stream, video, cameraOff }: { user: PublicUserDto; stream:
           <AudioOut stream={stream} />
         </>
       )}
-      <span className="absolute bottom-2 left-2 rounded-full bg-black/50 px-2.5 py-0.5 text-sm">{user.displayName}</span>
-      {!stream && <span className="absolute top-2 right-2 rounded-full bg-black/50 px-2 py-0.5 text-xs">Connecting…</span>}
+      <span className="absolute bottom-2 left-2 rounded-full bg-black/50 px-2.5 py-0.5 text-sm">
+        {user.displayName}
+      </span>
+      {!stream && (
+        <span className="absolute top-2 right-2 rounded-full bg-black/50 px-2 py-0.5 text-xs">
+          Connecting…
+        </span>
+      )}
     </div>
   );
 }
@@ -487,7 +626,10 @@ function CallScreen({ myId }: { myId: string }) {
   if (!s.phase || !s.call) {
     if (s.phase === 'ended' && s.message)
       return (
-        <div role="status" className="fixed inset-x-0 top-4 z-[80] mx-auto w-max max-w-[calc(100%-2rem)] rounded-2xl bg-neutral-900 px-5 py-2.5 text-center text-white shadow-xl">
+        <div
+          role="status"
+          className="fixed inset-x-0 top-4 z-[80] mx-auto w-max max-w-[calc(100%-2rem)] rounded-2xl bg-neutral-900 px-5 py-2.5 text-center text-white shadow-xl"
+        >
           {s.message}
         </div>
       );
@@ -498,24 +640,56 @@ function CallScreen({ myId }: { myId: string }) {
   const controls =
     s.phase === 'incoming' ? (
       <>
-        <RoundButton label={call.group ? 'Ignore' : 'Decline'} tone="danger" onClick={() => void declineCall()}>
+        <RoundButton
+          label={call.group ? 'Ignore' : 'Decline'}
+          tone="danger"
+          onClick={() => void declineCall()}
+        >
           <PhoneOff className="size-7" aria-hidden />
         </RoundButton>
-        <RoundButton label={call.group ? 'Join' : 'Accept'} tone="success" onClick={() => void acceptCall()}>
-          {video ? <Video className="size-7" aria-hidden /> : <Phone className="size-7" aria-hidden />}
+        <RoundButton
+          label={call.group ? 'Join' : 'Accept'}
+          tone="success"
+          onClick={() => void acceptCall()}
+        >
+          {video ? (
+            <Video className="size-7" aria-hidden />
+          ) : (
+            <Phone className="size-7" aria-hidden />
+          )}
         </RoundButton>
       </>
     ) : (
       <>
-        <RoundButton label={s.muted ? 'Unmute' : 'Mute'} tone={s.muted ? 'active' : 'neutral'} onClick={toggleMute}>
-          {s.muted ? <MicOff className="size-7" aria-hidden /> : <Mic className="size-7" aria-hidden />}
+        <RoundButton
+          label={s.muted ? 'Unmute' : 'Mute'}
+          tone={s.muted ? 'active' : 'neutral'}
+          onClick={toggleMute}
+        >
+          {s.muted ? (
+            <MicOff className="size-7" aria-hidden />
+          ) : (
+            <Mic className="size-7" aria-hidden />
+          )}
         </RoundButton>
         {video && (
-          <RoundButton label={s.cameraOff ? 'Turn camera on' : 'Turn camera off'} tone={s.cameraOff ? 'active' : 'neutral'} onClick={toggleCamera}>
-            {s.cameraOff ? <VideoOff className="size-7" aria-hidden /> : <Video className="size-7" aria-hidden />}
+          <RoundButton
+            label={s.cameraOff ? 'Turn camera on' : 'Turn camera off'}
+            tone={s.cameraOff ? 'active' : 'neutral'}
+            onClick={toggleCamera}
+          >
+            {s.cameraOff ? (
+              <VideoOff className="size-7" aria-hidden />
+            ) : (
+              <Video className="size-7" aria-hidden />
+            )}
           </RoundButton>
         )}
-        <RoundButton label={call.group ? 'Leave' : 'Hang up'} tone="danger" onClick={() => void hangUp()}>
+        <RoundButton
+          label={call.group ? 'Leave' : 'Hang up'}
+          tone="danger"
+          onClick={() => void hangUp()}
+        >
           <PhoneOff className="size-7" aria-hidden />
         </RoundButton>
       </>
@@ -524,22 +698,53 @@ function CallScreen({ myId }: { myId: string }) {
   if (call.group && s.phase !== 'incoming') {
     const others = call.participants.filter((p) => p.id !== myId);
     return (
-      <div role="dialog" aria-modal="true" aria-label={`Group call: ${call.title ?? 'Group'}`} className="fixed inset-0 z-[80] flex flex-col bg-neutral-950 text-white">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Group call: ${call.title ?? 'Group'}`}
+        className="fixed inset-0 z-[80] flex flex-col bg-neutral-950 text-white"
+      >
         <header className="flex items-center gap-2 px-4 py-3">
           <Users className="size-5" aria-hidden />
           <p className="flex-1 truncate font-semibold">{call.title ?? 'Group call'}</p>
           <p className="text-sm text-white/70">
-            {call.participants.length} in the call {s.connectedAt && <>· <Elapsed since={s.connectedAt} /></>}
+            {call.participants.length} in the call{' '}
+            {s.connectedAt && (
+              <>
+                · <Elapsed since={s.connectedAt} />
+              </>
+            )}
           </p>
         </header>
-        <div className={cx('grid flex-1 content-center gap-3 overflow-y-auto p-3', others.length <= 1 ? 'grid-cols-1' : others.length <= 4 ? 'grid-cols-2' : 'grid-cols-2 md:grid-cols-3')}>
-          {others.length === 0 && <p className="text-center text-white/70">Waiting for others to join…</p>}
+        <div
+          className={cx(
+            'grid flex-1 content-center gap-3 overflow-y-auto p-3',
+            others.length <= 1
+              ? 'grid-cols-1'
+              : others.length <= 4
+                ? 'grid-cols-2'
+                : 'grid-cols-2 md:grid-cols-3',
+          )}
+        >
+          {others.length === 0 && (
+            <p className="text-center text-white/70">Waiting for others to join…</p>
+          )}
           {others.map((p) => (
-            <Tile key={p.id} user={p} stream={s.remotes[p.id] ?? null} video={video} cameraOff={!!s.cameraOffBy[p.id]} />
+            <Tile
+              key={p.id}
+              user={p}
+              stream={s.remotes[p.id] ?? null}
+              video={video}
+              cameraOff={!!s.cameraOffBy[p.id]}
+            />
           ))}
         </div>
         {video && s.local && !s.cameraOff && (
-          <VideoView stream={s.local} muted className="absolute right-4 bottom-32 z-20 h-36 w-24 rounded-2xl border-2 border-white/40 object-cover shadow-xl" />
+          <VideoView
+            stream={s.local}
+            muted
+            className="absolute right-4 bottom-32 z-20 h-36 w-24 rounded-2xl border-2 border-white/40 object-cover shadow-xl"
+          />
         )}
         <div className="relative z-20 flex items-center justify-center gap-5 pb-8">{controls}</div>
       </div>
@@ -566,7 +771,12 @@ function CallScreen({ myId }: { myId: string }) {
             ? (s.message ?? 'Call ended')
             : null;
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Call with ${peerUser.displayName}`} className="fixed inset-0 z-[80] flex flex-col bg-neutral-950 text-white">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Call with ${peerUser.displayName}`}
+      className="fixed inset-0 z-[80] flex flex-col bg-neutral-950 text-white"
+    >
       {video && s.phase === 'active' && !remoteCameraOff ? (
         <VideoView stream={remote} className="absolute inset-0 h-full w-full object-cover" />
       ) : (
@@ -577,7 +787,9 @@ function CallScreen({ myId }: { myId: string }) {
           <>
             <Avatar name={peerUser.displayName} size={120} />
             <p className="text-2xl font-semibold">{peerUser.displayName}</p>
-            <p className="text-white/70">{status ?? (s.connectedAt ? <Elapsed since={s.connectedAt} /> : null)}</p>
+            <p className="text-white/70">
+              {status ?? (s.connectedAt ? <Elapsed since={s.connectedAt} /> : null)}
+            </p>
           </>
         )}
         {video && s.phase === 'active' && !remoteCameraOff && (
@@ -587,7 +799,11 @@ function CallScreen({ myId }: { myId: string }) {
         )}
       </div>
       {video && s.local && s.phase !== 'incoming' && !s.cameraOff && (
-        <VideoView stream={s.local} muted className="absolute right-4 bottom-32 z-20 h-40 w-28 rounded-2xl border-2 border-white/40 object-cover shadow-xl sm:h-48 sm:w-36" />
+        <VideoView
+          stream={s.local}
+          muted
+          className="absolute right-4 bottom-32 z-20 h-40 w-28 rounded-2xl border-2 border-white/40 object-cover shadow-xl sm:h-48 sm:w-36"
+        />
       )}
       <div className="relative z-20 flex items-center justify-center gap-5 pb-10">{controls}</div>
     </div>

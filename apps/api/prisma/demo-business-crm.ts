@@ -37,7 +37,12 @@ const token = () => randomBytes(24).toString('base64url');
 const at = (days: number, hour: number, minute = 0) =>
   new Date(now.getFullYear(), now.getMonth(), now.getDate() + days, hour, minute);
 
-type Act = [type: 'CALL' | 'EMAIL' | 'MEETING' | 'WHATSAPP' | 'NOTE', body: string, outcome: ActivityOutcome | null, daysAgo: number];
+type Act = [
+  type: 'CALL' | 'EMAIL' | 'MEETING' | 'WHATSAPP' | 'NOTE',
+  body: string,
+  outcome: ActivityOutcome | null,
+  daysAgo: number,
+];
 
 interface LeadSpec {
   company: string;
@@ -54,7 +59,14 @@ interface LeadSpec {
   createdDaysAgo: number;
   owner: 'admin' | 'agent' | null;
   /** inMinutes: from now (reminder test); otherwise a day offset and an hour. */
-  followUp?: { inMinutes?: number; days?: number; hour?: number; minute?: number; kind: FollowUpKind; note?: string };
+  followUp?: {
+    inMinutes?: number;
+    days?: number;
+    hour?: number;
+    minute?: number;
+    kind: FollowUpKind;
+    note?: string;
+  };
   lostReason?: string;
   acts: Act[];
   deal?: {
@@ -73,7 +85,9 @@ interface BizSpec {
   slug: string;
   tax: number;
   agent: { username: string; displayName: string; email: string };
-  services: Array<[name: string, category: string, price: number, billing: ServiceBilling, description: string]>;
+  services: Array<
+    [name: string, category: string, price: number, billing: ServiceBilling, description: string]
+  >;
   leads: LeadSpec[];
   targets: { admin: number; agent: number };
 }
@@ -87,185 +101,541 @@ const BUSINESSES: BizSpec[] = [
     services: [
       ['Wholesale rice (25 kg bag)', 'Wholesale', 7_800, 'ONE_TIME', 'Super basmati, delivered.'],
       ['Cooking oil (16 L tin)', 'Wholesale', 9_200, 'ONE_TIME', 'Delivered within 2 days.'],
-      ['Monthly grocery supply (office)', 'Supply', 45_000, 'MONTHLY', 'Tea, sugar, snacks and cleaning items every month.'],
+      [
+        'Monthly grocery supply (office)',
+        'Supply',
+        45_000,
+        'MONTHLY',
+        'Tea, sugar, snacks and cleaning items every month.',
+      ],
       ['Corporate gift hampers', 'Gifts', 3_500, 'ONE_TIME', 'Eid and year-end hampers, branded.'],
       ['Delivery and handling', 'Services', 2_500, 'ONE_TIME', 'Per drop in the city.'],
     ],
     leads: [
       {
-        company: 'Gulberg Tech Park', contact: 'Sadia Noor', title: 'Admin Manager', phone: '+923005550101', email: 'sadia@gulbergtech.example.com',
-        city: 'Lahore', industry: 'Offices', value: 45_000, source: 'REFERRAL', stage: 'PROPOSAL', stageDaysAgo: 3, createdDaysAgo: 12, owner: 'agent',
-        followUp: { inMinutes: 20, kind: 'MEETING', note: 'At their office, 3rd floor. Bring the hamper samples.' },
-        acts: [['CALL', 'Wants monthly supply for 120 staff', 'INTERESTED', 10], ['MEETING', 'Walked through the product list', 'MEETING_BOOKED', 4]],
-        deal: { title: 'Gulberg Tech Park — monthly supply', status: 'OPEN', lines: [['Monthly grocery supply (office)', 1], ['Corporate gift hampers', 40]], quote: true },
+        company: 'Gulberg Tech Park',
+        contact: 'Sadia Noor',
+        title: 'Admin Manager',
+        phone: '+923005550101',
+        email: 'sadia@gulbergtech.example.com',
+        city: 'Lahore',
+        industry: 'Offices',
+        value: 45_000,
+        source: 'REFERRAL',
+        stage: 'PROPOSAL',
+        stageDaysAgo: 3,
+        createdDaysAgo: 12,
+        owner: 'agent',
+        followUp: {
+          inMinutes: 20,
+          kind: 'MEETING',
+          note: 'At their office, 3rd floor. Bring the hamper samples.',
+        },
+        acts: [
+          ['CALL', 'Wants monthly supply for 120 staff', 'INTERESTED', 10],
+          ['MEETING', 'Walked through the product list', 'MEETING_BOOKED', 4],
+        ],
+        deal: {
+          title: 'Gulberg Tech Park — monthly supply',
+          status: 'OPEN',
+          lines: [
+            ['Monthly grocery supply (office)', 1],
+            ['Corporate gift hampers', 40],
+          ],
+          quote: true,
+        },
       },
       {
-        company: 'Sunrise Schools', contact: 'Imran Qureshi', title: 'Procurement', phone: '+923005550102', email: 'imran@sunrise.example.com',
-        city: 'Lahore', industry: 'Education', value: 120_000, source: 'COLD_CALL', stage: 'QUALIFIED', stageDaysAgo: 2, createdDaysAgo: 9, owner: 'admin',
-        followUp: { days: 0, hour: 16, minute: 0, kind: 'CALL', note: 'Confirm canteen quantities' },
+        company: 'Sunrise Schools',
+        contact: 'Imran Qureshi',
+        title: 'Procurement',
+        phone: '+923005550102',
+        email: 'imran@sunrise.example.com',
+        city: 'Lahore',
+        industry: 'Education',
+        value: 120_000,
+        source: 'COLD_CALL',
+        stage: 'QUALIFIED',
+        stageDaysAgo: 2,
+        createdDaysAgo: 9,
+        owner: 'admin',
+        followUp: {
+          days: 0,
+          hour: 16,
+          minute: 0,
+          kind: 'CALL',
+          note: 'Confirm canteen quantities',
+        },
         acts: [['CALL', 'Needs rice and oil for 4 canteens', 'CALL_BACK_LATER', 6]],
       },
       {
-        company: 'Hotel Grand Lahore', contact: 'Faisal Butt', phone: '+923005550103', email: 'faisal@grandlhr.example.com',
-        city: 'Lahore', industry: 'Hospitality', value: 300_000, source: 'WEBSITE', stage: 'WON', stageDaysAgo: 20, createdDaysAgo: 40, owner: 'agent',
+        company: 'Hotel Grand Lahore',
+        contact: 'Faisal Butt',
+        phone: '+923005550103',
+        email: 'faisal@grandlhr.example.com',
+        city: 'Lahore',
+        industry: 'Hospitality',
+        value: 300_000,
+        source: 'WEBSITE',
+        stage: 'WON',
+        stageDaysAgo: 20,
+        createdDaysAgo: 40,
+        owner: 'agent',
         followUp: { days: 2, hour: 11, kind: 'VISIT', note: 'Quarterly review at the hotel' },
         acts: [['MEETING', 'Tasting and price agreed', 'INTERESTED', 22]],
         deal: {
-          title: 'Hotel Grand — rice and oil, first order', status: 'WON', closedDaysAgo: 20, lines: [['Wholesale rice (25 kg bag)', 20], ['Cooking oil (16 L tin)', 10], ['Delivery and handling', 2]],
+          title: 'Hotel Grand — rice and oil, first order',
+          status: 'WON',
+          closedDaysAgo: 20,
+          lines: [
+            ['Wholesale rice (25 kg bag)', 20],
+            ['Cooking oil (16 L tin)', 10],
+            ['Delivery and handling', 2],
+          ],
           invoice: { issuedDaysAgo: 19, dueDays: 14, paid: 1 },
           upsell: { title: 'Hotel Grand — Eid hampers', lines: [['Corporate gift hampers', 60]] },
           monthly: [['Monthly grocery supply (office)', 2]],
         },
       },
       {
-        company: 'City Pharmacy Chain', contact: 'Amna Siddiqui', phone: '+923005550104', email: 'amna@citypharma.example.com',
-        city: 'Lahore', industry: 'Pharmacy', value: 60_000, source: 'EVENT', stage: 'WON', stageDaysAgo: 8, createdDaysAgo: 25, owner: 'admin',
+        company: 'City Pharmacy Chain',
+        contact: 'Amna Siddiqui',
+        phone: '+923005550104',
+        email: 'amna@citypharma.example.com',
+        city: 'Lahore',
+        industry: 'Pharmacy',
+        value: 60_000,
+        source: 'EVENT',
+        stage: 'WON',
+        stageDaysAgo: 8,
+        createdDaysAgo: 25,
+        owner: 'admin',
         acts: [['MEETING', 'Signed for staff hampers', 'INTERESTED', 9]],
-        deal: { title: 'City Pharmacy — staff hampers', status: 'WON', closedDaysAgo: 8, lines: [['Corporate gift hampers', 25], ['Delivery and handling', 1]], invoice: { issuedDaysAgo: 30, dueDays: 7, paid: 0.4, claim: true } },
+        deal: {
+          title: 'City Pharmacy — staff hampers',
+          status: 'WON',
+          closedDaysAgo: 8,
+          lines: [
+            ['Corporate gift hampers', 25],
+            ['Delivery and handling', 1],
+          ],
+          invoice: { issuedDaysAgo: 30, dueDays: 7, paid: 0.4, claim: true },
+        },
       },
       {
-        company: 'Model Town Bakery', contact: 'Rizwan Ali', phone: '+923005550105', email: 'rizwan@mtbakery.example.com',
-        city: 'Lahore', industry: 'Food', value: 25_000, source: 'SOCIAL_MEDIA', stage: 'CONTACTED', stageDaysAgo: 5, createdDaysAgo: 7, owner: 'agent',
+        company: 'Model Town Bakery',
+        contact: 'Rizwan Ali',
+        phone: '+923005550105',
+        email: 'rizwan@mtbakery.example.com',
+        city: 'Lahore',
+        industry: 'Food',
+        value: 25_000,
+        source: 'SOCIAL_MEDIA',
+        stage: 'CONTACTED',
+        stageDaysAgo: 5,
+        createdDaysAgo: 7,
+        owner: 'agent',
         followUp: { days: -1, hour: 15, kind: 'WHATSAPP', note: 'Send the oil price list' },
         acts: [['WHATSAPP', 'Asked for oil prices', 'NO_ANSWER', 5]],
       },
       {
-        company: 'Fresh Mart DHA', contact: 'Nadia Hussain', phone: '+923005550106', email: 'nadia@freshmart.example.com',
-        city: 'Lahore', industry: 'Retail', value: 80_000, source: 'COLD_CALL', stage: 'NEGOTIATION', stageDaysAgo: 1, createdDaysAgo: 15, owner: 'agent',
+        company: 'Fresh Mart DHA',
+        contact: 'Nadia Hussain',
+        phone: '+923005550106',
+        email: 'nadia@freshmart.example.com',
+        city: 'Lahore',
+        industry: 'Retail',
+        value: 80_000,
+        source: 'COLD_CALL',
+        stage: 'NEGOTIATION',
+        stageDaysAgo: 1,
+        createdDaysAgo: 15,
+        owner: 'agent',
         followUp: { days: 1, hour: 12, kind: 'MEETING', note: 'Final price discussion' },
         acts: [['CALL', 'Wants 5% off on rice', 'INTERESTED', 2]],
-        deal: { title: 'Fresh Mart — rice supply', status: 'OPEN', lines: [['Wholesale rice (25 kg bag)', 10]] },
+        deal: {
+          title: 'Fresh Mart — rice supply',
+          status: 'OPEN',
+          lines: [['Wholesale rice (25 kg bag)', 10]],
+        },
       },
       {
-        company: 'Office Plus', contact: 'Kashif Mirza', phone: '+923005550107', email: 'kashif@officeplus.example.com',
-        city: 'Lahore', industry: 'Offices', value: 30_000, source: 'EMAIL_CAMPAIGN', stage: 'LOST', stageDaysAgo: 6, createdDaysAgo: 20, owner: 'admin',
-        lostReason: 'Went with a cheaper supplier', acts: [['EMAIL', 'Sent the catalogue', 'NOT_INTERESTED', 10]],
+        company: 'Office Plus',
+        contact: 'Kashif Mirza',
+        phone: '+923005550107',
+        email: 'kashif@officeplus.example.com',
+        city: 'Lahore',
+        industry: 'Offices',
+        value: 30_000,
+        source: 'EMAIL_CAMPAIGN',
+        stage: 'LOST',
+        stageDaysAgo: 6,
+        createdDaysAgo: 20,
+        owner: 'admin',
+        lostReason: 'Went with a cheaper supplier',
+        acts: [['EMAIL', 'Sent the catalogue', 'NOT_INTERESTED', 10]],
       },
       {
-        company: 'Green Valley Café', contact: 'Hira Saleem', phone: '+923005550108', email: 'hira@gvcafe.example.com',
-        city: 'Lahore', industry: 'Food', value: 15_000, source: 'WEBSITE', stage: 'NEW', stageDaysAgo: 0, createdDaysAgo: 0, owner: null, acts: [],
+        company: 'Green Valley Café',
+        contact: 'Hira Saleem',
+        phone: '+923005550108',
+        email: 'hira@gvcafe.example.com',
+        city: 'Lahore',
+        industry: 'Food',
+        value: 15_000,
+        source: 'WEBSITE',
+        stage: 'NEW',
+        stageDaysAgo: 0,
+        createdDaysAgo: 0,
+        owner: null,
+        acts: [],
       },
     ],
   },
   {
     slug: 'khadi',
     tax: 17,
-    agent: { username: 'khadi.sales', displayName: 'Mehwish Raza', email: 'khadi.sales@example.com' },
+    agent: {
+      username: 'khadi.sales',
+      displayName: 'Mehwish Raza',
+      email: 'khadi.sales@example.com',
+    },
     targets: { admin: 1_500_000, agent: 1_000_000 },
     services: [
-      ['Corporate uniform (per set)', 'Uniforms', 6_500, 'ONE_TIME', 'Stitched to size, logo embroidery.'],
-      ['Bulk unstitched fabric (per suit)', 'Fabric', 3_200, 'ONE_TIME', 'Lawn and khaddar, 3-piece.'],
+      [
+        'Corporate uniform (per set)',
+        'Uniforms',
+        6_500,
+        'ONE_TIME',
+        'Stitched to size, logo embroidery.',
+      ],
+      [
+        'Bulk unstitched fabric (per suit)',
+        'Fabric',
+        3_200,
+        'ONE_TIME',
+        'Lawn and khaddar, 3-piece.',
+      ],
       ['Gift cards (PKR 5,000)', 'Gifts', 5_000, 'ONE_TIME', 'For staff and clients.'],
       ['Wedding collection styling', 'Services', 25_000, 'ONE_TIME', 'Personal styling session.'],
       ['Uniform care plan', 'Services', 18_000, 'MONTHLY', 'Repairs and replacements every month.'],
     ],
     leads: [
       {
-        company: 'Meezan Corporate Office', contact: 'Usman Sheikh', title: 'HR Head', phone: '+923005550201', email: 'usman@meezancorp.example.com',
-        city: 'Karachi', industry: 'Banking', value: 650_000, source: 'REFERRAL', stage: 'PROPOSAL', stageDaysAgo: 2, createdDaysAgo: 14, owner: 'agent',
+        company: 'Meezan Corporate Office',
+        contact: 'Usman Sheikh',
+        title: 'HR Head',
+        phone: '+923005550201',
+        email: 'usman@meezancorp.example.com',
+        city: 'Karachi',
+        industry: 'Banking',
+        value: 650_000,
+        source: 'REFERRAL',
+        stage: 'PROPOSAL',
+        stageDaysAgo: 2,
+        createdDaysAgo: 14,
+        owner: 'agent',
         followUp: { inMinutes: 25, kind: 'MEETING', note: 'Fabric samples at their HR office' },
         acts: [['MEETING', 'Needs 100 uniforms for front desk staff', 'INTERESTED', 7]],
-        deal: { title: 'Meezan Corporate — 100 uniforms', status: 'OPEN', lines: [['Corporate uniform (per set)', 100]], quote: true },
+        deal: {
+          title: 'Meezan Corporate — 100 uniforms',
+          status: 'OPEN',
+          lines: [['Corporate uniform (per set)', 100]],
+          quote: true,
+        },
       },
       {
-        company: 'Pearl Hotel Staff', contact: 'Saima Khan', phone: '+923005550202', email: 'saima@pearl.example.com',
-        city: 'Karachi', industry: 'Hospitality', value: 400_000, source: 'COLD_CALL', stage: 'WON', stageDaysAgo: 15, createdDaysAgo: 35, owner: 'admin',
+        company: 'Pearl Hotel Staff',
+        contact: 'Saima Khan',
+        phone: '+923005550202',
+        email: 'saima@pearl.example.com',
+        city: 'Karachi',
+        industry: 'Hospitality',
+        value: 400_000,
+        source: 'COLD_CALL',
+        stage: 'WON',
+        stageDaysAgo: 15,
+        createdDaysAgo: 35,
+        owner: 'admin',
         followUp: { days: 3, hour: 10, kind: 'VISIT', note: 'Fitting check at the hotel' },
         acts: [['CALL', 'Approved the design', 'INTERESTED', 16]],
         deal: {
-          title: 'Pearl Hotel — staff uniforms', status: 'WON', closedDaysAgo: 15, lines: [['Corporate uniform (per set)', 50]],
+          title: 'Pearl Hotel — staff uniforms',
+          status: 'WON',
+          closedDaysAgo: 15,
+          lines: [['Corporate uniform (per set)', 50]],
           invoice: { issuedDaysAgo: 14, dueDays: 30, paid: 0.5 },
           monthly: [['Uniform care plan', 1]],
         },
       },
       {
-        company: 'Bridal Studio Clifton', contact: 'Zoya Malik', phone: '+923005550203', email: 'zoya@bridalclifton.example.com',
-        city: 'Karachi', industry: 'Fashion', value: 75_000, source: 'SOCIAL_MEDIA', stage: 'QUALIFIED', stageDaysAgo: 3, createdDaysAgo: 6, owner: 'agent',
+        company: 'Bridal Studio Clifton',
+        contact: 'Zoya Malik',
+        phone: '+923005550203',
+        email: 'zoya@bridalclifton.example.com',
+        city: 'Karachi',
+        industry: 'Fashion',
+        value: 75_000,
+        source: 'SOCIAL_MEDIA',
+        stage: 'QUALIFIED',
+        stageDaysAgo: 3,
+        createdDaysAgo: 6,
+        owner: 'agent',
         followUp: { days: 0, hour: 17, kind: 'CALL', note: 'Confirm styling dates' },
         acts: [['WHATSAPP', 'Wants a styling session for 3 brides', 'INTERESTED', 3]],
       },
       {
-        company: 'TechNova Events', contact: 'Ali Abbasi', phone: '+923005550204', email: 'ali@technova.example.com',
-        city: 'Karachi', industry: 'Events', value: 150_000, source: 'EVENT', stage: 'WON', stageDaysAgo: 5, createdDaysAgo: 18, owner: 'agent',
+        company: 'TechNova Events',
+        contact: 'Ali Abbasi',
+        phone: '+923005550204',
+        email: 'ali@technova.example.com',
+        city: 'Karachi',
+        industry: 'Events',
+        value: 150_000,
+        source: 'EVENT',
+        stage: 'WON',
+        stageDaysAgo: 5,
+        createdDaysAgo: 18,
+        owner: 'agent',
         acts: [['MEETING', 'Gift cards for event speakers', 'INTERESTED', 6]],
-        deal: { title: 'TechNova — speaker gift cards', status: 'WON', closedDaysAgo: 5, lines: [['Gift cards (PKR 5,000)', 30]], invoice: { issuedDaysAgo: 5, dueDays: 7, paid: 0, claim: true } },
+        deal: {
+          title: 'TechNova — speaker gift cards',
+          status: 'WON',
+          closedDaysAgo: 5,
+          lines: [['Gift cards (PKR 5,000)', 30]],
+          invoice: { issuedDaysAgo: 5, dueDays: 7, paid: 0, claim: true },
+        },
       },
       {
-        company: 'Sindh Textile Traders', contact: 'Junaid Memon', phone: '+923005550205', email: 'junaid@stt.example.com',
-        city: 'Hyderabad', industry: 'Wholesale', value: 220_000, source: 'COLD_CALL', stage: 'CONTACTED', stageDaysAgo: 4, createdDaysAgo: 8, owner: 'admin',
+        company: 'Sindh Textile Traders',
+        contact: 'Junaid Memon',
+        phone: '+923005550205',
+        email: 'junaid@stt.example.com',
+        city: 'Hyderabad',
+        industry: 'Wholesale',
+        value: 220_000,
+        source: 'COLD_CALL',
+        stage: 'CONTACTED',
+        stageDaysAgo: 4,
+        createdDaysAgo: 8,
+        owner: 'admin',
         followUp: { days: -2, hour: 11, kind: 'CALL', note: 'Call back about bulk lawn' },
         acts: [['CALL', 'Busy, call back', 'CALL_BACK_LATER', 4]],
       },
       {
-        company: 'Lyceum School Uniforms', contact: 'Farah Javed', phone: '+923005550206', email: 'farah@lyceum.example.com',
-        city: 'Karachi', industry: 'Education', value: 500_000, source: 'WEBSITE', stage: 'LOST', stageDaysAgo: 10, createdDaysAgo: 30, owner: 'agent',
-        lostReason: 'Budget moved to next year', acts: [['MEETING', 'Liked samples, no budget', 'NOT_INTERESTED', 11]],
+        company: 'Lyceum School Uniforms',
+        contact: 'Farah Javed',
+        phone: '+923005550206',
+        email: 'farah@lyceum.example.com',
+        city: 'Karachi',
+        industry: 'Education',
+        value: 500_000,
+        source: 'WEBSITE',
+        stage: 'LOST',
+        stageDaysAgo: 10,
+        createdDaysAgo: 30,
+        owner: 'agent',
+        lostReason: 'Budget moved to next year',
+        acts: [['MEETING', 'Liked samples, no budget', 'NOT_INTERESTED', 11]],
       },
       {
-        company: 'Rang Boutique', contact: 'Mahnoor Iqbal', phone: '+923005550207', email: 'mahnoor@rang.example.com',
-        city: 'Karachi', industry: 'Fashion', value: 60_000, source: 'WEBSITE', stage: 'NEW', stageDaysAgo: 0, createdDaysAgo: 1, owner: null, acts: [],
+        company: 'Rang Boutique',
+        contact: 'Mahnoor Iqbal',
+        phone: '+923005550207',
+        email: 'mahnoor@rang.example.com',
+        city: 'Karachi',
+        industry: 'Fashion',
+        value: 60_000,
+        source: 'WEBSITE',
+        stage: 'NEW',
+        stageDaysAgo: 0,
+        createdDaysAgo: 1,
+        owner: null,
+        acts: [],
       },
     ],
   },
   {
     slug: 'sma-business',
     tax: 16,
-    agent: { username: 'smabiz.sales', displayName: 'Daniyal Shah', email: 'smabiz.sales@example.com' },
+    agent: {
+      username: 'smabiz.sales',
+      displayName: 'Daniyal Shah',
+      email: 'smabiz.sales@example.com',
+    },
     targets: { admin: 700_000, agent: 450_000 },
     services: [
-      ['POS system setup', 'Setup', 85_000, 'ONE_TIME', 'Hardware, software and training for one counter.'],
-      ['Business website', 'Web', 120_000, 'ONE_TIME', 'Five pages, mobile friendly, hosting for a year.'],
-      ['IT support plan', 'Support', 35_000, 'MONTHLY', 'Remote and on-site support, same-day response.'],
+      [
+        'POS system setup',
+        'Setup',
+        85_000,
+        'ONE_TIME',
+        'Hardware, software and training for one counter.',
+      ],
+      [
+        'Business website',
+        'Web',
+        120_000,
+        'ONE_TIME',
+        'Five pages, mobile friendly, hosting for a year.',
+      ],
+      [
+        'IT support plan',
+        'Support',
+        35_000,
+        'MONTHLY',
+        'Remote and on-site support, same-day response.',
+      ],
       ['Social media management', 'Marketing', 50_000, 'MONTHLY', 'Posts, ads and monthly report.'],
       ['Network cabling (per point)', 'Setup', 4_500, 'ONE_TIME', 'Cat6 cabling and testing.'],
     ],
     leads: [
       {
-        company: 'Al-Noor Supermarket', contact: 'Tariq Mehmood', title: 'Owner', phone: '+923005550301', email: 'tariq@alnoor.example.com',
-        city: 'Islamabad', industry: 'Retail', value: 170_000, source: 'REFERRAL', stage: 'NEGOTIATION', stageDaysAgo: 1, createdDaysAgo: 10, owner: 'admin',
+        company: 'Al-Noor Supermarket',
+        contact: 'Tariq Mehmood',
+        title: 'Owner',
+        phone: '+923005550301',
+        email: 'tariq@alnoor.example.com',
+        city: 'Islamabad',
+        industry: 'Retail',
+        value: 170_000,
+        source: 'REFERRAL',
+        stage: 'NEGOTIATION',
+        stageDaysAgo: 1,
+        createdDaysAgo: 10,
+        owner: 'admin',
         followUp: { inMinutes: 18, kind: 'MEETING', note: 'Demo of the POS at their store' },
-        acts: [['CALL', 'Needs 2 POS counters', 'INTERESTED', 6], ['MEETING', 'Site survey done', 'INTERESTED', 3]],
-        deal: { title: 'Al-Noor — 2 POS counters', status: 'OPEN', lines: [['POS system setup', 2], ['Network cabling (per point)', 6]], quote: true },
+        acts: [
+          ['CALL', 'Needs 2 POS counters', 'INTERESTED', 6],
+          ['MEETING', 'Site survey done', 'INTERESTED', 3],
+        ],
+        deal: {
+          title: 'Al-Noor — 2 POS counters',
+          status: 'OPEN',
+          lines: [
+            ['POS system setup', 2],
+            ['Network cabling (per point)', 6],
+          ],
+          quote: true,
+        },
       },
       {
-        company: 'Capital Dental Clinic', contact: 'Dr. Sana Riaz', phone: '+923005550302', email: 'sana@capitaldental.example.com',
-        city: 'Islamabad', industry: 'Health', value: 120_000, source: 'WEBSITE', stage: 'WON', stageDaysAgo: 25, createdDaysAgo: 45, owner: 'agent',
+        company: 'Capital Dental Clinic',
+        contact: 'Dr. Sana Riaz',
+        phone: '+923005550302',
+        email: 'sana@capitaldental.example.com',
+        city: 'Islamabad',
+        industry: 'Health',
+        value: 120_000,
+        source: 'WEBSITE',
+        stage: 'WON',
+        stageDaysAgo: 25,
+        createdDaysAgo: 45,
+        owner: 'agent',
         followUp: { days: 1, hour: 15, kind: 'CALL', note: 'Ask about Google ads' },
         acts: [['MEETING', 'Website signed', 'INTERESTED', 26]],
         deal: {
-          title: 'Capital Dental — website', status: 'WON', closedDaysAgo: 25, lines: [['Business website', 1]],
+          title: 'Capital Dental — website',
+          status: 'WON',
+          closedDaysAgo: 25,
+          lines: [['Business website', 1]],
           invoice: { issuedDaysAgo: 24, dueDays: 10, paid: 1 },
-          upsell: { title: 'Capital Dental — social media', lines: [['Social media management', 1]] },
+          upsell: {
+            title: 'Capital Dental — social media',
+            lines: [['Social media management', 1]],
+          },
           monthly: [['IT support plan', 1]],
         },
       },
       {
-        company: 'Blue Area Law Associates', contact: 'Haris Chaudhry', phone: '+923005550303', email: 'haris@bluearealaw.example.com',
-        city: 'Islamabad', industry: 'Legal', value: 35_000, source: 'COLD_CALL', stage: 'PROPOSAL', stageDaysAgo: 4, createdDaysAgo: 12, owner: 'agent',
+        company: 'Blue Area Law Associates',
+        contact: 'Haris Chaudhry',
+        phone: '+923005550303',
+        email: 'haris@bluearealaw.example.com',
+        city: 'Islamabad',
+        industry: 'Legal',
+        value: 35_000,
+        source: 'COLD_CALL',
+        stage: 'PROPOSAL',
+        stageDaysAgo: 4,
+        createdDaysAgo: 12,
+        owner: 'agent',
         followUp: { days: 0, hour: 18, kind: 'EMAIL', note: 'Send the support plan details' },
         acts: [['CALL', 'Interested in monthly IT support', 'INTERESTED', 4]],
-        deal: { title: 'Blue Area Law — IT support', status: 'OPEN', lines: [['IT support plan', 1]] },
+        deal: {
+          title: 'Blue Area Law — IT support',
+          status: 'OPEN',
+          lines: [['IT support plan', 1]],
+        },
       },
       {
-        company: 'Margalla Fitness', contact: 'Bilal Aslam', phone: '+923005550304', email: 'bilal@margallafit.example.com',
-        city: 'Islamabad', industry: 'Fitness', value: 50_000, source: 'SOCIAL_MEDIA', stage: 'WON', stageDaysAgo: 4, createdDaysAgo: 14, owner: 'agent',
+        company: 'Margalla Fitness',
+        contact: 'Bilal Aslam',
+        phone: '+923005550304',
+        email: 'bilal@margallafit.example.com',
+        city: 'Islamabad',
+        industry: 'Fitness',
+        value: 50_000,
+        source: 'SOCIAL_MEDIA',
+        stage: 'WON',
+        stageDaysAgo: 4,
+        createdDaysAgo: 14,
+        owner: 'agent',
         acts: [['WHATSAPP', 'Agreed to social media plan', 'INTERESTED', 5]],
-        deal: { title: 'Margalla Fitness — social media', status: 'WON', closedDaysAgo: 4, lines: [['Social media management', 1]], invoice: { issuedDaysAgo: 40, dueDays: 14, paid: 0, claim: true } },
+        deal: {
+          title: 'Margalla Fitness — social media',
+          status: 'WON',
+          closedDaysAgo: 4,
+          lines: [['Social media management', 1]],
+          invoice: { issuedDaysAgo: 40, dueDays: 14, paid: 0, claim: true },
+        },
       },
       {
-        company: 'Rawal Logistics', contact: 'Shahid Iqbal', phone: '+923005550305', email: 'shahid@rawallog.example.com',
-        city: 'Rawalpindi', industry: 'Logistics', value: 90_000, source: 'EMAIL_CAMPAIGN', stage: 'CONTACTED', stageDaysAgo: 6, createdDaysAgo: 9, owner: 'admin',
+        company: 'Rawal Logistics',
+        contact: 'Shahid Iqbal',
+        phone: '+923005550305',
+        email: 'shahid@rawallog.example.com',
+        city: 'Rawalpindi',
+        industry: 'Logistics',
+        value: 90_000,
+        source: 'EMAIL_CAMPAIGN',
+        stage: 'CONTACTED',
+        stageDaysAgo: 6,
+        createdDaysAgo: 9,
+        owner: 'admin',
         followUp: { days: -1, hour: 10, kind: 'VISIT', note: 'Check the warehouse network' },
         acts: [['EMAIL', 'Sent cabling price list', 'NO_ANSWER', 6]],
       },
       {
-        company: 'F-7 Coffee House', contact: 'Ayesha Zafar', phone: '+923005550306', email: 'ayesha@f7coffee.example.com',
-        city: 'Islamabad', industry: 'Food', value: 40_000, source: 'WEBSITE', stage: 'LOST', stageDaysAgo: 7, createdDaysAgo: 20, owner: 'agent',
-        lostReason: 'Built the website themselves', acts: [['CALL', 'Not needed any more', 'NOT_INTERESTED', 8]],
+        company: 'F-7 Coffee House',
+        contact: 'Ayesha Zafar',
+        phone: '+923005550306',
+        email: 'ayesha@f7coffee.example.com',
+        city: 'Islamabad',
+        industry: 'Food',
+        value: 40_000,
+        source: 'WEBSITE',
+        stage: 'LOST',
+        stageDaysAgo: 7,
+        createdDaysAgo: 20,
+        owner: 'agent',
+        lostReason: 'Built the website themselves',
+        acts: [['CALL', 'Not needed any more', 'NOT_INTERESTED', 8]],
       },
       {
-        company: 'Green Leaf School', contact: 'Rehana Akhtar', phone: '+923005550307', email: 'rehana@greenleaf.example.com',
-        city: 'Islamabad', industry: 'Education', value: 150_000, source: 'WEBSITE', stage: 'NEW', stageDaysAgo: 0, createdDaysAgo: 0, owner: null, acts: [],
+        company: 'Green Leaf School',
+        contact: 'Rehana Akhtar',
+        phone: '+923005550307',
+        email: 'rehana@greenleaf.example.com',
+        city: 'Islamabad',
+        industry: 'Education',
+        value: 150_000,
+        source: 'WEBSITE',
+        stage: 'NEW',
+        stageDaysAgo: 0,
+        createdDaysAgo: 0,
+        owner: null,
+        acts: [],
       },
     ],
   },
@@ -337,7 +707,10 @@ async function main(): Promise<void> {
     const adminId = adminRow.userId;
 
     // ── Sales agent and the team chat ──
-    let agent = await prisma.user.findUnique({ where: { username: spec.agent.username }, select: { id: true } });
+    let agent = await prisma.user.findUnique({
+      where: { username: spec.agent.username },
+      select: { id: true },
+    });
     if (!agent) {
       const passwordHash = await hasher.hash(passwords[spec.agent.username]!);
       agent = await prisma.user.create({
@@ -351,7 +724,13 @@ async function main(): Promise<void> {
         select: { id: true },
       });
       await prisma.roleAssignment.create({
-        data: { userId: agent.id, roleId: roles.SALES_AGENT, scopeType: 'BUSINESS', businessId: tenantId, grantedById: adminId },
+        data: {
+          userId: agent.id,
+          roleId: roles.SALES_AGENT,
+          scopeType: 'BUSINESS',
+          businessId: tenantId,
+          grantedById: adminId,
+        },
       });
     }
     const agentId = agent.id;
@@ -398,7 +777,14 @@ async function main(): Promise<void> {
     }
     await prisma.commissionPlan.upsert({
       where: { tenantId_scope: { tenantId, scope: 'team' } },
-      create: { tenantId, scope: 'team', baseRate: 2, bonusRate: 5, basis: 'WON', updatedById: adminId },
+      create: {
+        tenantId,
+        scope: 'team',
+        baseRate: 2,
+        bonusRate: 5,
+        basis: 'WON',
+        updatedById: adminId,
+      },
       update: {},
     });
     await prisma.crmService.createMany({
@@ -420,7 +806,15 @@ async function main(): Promise<void> {
         const svc = services.get(name);
         if (!svc) throw new Error(`Unknown service ${name}`);
         const unitPrice = Number(svc.price);
-        return { serviceId: svc.id, name, quantity, unitPrice, total: round2(unitPrice * quantity), billing: svc.billing, position };
+        return {
+          serviceId: svc.id,
+          name,
+          quantity,
+          unitPrice,
+          total: round2(unitPrice * quantity),
+          billing: svc.billing,
+          position,
+        };
       });
 
     // ── Leads, deals, quotes, invoices ──
@@ -450,7 +844,8 @@ async function main(): Promise<void> {
           estimatedValue: l.value,
           currency: 'PKR',
           source: l.source,
-          direction: l.source === 'COLD_CALL' || l.source === 'EMAIL_CAMPAIGN' ? 'OUTBOUND' : 'INBOUND',
+          direction:
+            l.source === 'COLD_CALL' || l.source === 'EMAIL_CAMPAIGN' ? 'OUTBOUND' : 'INBOUND',
           stage: l.stage,
           stageChangedAt: ago(l.stageDaysAgo),
           closedAt: closed ? ago(l.stageDaysAgo) : null,
@@ -460,7 +855,9 @@ async function main(): Promise<void> {
           nextFollowUpAt: followUpAt,
           nextFollowUpKind: followUpAt ? l.followUp!.kind : null,
           nextFollowUpNote: followUpAt ? (l.followUp!.note ?? null) : null,
-          lastActivityAt: l.acts.length ? ago(Math.min(...l.acts.map((a) => a[3]))) : ago(l.createdDaysAgo),
+          lastActivityAt: l.acts.length
+            ? ago(Math.min(...l.acts.map((a) => a[3])))
+            : ago(l.createdDaysAgo),
           callCount: count('CALL'),
           messageCount: count('EMAIL') + count('WHATSAPP'),
           meetingCount: count('MEETING'),
@@ -471,13 +868,30 @@ async function main(): Promise<void> {
       });
       leads += 1;
       await prisma.leadActivity.create({
-        data: { leadId: lead.id, type: 'CREATED', toStage: 'NEW', actorId: l.source === 'WEBSITE' ? null : actorId, body: l.source === 'WEBSITE' ? 'From the website form' : null, createdAt: ago(l.createdDaysAgo) },
+        data: {
+          leadId: lead.id,
+          type: 'CREATED',
+          toStage: 'NEW',
+          actorId: l.source === 'WEBSITE' ? null : actorId,
+          body: l.source === 'WEBSITE' ? 'From the website form' : null,
+          createdAt: ago(l.createdDaysAgo),
+        },
       });
       for (const [type, body, outcome, daysAgo] of l.acts)
-        await prisma.leadActivity.create({ data: { leadId: lead.id, type, body, outcome, actorId, createdAt: ago(daysAgo) } });
+        await prisma.leadActivity.create({
+          data: { leadId: lead.id, type, body, outcome, actorId, createdAt: ago(daysAgo) },
+        });
       if (l.stage !== 'NEW')
         await prisma.leadActivity.create({
-          data: { leadId: lead.id, type: 'STAGE_CHANGED', fromStage: 'NEW', toStage: l.stage, body: l.lostReason ?? null, actorId, createdAt: ago(l.stageDaysAgo) },
+          data: {
+            leadId: lead.id,
+            type: 'STAGE_CHANGED',
+            fromStage: 'NEW',
+            toStage: l.stage,
+            body: l.lostReason ?? null,
+            actorId,
+            createdAt: ago(l.stageDaysAgo),
+          },
         });
 
       if (!l.deal) continue;
@@ -528,7 +942,17 @@ async function main(): Promise<void> {
             publicToken: token(),
             sentAt: ago(2),
             createdById: actorId,
-            items: { create: items.map((i) => ({ serviceId: i.serviceId, name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, total: i.total, billing: i.billing, position: i.position })) },
+            items: {
+              create: items.map((i) => ({
+                serviceId: i.serviceId,
+                name: i.name,
+                quantity: i.quantity,
+                unitPrice: i.unitPrice,
+                total: i.total,
+                billing: i.billing,
+                position: i.position,
+              })),
+            },
           },
         });
       }
@@ -566,7 +990,16 @@ async function main(): Promise<void> {
             payToken: token(),
             createdById: adminId,
             createdAt: issued,
-            items: { create: items.map((i) => ({ serviceId: i.serviceId, name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, total: i.total, position: i.position })) },
+            items: {
+              create: items.map((i) => ({
+                serviceId: i.serviceId,
+                name: i.name,
+                quantity: i.quantity,
+                unitPrice: i.unitPrice,
+                total: i.total,
+                position: i.position,
+              })),
+            },
             ...(paid > 0
               ? {
                   payments: {
@@ -632,7 +1065,15 @@ async function main(): Promise<void> {
             taxRate: spec.tax,
             autoEmail: false,
             createdById: adminId,
-            items: { create: lines.map((i) => ({ serviceId: i.serviceId, name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, position: i.position })) },
+            items: {
+              create: lines.map((i) => ({
+                serviceId: i.serviceId,
+                name: i.name,
+                quantity: i.quantity,
+                unitPrice: i.unitPrice,
+                position: i.position,
+              })),
+            },
           },
         });
       }
@@ -653,7 +1094,9 @@ async function main(): Promise<void> {
         });
       }
     }
-    console.log(`✔ ${business.name}: ${leads} leads, ${invoices} invoices, agent ${spec.agent.username}`);
+    console.log(
+      `✔ ${business.name}: ${leads} leads, ${invoices} invoices, agent ${spec.agent.username}`,
+    );
   }
 }
 

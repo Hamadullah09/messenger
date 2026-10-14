@@ -14,6 +14,7 @@ import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { CrmSettingsService, dateOnly, isoDate, num, round2, today } from './crm-core';
+import { OnlinePaymentsService } from './online-payments.service';
 import { SalesService } from './sales.service';
 
 const subscriptionInclude = {
@@ -124,13 +125,19 @@ export class SubscriptionsService {
       if (!business) throw ApiError.validation('Choose an SMA customer.', 'businessId');
     } else {
       const lead = await this.prisma.lead.findFirst({
-        where: { id: leadId ?? undefined, tenantId: tenant.businessId, deletedAt: null, stage: 'WON' },
+        where: {
+          id: leadId ?? undefined,
+          tenantId: tenant.businessId,
+          deletedAt: null,
+          stage: 'WON',
+        },
         select: { id: true },
       });
       if (!lead) throw ApiError.validation('Choose a customer (a won lead).', 'leadId');
     }
     const start = dateOnly(request.startDate);
-    if (start < today()) throw ApiError.validation('The first invoice date cannot be in the past.', 'startDate');
+    if (start < today())
+      throw ApiError.validation('The first invoice date cannot be in the past.', 'startDate');
     if (request.dealId) {
       const deal = await this.prisma.deal.findFirst({
         where: {
@@ -144,9 +151,14 @@ export class SubscriptionsService {
       if (!deal) throw ApiError.validation('That deal is not for this customer.', 'dealId');
     }
     if (request.items.some((i) => i.serviceId)) {
-      const ids = [...new Set(request.items.map((i) => i.serviceId).filter((v): v is string => !!v))];
-      const found = await this.prisma.crmService.count({ where: { id: { in: ids }, tenantId: tenant.businessId } });
-      if (found !== ids.length) throw ApiError.validation('A chosen service was not found.', 'items');
+      const ids = [
+        ...new Set(request.items.map((i) => i.serviceId).filter((v): v is string => !!v)),
+      ];
+      const found = await this.prisma.crmService.count({
+        where: { id: { in: ids }, tenantId: tenant.businessId },
+      });
+      if (found !== ids.length)
+        throw ApiError.validation('A chosen service was not found.', 'items');
     }
     const row = await this.prisma.subscription.create({
       data: {
@@ -183,7 +195,11 @@ export class SubscriptionsService {
     return this.toDto(row);
   }
 
-  async update(actor: Actor, id: string, request: UpdateSubscriptionRequest): Promise<SubscriptionDto> {
+  async update(
+    actor: Actor,
+    id: string,
+    request: UpdateSubscriptionRequest,
+  ): Promise<SubscriptionDto> {
     const tenant = await this.access(actor, true);
     const existing = await this.prisma.subscription.findFirst({
       where: { id, tenantId: tenant.businessId },
@@ -232,6 +248,7 @@ export class PublicPayService {
     private readonly prisma: PrismaService,
     private readonly settings: CrmSettingsService,
     private readonly rateLimiter: RateLimiterService,
+    private readonly online: OnlinePaymentsService,
   ) {}
 
   private async byToken(token: string) {
@@ -242,7 +259,8 @@ export class PublicPayService {
         _count: { select: { claims: { where: { status: 'PENDING' } } } },
       },
     });
-    if (!invoice || invoice.status === 'DRAFT' || invoice.status === 'VOID') throw ApiError.notFound('Invoice');
+    if (!invoice || invoice.status === 'DRAFT' || invoice.status === 'VOID')
+      throw ApiError.notFound('Invoice');
     return invoice;
   }
 
@@ -282,19 +300,29 @@ export class PublicPayService {
       payTo: s.payTo,
       paymentDetails: s.paymentDetails,
       pendingClaims: i._count.claims,
+      gateways: i.status === 'PAID' ? [] : await this.online.enabledFor(i.tenantId),
     };
   }
 
-  async claim(token: string, request: SubmitPaymentClaimRequest, ipHash: string): Promise<PublicInvoiceDto> {
+  async claim(
+    token: string,
+    request: SubmitPaymentClaimRequest,
+    ipHash: string,
+  ): Promise<PublicInvoiceDto> {
     await this.rateLimiter.consume(PAY_LIMIT, ipHash);
     const i = await this.byToken(token);
     if (request.website) return this.view(token, ipHash); // bot
     if (i.status === 'PAID') throw ApiError.conflict('This invoice is already paid. Thank you!');
     const balance = round2(num(i.total) - num(i.amountPaid));
     if (request.amount > balance + 0.004)
-      throw ApiError.validation(`That is more than the amount due (${balance.toFixed(2)}).`, 'amount');
+      throw ApiError.validation(
+        `That is more than the amount due (${balance.toFixed(2)}).`,
+        'amount',
+      );
     if (i._count.claims >= 5)
-      throw ApiError.conflict('We are already checking your earlier payments. Please wait for us to confirm them.');
+      throw ApiError.conflict(
+        'We are already checking your earlier payments. Please wait for us to confirm them.',
+      );
     await this.prisma.paymentClaim.create({
       data: {
         invoiceId: i.id,

@@ -9,6 +9,7 @@
 | --- | --- | --- |
 | `js-yaml` (via `@nestjs/swagger`) | CPU exhaustion via merge keys (≤ 5.4.0) | `overrides["@nestjs/swagger"]["js-yaml"] = ^5.4.3` |
 | `postcss` (bundled by `next` 15.5) | Source-map file disclosure / stringify XSS (≤ 8.5.22) | `overrides.next.postcss = ^8.5.29` |
+| `uuid` (via `exceljs`) | Missing buffer bounds check in v3/v5/v6 (< 11.1.1) | `overrides.exceljs.uuid = ^11.1.1` (2026-10-14); .xlsx round-trip verified |
 | `vitest`, `tinypool`, `@vitest/mocker` | Path traversal / prototype pollution in test runner | Upgraded to Vitest 4.1.11 |
 
 ## Accepted (time-boxed)

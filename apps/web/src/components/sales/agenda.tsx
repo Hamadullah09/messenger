@@ -19,7 +19,17 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { Alert, Button, cx, Dialog, EmptyState, SelectField, Spinner, TextArea, TextField } from '@/components/ui';
+import {
+  Alert,
+  Button,
+  cx,
+  Dialog,
+  EmptyState,
+  SelectField,
+  Spinner,
+  TextArea,
+  TextField,
+} from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
 import { formatDay, formatTime } from '@/lib/format';
 import { FOLLOW_UP_ACTIVITY, FOLLOW_UP_LABEL, OUTCOME_LABEL } from './labels';
@@ -57,7 +67,9 @@ export function AgendaTab({
   const agenda = useQuery({
     queryKey: ['leads', 'agenda', { range, mine, day: today.toISOString() }],
     queryFn: () =>
-      api<LeadDto[]>('/sales/agenda', { query: { until: until.toISOString(), mine: String(mine) } }),
+      api<LeadDto[]>('/sales/agenda', {
+        query: { until: until.toISOString(), mine: String(mine) },
+      }),
     refetchInterval: 60_000,
   });
 
@@ -78,7 +90,9 @@ export function AgendaTab({
   }, [agenda.data, today.getTime()]);
 
   const todays = groups.days.find((g) => dayKey(g.date) === dayKey(today))?.items ?? [];
-  const meetingsToday = todays.filter((l) => l.nextFollowUpKind === 'MEETING' || l.nextFollowUpKind === 'VISIT').length;
+  const meetingsToday = todays.filter(
+    (l) => l.nextFollowUpKind === 'MEETING' || l.nextFollowUpKind === 'VISIT',
+  ).length;
 
   return (
     <div className="flex flex-col gap-5">
@@ -134,19 +148,35 @@ export function AgendaTab({
       <div className="grid grid-cols-3 gap-3">
         <SummaryTile label="Today" value={todays.length} Icon={CalendarCheck} />
         <SummaryTile label="Meetings and visits today" value={meetingsToday} Icon={Users} />
-        <SummaryTile label="Overdue" value={groups.overdue.length} Icon={AlarmClock} warn={groups.overdue.length > 0} />
+        <SummaryTile
+          label="Overdue"
+          value={groups.overdue.length}
+          Icon={AlarmClock}
+          warn={groups.overdue.length > 0}
+        />
       </div>
 
       {agenda.isPending && <Spinner label="Loading follow-ups" />}
       {agenda.isError && <Alert tone="error">{errorMessage(agenda.error)}</Alert>}
       {agenda.isSuccess && agenda.data.length === 0 && (
-        <EmptyState icon={<CalendarCheck className="size-9" aria-hidden />} title={range === 'today' ? 'Nothing planned for today' : 'Nothing planned this week'}>
+        <EmptyState
+          icon={<CalendarCheck className="size-9" aria-hidden />}
+          title={range === 'today' ? 'Nothing planned for today' : 'Nothing planned this week'}
+        >
           Plan the next meeting or call when you log an activity on a lead, and it shows up here.
         </EmptyState>
       )}
 
       {groups.overdue.length > 0 && (
-        <AgendaGroup title="Overdue" tone="danger" items={groups.overdue} showDate showOwner={!mine} onOpen={onOpenLead} onDone={setDoneFor} />
+        <AgendaGroup
+          title="Overdue"
+          tone="danger"
+          items={groups.overdue}
+          showDate
+          showOwner={!mine}
+          onOpen={onOpenLead}
+          onDone={setDoneFor}
+        />
       )}
       {groups.days.map((g) => (
         <AgendaGroup
@@ -164,13 +194,25 @@ export function AgendaTab({
   );
 }
 
-function SummaryTile({ label, value, Icon, warn }: { label: string; value: number; Icon: LucideIcon; warn?: boolean }) {
+function SummaryTile({
+  label,
+  value,
+  Icon,
+  warn,
+}: {
+  label: string;
+  value: number;
+  Icon: LucideIcon;
+  warn?: boolean;
+}) {
   return (
     <div className="rounded-2xl border border-line bg-surface p-3 shadow-card sm:p-4">
       <p className="flex items-center gap-1.5 text-xs font-semibold text-muted sm:text-sm">
         <Icon className="size-4 shrink-0" aria-hidden /> {label}
       </p>
-      <p className={cx('mt-1 text-2xl font-bold tabular-nums sm:text-3xl', warn && 'text-danger')}>{value}</p>
+      <p className={cx('mt-1 text-2xl font-bold tabular-nums sm:text-3xl', warn && 'text-danger')}>
+        {value}
+      </p>
     </div>
   );
 }
@@ -202,12 +244,26 @@ function AgendaGroup({
           const kind = l.nextFollowUpKind ?? 'OTHER';
           const Icon = FOLLOW_UP_ICON[kind];
           return (
-            <li key={l.id} className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-3 shadow-card sm:flex-row sm:items-center">
-              <button type="button" onClick={() => onOpen(l.id)} className="flex min-w-0 flex-1 items-start gap-3 text-left">
+            <li
+              key={l.id}
+              className="flex flex-col gap-3 rounded-2xl border border-line bg-surface p-3 shadow-card sm:flex-row sm:items-center"
+            >
+              <button
+                type="button"
+                onClick={() => onOpen(l.id)}
+                className="flex min-w-0 flex-1 items-start gap-3 text-left"
+              >
                 <span className="flex w-16 shrink-0 flex-col items-center rounded-xl bg-surface-2 py-2">
-                  <Icon className={cx('size-5', tone === 'danger' ? 'text-danger' : 'text-brand')} aria-hidden />
-                  <span className="mt-1 text-sm font-bold tabular-nums">{formatTime(l.nextFollowUpAt!)}</span>
-                  {showDate && <span className="text-xs text-muted">{formatDay(l.nextFollowUpAt!)}</span>}
+                  <Icon
+                    className={cx('size-5', tone === 'danger' ? 'text-danger' : 'text-brand')}
+                    aria-hidden
+                  />
+                  <span className="mt-1 text-sm font-bold tabular-nums">
+                    {formatTime(l.nextFollowUpAt!)}
+                  </span>
+                  {showDate && (
+                    <span className="text-xs text-muted">{formatDay(l.nextFollowUpAt!)}</span>
+                  )}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="flex flex-wrap items-center gap-2">
@@ -219,7 +275,9 @@ function AgendaGroup({
                     {l.contactName}
                     {l.phone ? ` · ${l.phone}` : ''}
                   </span>
-                  {l.nextFollowUpNote && <span className="mt-0.5 block text-sm">{l.nextFollowUpNote}</span>}
+                  {l.nextFollowUpNote && (
+                    <span className="mt-0.5 block text-sm">{l.nextFollowUpNote}</span>
+                  )}
                   {showOwner && (
                     <span className="mt-1 block text-sm">
                       <OwnerBadge name={l.owner?.displayName ?? null} />
@@ -248,7 +306,11 @@ function AgendaGroup({
                     <MessageCircle className="size-4" aria-hidden /> WhatsApp
                   </a>
                 )}
-                <Button size="sm" icon={<CheckCircle2 className="size-4" aria-hidden />} onClick={() => onDone(l)}>
+                <Button
+                  size="sm"
+                  icon={<CheckCircle2 className="size-4" aria-hidden />}
+                  onClick={() => onDone(l)}
+                >
                   Done
                 </Button>
               </div>
@@ -315,7 +377,11 @@ function FollowUpDoneDialog({ lead, onClose }: { lead: LeadDto; onClose: () => v
           onChange={(e) => setBody(e.target.value)}
         />
         {activity !== 'NOTE' && (
-          <SelectField label="Their response" value={outcome} onChange={(e) => setOutcome(e.target.value as ActivityOutcome | '')}>
+          <SelectField
+            label="Their response"
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value as ActivityOutcome | '')}
+          >
             <option value="">Not recorded</option>
             {ACTIVITY_OUTCOMES.map((o) => (
               <option key={o} value={o}>
@@ -325,7 +391,12 @@ function FollowUpDoneDialog({ lead, onClose }: { lead: LeadDto; onClose: () => v
           </SelectField>
         )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <TextField label="Next follow-up (optional)" type="datetime-local" value={next} onChange={(e) => setNext(e.target.value)} />
+          <TextField
+            label="Next follow-up (optional)"
+            type="datetime-local"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+          />
           {next && <FollowUpKindField value={nextKind} onChange={setNextKind} />}
         </div>
         {next && (

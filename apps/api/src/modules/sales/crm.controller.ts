@@ -57,7 +57,9 @@ import { CurrentActor, type Actor } from '../auth/actor';
 import { CrmService } from './crm.service';
 
 const monthQuerySchema = z.object({ month: monthSchema.optional() });
-const claimsQuerySchema = z.object({ status: z.enum(['PENDING', 'CONFIRMED', 'REJECTED']).optional() });
+const claimsQuerySchema = z.object({
+  status: z.enum(['PENDING', 'CONFIRMED', 'REJECTED']).optional(),
+});
 const voidSchema = z.object({ reason: z.string().trim().min(1).max(300) });
 
 function currentMonth(): string {
@@ -256,10 +258,7 @@ export class CrmController {
 
   @Post('invoices/:id/issue')
   @HttpCode(200)
-  issue(
-    @CurrentActor() actor: Actor,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<InvoiceDto> {
+  issue(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<InvoiceDto> {
     return this.crm.issueInvoice(actor, id);
   }
 
@@ -276,10 +275,7 @@ export class CrmController {
 
   @Post('invoices/:id/email')
   @HttpCode(200)
-  email(
-    @CurrentActor() actor: Actor,
-    @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<InvoiceDto> {
+  email(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<InvoiceDto> {
     return this.crm.emailInvoice(actor, id);
   }
 

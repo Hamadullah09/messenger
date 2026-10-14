@@ -1,4 +1,9 @@
-import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  type OnApplicationBootstrap,
+  type OnModuleDestroy,
+} from '@nestjs/common';
 import { resolveBusinessPolicy, type FollowUpKind, type PushPayload } from '@storeline/shared';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { PushProcessor } from '../devices/push.processor';
@@ -120,7 +125,9 @@ export class FollowUpReminders implements OnApplicationBootstrap, OnModuleDestro
     const minutes = Math.max(1, Math.round((at.getTime() - now.getTime()) / 60_000));
     const title = `${KIND_LABEL[lead.nextFollowUpKind ?? 'OTHER']} in ${minutes} min`;
     const contentAllowed = resolveBusinessPolicy(lead.tenant.policy).pushContentAllowed;
-    const details = [lead.companyName, lead.contactName, lead.nextFollowUpNote].filter(Boolean).join(' · ');
+    const details = [lead.companyName, lead.contactName, lead.nextFollowUpNote]
+      .filter(Boolean)
+      .join(' · ');
     try {
       await this.push.reminder([ownerId], (preview): PushPayload => ({
         type: 'reminder',

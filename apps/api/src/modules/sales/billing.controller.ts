@@ -113,7 +113,10 @@ export class BillingController {
 
   @Delete('quotes/:id')
   @HttpCode(204)
-  async removeQuote(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+  async removeQuote(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
     await this.quotes.remove(actor, id);
   }
 

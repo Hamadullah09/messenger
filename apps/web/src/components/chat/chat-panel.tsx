@@ -81,10 +81,7 @@ export function ChatPanel({
   const [infoOpen, setInfoOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [disappearing, setDisappearing] = useState(false);
-  const broadcastList = useBroadcastList(
-    conversationId,
-    detail.data?.type === 'BROADCAST_LIST',
-  );
+  const broadcastList = useBroadcastList(conversationId, detail.data?.type === 'BROADCAST_LIST');
   // Remember where unread started when the chat was opened, for the "Unread messages" marker.
   const unreadMarker = useRef<{ id: string; seq: number | null } | null>(null);
 
@@ -191,11 +188,11 @@ export function ChatPanel({
           ? `Announcements · ${conversation.memberCount} members`
           : conversation.type === 'BROADCAST_LIST'
             ? `Broadcast list · ${broadcastList.data?.recipients.length ?? '…'} recipients`
-          : conversation.members
-              .slice(0, 6)
-              .map((m) => (m.user.id === me.user.id ? 'You' : m.user.displayName))
-              .join(', ') +
-            (conversation.memberCount > 6 ? ` and ${conversation.memberCount - 6} more` : '');
+            : conversation.members
+                .slice(0, 6)
+                .map((m) => (m.user.id === me.user.id ? 'You' : m.user.displayName))
+                .join(', ') +
+              (conversation.memberCount > 6 ? ` and ${conversation.memberCount - 6} more` : '');
 
   return (
     <div className="relative flex min-h-0 min-w-0 flex-1">
@@ -228,7 +225,9 @@ export function ChatPanel({
                 name={conversation.title}
                 size={40}
                 online={
-                  conversation.type === 'DIRECT' ? (counterpartPresence?.online ?? false) : undefined
+                  conversation.type === 'DIRECT'
+                    ? (counterpartPresence?.online ?? false)
+                    : undefined
                 }
               />
             )}
@@ -245,28 +244,29 @@ export function ChatPanel({
               </span>
             </span>
           </button>
-          {(conversation.type === 'DIRECT' || conversation.type === 'GROUP') && conversation.me.canPost && (
-            <>
-              <button
-                type="button"
-                aria-label="Video call"
-                title="Video call"
-                className={HEADER_ICON}
-                onClick={() => void startCall(conversationId, 'video')}
-              >
-                <Video className="size-5" aria-hidden />
-              </button>
-              <button
-                type="button"
-                aria-label="Voice call"
-                title="Voice call"
-                className={HEADER_ICON}
-                onClick={() => void startCall(conversationId, 'audio')}
-              >
-                <Phone className="size-5" aria-hidden />
-              </button>
-            </>
-          )}
+          {(conversation.type === 'DIRECT' || conversation.type === 'GROUP') &&
+            conversation.me.canPost && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Video call"
+                  title="Video call"
+                  className={HEADER_ICON}
+                  onClick={() => void startCall(conversationId, 'video')}
+                >
+                  <Video className="size-5" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Voice call"
+                  title="Voice call"
+                  className={HEADER_ICON}
+                  onClick={() => void startCall(conversationId, 'audio')}
+                >
+                  <Phone className="size-5" aria-hidden />
+                </button>
+              </>
+            )}
           <button
             type="button"
             aria-label="Search in chat"

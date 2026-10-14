@@ -2,7 +2,15 @@
 
 import type { IntegrationKey, IntegrationsDto } from '@storeline/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle2, Mail, MessageSquare, Phone, Plug, XCircle, type LucideIcon } from 'lucide-react';
+import {
+  CheckCircle2,
+  Mail,
+  MessageSquare,
+  Phone,
+  Plug,
+  XCircle,
+  type LucideIcon,
+} from 'lucide-react';
 import { useState } from 'react';
 import { Alert, Button, cx, PageHeader, Spinner, TextField } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
@@ -21,8 +29,18 @@ const CHANNELS: Array<{
     Icon: Mail,
     intro: 'Your mail server (SMTP). Used for password resets, invoices and email campaigns.',
     keys: [
-      { key: 'SMTP_URL', label: 'Mail server', hint: 'smtp://user:password@host:587 — from your email provider', placeholder: 'smtp://user:password@smtp.example.com:587' },
-      { key: 'MAIL_FROM', label: 'Send as', hint: 'Name and address people see', placeholder: 'SMA Technology <hello@yourdomain.com>' },
+      {
+        key: 'SMTP_URL',
+        label: 'Mail server',
+        hint: 'smtp://user:password@host:587 — from your email provider',
+        placeholder: 'smtp://user:password@smtp.example.com:587',
+      },
+      {
+        key: 'MAIL_FROM',
+        label: 'Send as',
+        hint: 'Name and address people see',
+        placeholder: 'SMA Technology <hello@yourdomain.com>',
+      },
     ],
     testHint: 'Email address',
   },
@@ -33,8 +51,16 @@ const CHANNELS: Array<{
     intro: 'Text messages through a Twilio account (twilio.com → Console).',
     keys: [
       { key: 'TWILIO_ACCOUNT_SID', label: 'Account SID', hint: 'Starts with AC' },
-      { key: 'TWILIO_AUTH_TOKEN', label: 'Auth token', hint: 'Kept secret; only the last 4 characters are shown' },
-      { key: 'TWILIO_FROM', label: 'Sender', hint: 'Your Twilio number (+1…) or a Messaging Service SID (MG…)' },
+      {
+        key: 'TWILIO_AUTH_TOKEN',
+        label: 'Auth token',
+        hint: 'Kept secret; only the last 4 characters are shown',
+      },
+      {
+        key: 'TWILIO_FROM',
+        label: 'Sender',
+        hint: 'Your Twilio number (+1…) or a Messaging Service SID (MG…)',
+      },
     ],
     testHint: 'Phone number, e.g. +923001234567',
   },
@@ -45,10 +71,27 @@ const CHANNELS: Array<{
     intro:
       'WhatsApp messages through Meta’s Cloud API. Campaigns use an approved template with two variables: {{1}} customer name, {{2}} message.',
     keys: [
-      { key: 'WHATSAPP_PHONE_NUMBER_ID', label: 'Phone number ID', hint: 'From Meta Business → WhatsApp → API setup' },
-      { key: 'WHATSAPP_ACCESS_TOKEN', label: 'Access token', hint: 'A permanent system-user token' },
-      { key: 'WHATSAPP_TEMPLATE_NAME', label: 'Template name', hint: 'An approved template with {{1}} and {{2}}' },
-      { key: 'WHATSAPP_TEMPLATE_LANGUAGE', label: 'Template language', hint: 'e.g. en, en_US, ur', placeholder: 'en' },
+      {
+        key: 'WHATSAPP_PHONE_NUMBER_ID',
+        label: 'Phone number ID',
+        hint: 'From Meta Business → WhatsApp → API setup',
+      },
+      {
+        key: 'WHATSAPP_ACCESS_TOKEN',
+        label: 'Access token',
+        hint: 'A permanent system-user token',
+      },
+      {
+        key: 'WHATSAPP_TEMPLATE_NAME',
+        label: 'Template name',
+        hint: 'An approved template with {{1}} and {{2}}',
+      },
+      {
+        key: 'WHATSAPP_TEMPLATE_LANGUAGE',
+        label: 'Template language',
+        hint: 'e.g. en, en_US, ur',
+        placeholder: 'en',
+      },
     ],
     testHint: 'WhatsApp number, e.g. +923001234567',
   },
@@ -79,7 +122,13 @@ export default function IntegrationsPage() {
   );
 }
 
-function ChannelCard({ config, data }: { config: (typeof CHANNELS)[number]; data: IntegrationsDto }) {
+function ChannelCard({
+  config,
+  data,
+}: {
+  config: (typeof CHANNELS)[number];
+  data: IntegrationsDto;
+}) {
   const client = useQueryClient();
   const [values, setValues] = useState<Partial<Record<IntegrationKey, string>>>({});
   const [to, setTo] = useState('');
@@ -116,11 +165,19 @@ function ChannelCard({ config, data }: { config: (typeof CHANNELS)[number]; data
             ready ? 'bg-success-soft text-success' : 'bg-surface-3 text-muted',
           )}
         >
-          {ready ? <CheckCircle2 className="size-4" aria-hidden /> : <Plug className="size-4" aria-hidden />}
+          {ready ? (
+            <CheckCircle2 className="size-4" aria-hidden />
+          ) : (
+            <Plug className="size-4" aria-hidden />
+          )}
           {ready ? 'Connected' : 'Not set up'}
         </span>
       </div>
-      {save.isError && <div className="mt-3"><Alert tone="error">{errorMessage(save.error)}</Alert></div>}
+      {save.isError && (
+        <div className="mt-3">
+          <Alert tone="error">{errorMessage(save.error)}</Alert>
+        </div>
+      )}
       <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
         {config.keys.map((k) => {
           const current = data.keys.find((x) => x.key === k.key);
@@ -153,23 +210,50 @@ function ChannelCard({ config, data }: { config: (typeof CHANNELS)[number]; data
         })}
       </div>
       <div className="mt-3 flex justify-end">
-        <Button busy={save.isPending} disabled={changed.length === 0} onClick={() => save.mutate(Object.fromEntries(changed))}>
+        <Button
+          busy={save.isPending}
+          disabled={changed.length === 0}
+          onClick={() => save.mutate(Object.fromEntries(changed))}
+        >
           Save {config.title}
         </Button>
       </div>
       <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-line pt-4">
-        <TextField label="Send a test message to" placeholder={config.testHint} className="min-w-60 flex-1" value={to} onChange={(e) => setTo(e.target.value)} />
-        <Button variant="secondary" busy={test.isPending} disabled={!ready || to.trim().length < 3} onClick={() => test.mutate()}>
+        <TextField
+          label="Send a test message to"
+          placeholder={config.testHint}
+          className="min-w-60 flex-1"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+        />
+        <Button
+          variant="secondary"
+          busy={test.isPending}
+          disabled={!ready || to.trim().length < 3}
+          onClick={() => test.mutate()}
+        >
           Send test
         </Button>
       </div>
       {test.data && (
-        <p className={cx('mt-2 flex items-center gap-1 text-sm font-semibold', test.data.ok ? 'text-success' : 'text-danger')} role="status">
-          {test.data.ok ? <CheckCircle2 className="size-4" aria-hidden /> : <XCircle className="size-4" aria-hidden />}
+        <p
+          className={cx(
+            'mt-2 flex items-center gap-1 text-sm font-semibold',
+            test.data.ok ? 'text-success' : 'text-danger',
+          )}
+          role="status"
+        >
+          {test.data.ok ? (
+            <CheckCircle2 className="size-4" aria-hidden />
+          ) : (
+            <XCircle className="size-4" aria-hidden />
+          )}
           {test.data.detail}
         </p>
       )}
-      {test.isError && <p className="mt-2 text-sm font-semibold text-danger">{errorMessage(test.error)}</p>}
+      {test.isError && (
+        <p className="mt-2 text-sm font-semibold text-danger">{errorMessage(test.error)}</p>
+      )}
     </section>
   );
 }

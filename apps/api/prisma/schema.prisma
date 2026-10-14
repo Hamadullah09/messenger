@@ -200,46 +200,54 @@ model Business {
   logo          Bytes?
   logoUpdatedAt DateTime?      @db.Timestamptz(3)
 
-  createdAt         DateTime           @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime           @updatedAt @db.Timestamptz(3)
-  archivedAt        DateTime?          @db.Timestamptz(3)
+  createdAt          DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime           @updatedAt @db.Timestamptz(3)
+  archivedAt         DateTime?          @db.Timestamptz(3)
   /// SMA's own internal team (Sales & Marketing chats). Never listed as a customer business.
-  internal          Boolean            @default(false)
+  internal           Boolean            @default(false)
   /// The sales lead this business came from, when it was won by the sales team.
-  sourceLead        Lead?              @relation("leadCustomer")
-  storeCustomers    StoreCustomer[]
-  customerCampaigns CustomerCampaign[]
+  sourceLead         Lead?              @relation("leadCustomer")
+  storeCustomers     StoreCustomer[]
+  customerCampaigns  CustomerCampaign[]
   /// Set when the platform deletes the business: hidden everywhere, history kept.
-  deletedAt         DateTime?          @db.Timestamptz(3)
+  deletedAt          DateTime?          @db.Timestamptz(3)
+  /// The owner asked SMA to close the account (cleared if they change their mind).
+  closureRequestedAt DateTime?          @db.Timestamptz(3)
+  closureReason      String?            @db.VarChar(500)
+  /// Its data was permanently erased (30 days after deletion); the row stays for SMA's own invoices.
+  purgedAt           DateTime?          @db.Timestamptz(3)
 
-  stores             Store[]
-  departments        Department[]
-  memberships        BusinessMembership[]
-  roles              Role[]
-  roleAssignments    RoleAssignment[]
-  conversations      Conversation[]
-  mediaAssets        MediaAsset[]
-  incidents          EmergencyIncident[]
-  campaigns          BulkCampaign[]
-  suppressions       CampaignSuppression[]
-  quota              TenantQuota?
-  statusPosts        StatusPost[]
+  stores                Store[]
+  departments           Department[]
+  memberships           BusinessMembership[]
+  roles                 Role[]
+  roleAssignments       RoleAssignment[]
+  conversations         Conversation[]
+  mediaAssets           MediaAsset[]
+  incidents             EmergencyIncident[]
+  campaigns             BulkCampaign[]
+  suppressions          CampaignSuppression[]
+  quota                 TenantQuota?
+  statusPosts           StatusPost[]
   /// CRM: what SMA sold to this customer and billed them.
-  deals              Deal[]                @relation("customerDeals")
-  invoices           Invoice[]             @relation("customerInvoices")
-  quotes             Quote[]               @relation("customerQuotes")
-  subscriptions      Subscription[]        @relation("customerSubscriptions")
+  deals                 Deal[]                 @relation("customerDeals")
+  invoices              Invoice[]              @relation("customerInvoices")
+  quotes                Quote[]                @relation("customerQuotes")
+  subscriptions         Subscription[]         @relation("customerSubscriptions")
   // CRM data owned by this business (its own Sales & Marketing).
-  crmLeads           Lead[]                @relation("crmTenantLead")
-  crmDeals           Deal[]                @relation("crmTenantDeal")
-  crmInvoices        Invoice[]             @relation("crmTenantInvoice")
-  crmCrmServices     CrmService[]          @relation("crmTenantCrmService")
-  crmSalesTargets    SalesTarget[]         @relation("crmTenantSalesTarget")
-  crmQuotes          Quote[]               @relation("crmTenantQuote")
-  crmSubscriptions   Subscription[]        @relation("crmTenantSubscription")
-  crmCommissionPlans CommissionPlan[]      @relation("crmTenantCommissionPlan")
-  crmSettings        CrmSetting[]
-  crmCounters        CrmCounter[]
+  crmLeads              Lead[]                 @relation("crmTenantLead")
+  crmDeals              Deal[]                 @relation("crmTenantDeal")
+  crmInvoices           Invoice[]              @relation("crmTenantInvoice")
+  crmCrmServices        CrmService[]           @relation("crmTenantCrmService")
+  crmSalesTargets       SalesTarget[]          @relation("crmTenantSalesTarget")
+  crmQuotes             Quote[]                @relation("crmTenantQuote")
+  crmSubscriptions      Subscription[]         @relation("crmTenantSubscription")
+  crmCommissionPlans    CommissionPlan[]       @relation("crmTenantCommissionPlan")
+  crmSettings           CrmSetting[]
+  crmCounters           CrmCounter[]
+  paymentGatewayConfigs PaymentGatewayConfig[]
+  smaPlan               BusinessPlan?
+  fbrConfig             FbrConfig?
 }
 
 model TenantQuota {
@@ -1589,56 +1597,64 @@ enum InvoiceStatus {
 /// A bill to an SMA customer (or a lead before conversion). Totals are kept in sync with items
 /// and payments by the API; "overdue" = issued, unpaid and past the due date.
 model Invoice {
-  id             String         @id @default(uuid()) @db.Uuid
+  id               String           @id @default(uuid()) @db.Uuid
   /// Whose CRM this belongs to: SMA's sales team (the internal business) or any business.
-  tenantId       String         @db.Uuid
+  tenantId         String           @db.Uuid
   /// INV-2026-00001
-  number         String         @db.VarChar(20)
-  dealId         String?        @db.Uuid
-  businessId     String?        @db.Uuid
-  leadId         String?        @db.Uuid
-  billToName     String         @db.VarChar(160)
-  billToEmail    String?        @db.VarChar(254)
-  billToPhone    String?        @db.VarChar(16)
-  billToAddress  String?        @db.VarChar(500)
-  status         InvoiceStatus  @default(DRAFT)
-  issueDate      DateTime       @db.Date
-  dueDate        DateTime       @db.Date
-  currency       String         @db.VarChar(3)
-  subtotal       Decimal        @default(0) @db.Decimal(12, 2)
-  discount       Decimal        @default(0) @db.Decimal(12, 2)
-  taxRate        Decimal        @default(0) @db.Decimal(5, 2)
-  taxAmount      Decimal        @default(0) @db.Decimal(12, 2)
-  total          Decimal        @default(0) @db.Decimal(12, 2)
-  amountPaid     Decimal        @default(0) @db.Decimal(12, 2)
-  notes          String?        @db.VarChar(2000)
-  createdById    String?        @db.Uuid
-  issuedAt       DateTime?      @db.Timestamptz(3)
-  paidAt         DateTime?      @db.Timestamptz(3)
-  voidedAt       DateTime?      @db.Timestamptz(3)
-  voidReason     String?        @db.VarChar(300)
-  lastEmailedAt  DateTime?      @db.Timestamptz(3)
+  number           String           @db.VarChar(20)
+  dealId           String?          @db.Uuid
+  businessId       String?          @db.Uuid
+  leadId           String?          @db.Uuid
+  billToName       String           @db.VarChar(160)
+  billToEmail      String?          @db.VarChar(254)
+  billToPhone      String?          @db.VarChar(16)
+  billToAddress    String?          @db.VarChar(500)
+  status           InvoiceStatus    @default(DRAFT)
+  issueDate        DateTime         @db.Date
+  dueDate          DateTime         @db.Date
+  currency         String           @db.VarChar(3)
+  subtotal         Decimal          @default(0) @db.Decimal(12, 2)
+  discount         Decimal          @default(0) @db.Decimal(12, 2)
+  taxRate          Decimal          @default(0) @db.Decimal(5, 2)
+  taxAmount        Decimal          @default(0) @db.Decimal(12, 2)
+  total            Decimal          @default(0) @db.Decimal(12, 2)
+  amountPaid       Decimal          @default(0) @db.Decimal(12, 2)
+  notes            String?          @db.VarChar(2000)
+  createdById      String?          @db.Uuid
+  issuedAt         DateTime?        @db.Timestamptz(3)
+  paidAt           DateTime?        @db.Timestamptz(3)
+  voidedAt         DateTime?        @db.Timestamptz(3)
+  voidReason       String?          @db.VarChar(300)
+  lastEmailedAt    DateTime?        @db.Timestamptz(3)
   /// Recurring invoices: the subscription and the period billed.
-  subscriptionId String?        @db.Uuid
-  periodStart    DateTime?      @db.Date
-  periodEnd      DateTime?      @db.Date
+  subscriptionId   String?          @db.Uuid
+  periodStart      DateTime?        @db.Date
+  periodEnd        DateTime?        @db.Date
   /// Overdue reminders sent so far.
-  reminderCount  Int            @default(0)
-  lastReminderAt DateTime?      @db.Timestamptz(3)
+  reminderCount    Int              @default(0)
+  lastReminderAt   DateTime?        @db.Timestamptz(3)
   /// Secret for the customer's pay page.
-  payToken       String?        @unique @db.VarChar(64)
-  createdAt      DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
-  deal           Deal?          @relation(fields: [dealId], references: [id], onDelete: SetNull)
-  business       Business?      @relation("customerInvoices", fields: [businessId], references: [id], onDelete: Restrict)
-  lead           Lead?          @relation(fields: [leadId], references: [id], onDelete: SetNull)
-  createdBy      User?          @relation("invoiceCreator", fields: [createdById], references: [id], onDelete: SetNull)
-  items          InvoiceItem[]
-  payments       Payment[]
-  subscription   Subscription?  @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  claims         PaymentClaim[]
-  quote          Quote?         @relation("quoteInvoice")
-  tenant         Business       @relation("crmTenantInvoice", fields: [tenantId], references: [id], onDelete: Restrict)
+  payToken         String?          @unique @db.VarChar(64)
+  /// FBR Digital Invoicing: the number FBR gave, when, and any error from the last try.
+  fbrInvoiceNumber String?          @db.VarChar(60)
+  fbrSubmittedAt   DateTime?        @db.Timestamptz(3)
+  fbrSandbox       Boolean?
+  fbrError         String?          @db.VarChar(500)
+  billToTaxNumber  String?          @db.VarChar(20)
+  billToProvince   String?          @db.VarChar(40)
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @db.Timestamptz(3)
+  deal             Deal?            @relation(fields: [dealId], references: [id], onDelete: SetNull)
+  business         Business?        @relation("customerInvoices", fields: [businessId], references: [id], onDelete: Restrict)
+  lead             Lead?            @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  createdBy        User?            @relation("invoiceCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  items            InvoiceItem[]
+  payments         Payment[]
+  subscription     Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  claims           PaymentClaim[]
+  paymentAttempts  PaymentAttempt[]
+  quote            Quote?           @relation("quoteInvoice")
+  tenant           Business         @relation("crmTenantInvoice", fields: [tenantId], references: [id], onDelete: Restrict)
 
   @@unique([tenantId, number])
   @@index([status, dueDate])
@@ -2041,4 +2057,124 @@ model CrmCounter {
   business   Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 
   @@id([businessId, kind])
+}
+
+// ───────────────────────────── Online payments (JazzCash, Easypaisa) ─────────────────────────────
+
+enum PaymentGateway {
+  JAZZCASH
+  EASYPAISA
+}
+
+enum PaymentAttemptStatus {
+  /**
+   * Sent to the gateway, no answer yet.
+   */
+  PENDING
+  PAID
+  FAILED
+  /**
+   * The gateway said paid but it could not be confirmed: a manager checks it.
+   */
+  NEEDS_REVIEW
+}
+
+/// A business's own merchant account at a gateway. Credentials are encrypted (AES-256-GCM).
+model PaymentGatewayConfig {
+  businessId     String         @db.Uuid
+  gateway        PaymentGateway
+  enabled        Boolean        @default(false)
+  /// Test mode: the gateway's sandbox, no real money.
+  sandbox        Boolean        @default(true)
+  /// Public merchant id / store id (shown masked in settings).
+  merchantId     String         @db.VarChar(64)
+  credentialsEnc String
+  updatedById    String?        @db.Uuid
+  updatedAt      DateTime       @updatedAt @db.Timestamptz(3)
+  business       Business       @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@id([businessId, gateway])
+}
+
+/// One customer attempt to pay an invoice online.
+model PaymentAttempt {
+  id              String               @id @default(uuid()) @db.Uuid
+  tenantId        String               @db.Uuid
+  invoiceId       String               @db.Uuid
+  gateway         PaymentGateway
+  /// Our reference sent to the gateway (unique per gateway).
+  reference       String               @db.VarChar(40)
+  amount          Decimal              @db.Decimal(12, 2)
+  currency        String               @db.VarChar(3)
+  method          String               @db.VarChar(20)
+  sandbox         Boolean
+  status          PaymentAttemptStatus @default(PENDING)
+  gatewayTxnId    String?              @db.VarChar(80)
+  responseCode    String?              @db.VarChar(20)
+  responseMessage String?              @db.VarChar(300)
+  paymentId       String?              @unique @db.Uuid
+  createdAt       DateTime             @default(now()) @db.Timestamptz(3)
+  completedAt     DateTime?            @db.Timestamptz(3)
+  invoice         Invoice              @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([gateway, reference])
+  @@index([invoiceId])
+  @@index([status, createdAt])
+}
+
+// ───────────────────────────── SMA plans (what businesses pay SMA) ─────────────────────────────
+
+enum SmaPlanKey {
+  TRIAL
+  STARTER
+  BUSINESS
+  ENTERPRISE
+}
+
+enum SmaPlanStatus {
+  TRIAL
+  ACTIVE
+  /**
+   * An SMA invoice is overdue, or the trial ended without a plan.
+   */
+  PAST_DUE
+  SUSPENDED
+  CANCELLED
+}
+
+/// A business's SMA plan. Limits are applied to its TenantQuota; when billed automatically,
+/// the monthly invoice comes from a Subscription in SMA's own CRM.
+model BusinessPlan {
+  businessId     String        @id @db.Uuid
+  plan           SmaPlanKey
+  status         SmaPlanStatus
+  trialEndsAt    DateTime?     @db.Timestamptz(3)
+  /// SMA CRM subscription that bills it (null: billed by hand).
+  subscriptionId String?       @unique @db.Uuid
+  updatedById    String?       @db.Uuid
+  createdAt      DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime      @updatedAt @db.Timestamptz(3)
+  business       Business      @relation(fields: [businessId], references: [id], onDelete: Cascade)
+}
+
+/// A business's FBR Digital Invoicing (PRAL) connection. The token is encrypted.
+model FbrConfig {
+  businessId         String   @id @db.Uuid
+  enabled            Boolean  @default(false)
+  /// PRAL sandbox (test invoices) or production.
+  sandbox            Boolean  @default(true)
+  tokenEnc           String
+  sellerNtnCnic      String   @db.VarChar(20)
+  sellerBusinessName String   @db.VarChar(160)
+  sellerProvince     String   @db.VarChar(40)
+  sellerAddress      String   @db.VarChar(300)
+  /// Defaults for invoice lines (HS code, sale type, unit of measure).
+  defaultHsCode      String   @db.VarChar(20)
+  defaultSaleType    String   @db.VarChar(120)
+  defaultUom         String   @db.VarChar(60)
+  /// Sandbox scenario id required by PRAL test runs (e.g. SN001).
+  scenarioId         String?  @db.VarChar(10)
+  updatedById        String?  @db.Uuid
+  updatedAt          DateTime @updatedAt @db.Timestamptz(3)
+  business           Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
 }

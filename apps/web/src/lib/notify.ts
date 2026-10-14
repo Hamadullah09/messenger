@@ -68,7 +68,6 @@ export async function askForNotifications(): Promise<NotificationPermission | nu
   return permission;
 }
 
-
 /** Shows a system notification; clicking it focuses the tab and opens the chat. */
 export async function showSystemNotification(options: {
   title: string;

@@ -359,10 +359,18 @@ export function Composer({
       {dialog === 'poll' && <PollDialog onClose={() => setDialog(null)} onSend={sendContent} />}
       {dialog === 'event' && <EventDialog onClose={() => setDialog(null)} onSend={sendContent} />}
       {dialog === 'location' && (
-        <LocationDialog businessId={businessId} onClose={() => setDialog(null)} onSend={sendContent} />
+        <LocationDialog
+          businessId={businessId}
+          onClose={() => setDialog(null)}
+          onSend={sendContent}
+        />
       )}
       {dialog === 'contact' && (
-        <ContactDialog businessId={businessId} onClose={() => setDialog(null)} onSend={sendContent} />
+        <ContactDialog
+          businessId={businessId}
+          onClose={() => setDialog(null)}
+          onSend={sendContent}
+        />
       )}
       {dialog === 'sticker' && (
         <StickerDialog

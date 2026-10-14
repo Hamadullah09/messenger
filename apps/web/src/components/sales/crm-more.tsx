@@ -88,7 +88,11 @@ function LinkBox({ title, path, hint }: { title: string; path: string; hint: str
       <p className="font-semibold">{title}</p>
       <p className="mb-2 text-sm text-muted">{hint}</p>
       <div className="flex flex-wrap gap-2">
-        <input readOnly value={url} className="min-h-10 min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 font-mono text-xs" />
+        <input
+          readOnly
+          value={url}
+          className="min-h-10 min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 font-mono text-xs"
+        />
         <Button
           size="sm"
           variant="secondary"
@@ -135,12 +139,16 @@ export function PaymentClaimsBox({ onOpenInvoice }: { onOpenInvoice: (id: string
   const client = useQueryClient();
   const claims = useQuery({
     queryKey: ['crm', 'claims', 'PENDING'],
-    queryFn: () => api<PaymentClaimDto[]>('/sales/crm/payment-claims', { query: { status: 'PENDING' } }),
+    queryFn: () =>
+      api<PaymentClaimDto[]>('/sales/crm/payment-claims', { query: { status: 'PENDING' } }),
     refetchInterval: 60_000,
   });
   const review = useMutation({
     mutationFn: (v: { id: string; action: 'confirm' | 'reject' }) =>
-      api<PaymentClaimDto[]>(`/sales/crm/payment-claims/${v.id}/review`, { method: 'POST', body: { action: v.action } }),
+      api<PaymentClaimDto[]>(`/sales/crm/payment-claims/${v.id}/review`, {
+        method: 'POST',
+        body: { action: v.action },
+      }),
     onSuccess: (list) => {
       client.setQueryData(['crm', 'claims', 'PENDING'], list);
       refreshCrm(client);
@@ -160,10 +168,15 @@ export function PaymentClaimsBox({ onOpenInvoice }: { onOpenInvoice: (id: string
           <li key={c.id} className="flex flex-wrap items-center gap-3 rounded-2xl bg-surface p-3">
             <div className="min-w-0 flex-1">
               <p className="font-semibold">
-                {money2(c.amount, c.invoice.currency)} · {PAYMENT_METHOD_LABEL[c.method]} · ref {c.reference}
+                {money2(c.amount, c.invoice.currency)} · {PAYMENT_METHOD_LABEL[c.method]} · ref{' '}
+                {c.reference}
               </p>
               <p className="text-sm text-muted">
-                <button type="button" className="font-semibold text-brand" onClick={() => onOpenInvoice(c.invoice.id)}>
+                <button
+                  type="button"
+                  className="font-semibold text-brand"
+                  onClick={() => onOpenInvoice(c.invoice.id)}
+                >
                   {c.invoice.number}
                 </button>{' '}
                 · {c.invoice.billToName}
@@ -171,10 +184,20 @@ export function PaymentClaimsBox({ onOpenInvoice }: { onOpenInvoice: (id: string
                 {c.note ? ` · “${c.note}”` : ''}
               </p>
             </div>
-            <Button size="sm" icon={<CheckCircle2 className="size-4" aria-hidden />} busy={review.isPending} onClick={() => review.mutate({ id: c.id, action: 'confirm' })}>
+            <Button
+              size="sm"
+              icon={<CheckCircle2 className="size-4" aria-hidden />}
+              busy={review.isPending}
+              onClick={() => review.mutate({ id: c.id, action: 'confirm' })}
+            >
               Confirm
             </Button>
-            <Button size="sm" variant="ghost" icon={<XCircle className="size-4" aria-hidden />} onClick={() => review.mutate({ id: c.id, action: 'reject' })}>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={<XCircle className="size-4" aria-hidden />}
+              onClick={() => review.mutate({ id: c.id, action: 'reject' })}
+            >
               Reject
             </Button>
           </li>
@@ -206,7 +229,9 @@ export function QuoteFormDialog({
   const [discount, setDiscount] = useState(0);
   const [taxRate, setTaxRate] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
-  const [terms, setTerms] = useState('Prices are valid until the date above. Monthly plans are billed in advance.');
+  const [terms, setTerms] = useState(
+    'Prices are valid until the date above. Monthly plans are billed in advance.',
+  );
   const [items, setItems] = useState<DraftItem[]>([]);
   const cur = deal?.currency ?? currency ?? settings.data?.defaultCurrency ?? 'USD';
   const tax = taxRate ?? settings.data?.taxRate ?? 0;
@@ -253,13 +278,20 @@ export function QuoteFormDialog({
       >
         {save.isError && <Alert tone="error">{errorMessage(save.error)}</Alert>}
         {deal ? (
-          <Alert tone="info" title={`${deal.items.length} items · ${money2(deal.amount, deal.currency)}`}>
+          <Alert
+            tone="info"
+            title={`${deal.items.length} items · ${money2(deal.amount, deal.currency)}`}
+          >
             The deal’s services are copied onto the quote. When the customer accepts it, the deal is
             won and the invoice is created automatically.
           </Alert>
         ) : (
           <>
-            <SelectField label="Customer" value={businessId} onChange={(e) => setBusinessId(e.target.value)}>
+            <SelectField
+              label="Customer"
+              value={businessId}
+              onChange={(e) => setBusinessId(e.target.value)}
+            >
               <option value="">Someone else (type the name below)</option>
               {(customers.data ?? []).map((c) => (
                 <option key={c.id} value={c.id}>
@@ -268,7 +300,13 @@ export function QuoteFormDialog({
               ))}
             </SelectField>
             {!businessId && (
-              <TextField label="Quote for" required maxLength={160} value={billToName} onChange={(e) => setBillToName(e.target.value)} />
+              <TextField
+                label="Quote for"
+                required
+                maxLength={160}
+                value={billToName}
+                onChange={(e) => setBillToName(e.target.value)}
+              />
             )}
             <SelectField label="Currency" value={cur} onChange={(e) => setCurrency(e.target.value)}>
               <option value="USD">US dollars (USD)</option>
@@ -288,7 +326,13 @@ export function QuoteFormDialog({
           onChange={(e) => setBillToEmail(e.target.value)}
         />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <TextField label="Valid until" type="date" required value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
+          <TextField
+            label="Valid until"
+            type="date"
+            required
+            value={validUntil}
+            onChange={(e) => setValidUntil(e.target.value)}
+          />
           <TextField
             label={`Discount (${cur})`}
             type="number"
@@ -307,8 +351,20 @@ export function QuoteFormDialog({
             onChange={(e) => setTaxRate(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
           />
         </div>
-        <TextArea label="Message to the customer" rows={2} maxLength={2000} value={notes} onChange={(e) => setNotes(e.target.value)} />
-        <TextArea label="Terms" rows={2} maxLength={2000} value={terms} onChange={(e) => setTerms(e.target.value)} />
+        <TextArea
+          label="Message to the customer"
+          rows={2}
+          maxLength={2000}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        <TextArea
+          label="Terms"
+          rows={2}
+          maxLength={2000}
+          value={terms}
+          onChange={(e) => setTerms(e.target.value)}
+        />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
@@ -335,7 +391,10 @@ export function QuotePanel({ quoteId, onClose }: { quoteId: string; onClose: () 
   });
   const send = useMutation({
     mutationFn: (email: boolean) =>
-      api<QuoteDto & { emailed: boolean }>(`/sales/crm/quotes/${quoteId}/send`, { method: 'POST', body: { email } }),
+      api<QuoteDto & { emailed: boolean }>(`/sales/crm/quotes/${quoteId}/send`, {
+        method: 'POST',
+        body: { email },
+      }),
     onSuccess: (q) => {
       client.setQueryData(['crm', 'quote', quoteId], q);
       refreshCrm(client);
@@ -355,7 +414,9 @@ export function QuotePanel({ quoteId, onClose }: { quoteId: string; onClose: () 
       {quote.isError && <Alert tone="error">{errorMessage(quote.error)}</Alert>}
       {q && (
         <div className="flex flex-col gap-4">
-          {(send.isError || remove.isError) && <Alert tone="error">{errorMessage(send.error ?? remove.error)}</Alert>}
+          {(send.isError || remove.isError) && (
+            <Alert tone="error">{errorMessage(send.error ?? remove.error)}</Alert>
+          )}
           {send.data?.emailed && <Alert tone="success">Emailed to {q.billToEmail}.</Alert>}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -370,11 +431,16 @@ export function QuotePanel({ quoteId, onClose }: { quoteId: string; onClose: () 
               <p className="mt-1 text-sm text-muted">
                 Issued {q.issueDate} · Valid until {q.validUntil}
               </p>
-              {q.viewedAt && <p className="text-xs text-muted">Opened by the customer {formatDay(q.viewedAt)}</p>}
+              {q.viewedAt && (
+                <p className="text-xs text-muted">Opened by the customer {formatDay(q.viewedAt)}</p>
+              )}
             </div>
           </div>
           {q.respondedAt && (
-            <Alert tone={q.status === 'ACCEPTED' ? 'success' : 'warning'} title={q.status === 'ACCEPTED' ? 'Accepted' : 'Declined'}>
+            <Alert
+              tone={q.status === 'ACCEPTED' ? 'success' : 'warning'}
+              title={q.status === 'ACCEPTED' ? 'Accepted' : 'Declined'}
+            >
               By {q.responseName} on {formatDay(q.respondedAt)}
               {q.responseNote ? ` — “${q.responseNote}”` : ''}
               {q.status === 'ACCEPTED' && q.invoiceId ? '. The invoice was created.' : ''}
@@ -394,17 +460,25 @@ export function QuotePanel({ quoteId, onClose }: { quoteId: string; onClose: () 
                 <tr key={it.id} className="border-b border-line/60">
                   <td className="py-2">
                     <span className="font-semibold">{it.name}</span>
-                    {it.description && <span className="block text-xs text-muted">{it.description}</span>}
+                    {it.description && (
+                      <span className="block text-xs text-muted">{it.description}</span>
+                    )}
                   </td>
                   <td className="py-2 text-right tabular-nums">{it.quantity}</td>
-                  <td className="py-2 text-right tabular-nums">{money2(it.unitPrice, q.currency)}</td>
+                  <td className="py-2 text-right tabular-nums">
+                    {money2(it.unitPrice, q.currency)}
+                  </td>
                   <td className="py-2 text-right tabular-nums">{money2(it.total, q.currency)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
           <p className="text-right">
-            {q.discount > 0 && <span className="block text-sm text-muted">Discount −{money2(q.discount, q.currency)}</span>}
+            {q.discount > 0 && (
+              <span className="block text-sm text-muted">
+                Discount −{money2(q.discount, q.currency)}
+              </span>
+            )}
             {q.taxAmount > 0 && (
               <span className="block text-sm text-muted">
                 {settings.data?.taxName ?? 'Tax'} ({q.taxRate}%) {money2(q.taxAmount, q.currency)}
@@ -413,7 +487,11 @@ export function QuotePanel({ quoteId, onClose }: { quoteId: string; onClose: () 
             <span className="text-lg font-bold">Total {money2(q.total, q.currency)}</span>
           </p>
           {q.status !== 'DRAFT' && q.status !== 'EXPIRED' && (
-            <LinkBox title="Quote link for the customer" path={q.publicUrl} hint="They can read it and accept or decline online." />
+            <LinkBox
+              title="Quote link for the customer"
+              path={q.publicUrl}
+              hint="They can read it and accept or decline online."
+            />
           )}
           {q.canManage && (
             <div className="flex flex-wrap gap-2">
@@ -423,13 +501,22 @@ export function QuotePanel({ quoteId, onClose }: { quoteId: string; onClose: () 
                     icon={<Mail className="size-4" aria-hidden />}
                     busy={send.isPending && send.variables === true}
                     disabled={!q.billToEmail || !settings.data?.emailEnabled}
-                    title={!settings.data?.emailEnabled ? 'Set up email in Integrations first' : undefined}
+                    title={
+                      !settings.data?.emailEnabled
+                        ? 'Set up email in Integrations first'
+                        : undefined
+                    }
                     onClick={() => send.mutate(true)}
                   >
                     Email to customer
                   </Button>
                   {q.status === 'DRAFT' && (
-                    <Button variant="secondary" icon={<Send className="size-4" aria-hidden />} busy={send.isPending && send.variables === false} onClick={() => send.mutate(false)}>
+                    <Button
+                      variant="secondary"
+                      icon={<Send className="size-4" aria-hidden />}
+                      busy={send.isPending && send.variables === false}
+                      onClick={() => send.mutate(false)}
+                    >
                       Mark as sent (share the link yourself)
                     </Button>
                   )}
@@ -444,7 +531,12 @@ export function QuotePanel({ quoteId, onClose }: { quoteId: string; onClose: () 
                 <Printer className="size-4" aria-hidden /> Print / PDF
               </a>
               {q.status !== 'ACCEPTED' && (
-                <Button variant="ghost" icon={<Trash2 className="size-4" aria-hidden />} busy={remove.isPending} onClick={() => remove.mutate()}>
+                <Button
+                  variant="ghost"
+                  icon={<Trash2 className="size-4" aria-hidden />}
+                  busy={remove.isPending}
+                  onClick={() => remove.mutate()}
+                >
                   Delete
                 </Button>
               )}
@@ -468,7 +560,11 @@ export function QuotesTab() {
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1" role="radiogroup" aria-label="Show">
+        <div
+          className="flex flex-wrap gap-1 rounded-xl bg-surface-2 p-1"
+          role="radiogroup"
+          aria-label="Show"
+        >
           {(['', 'DRAFT', 'SENT', 'ACCEPTED', 'DECLINED', 'EXPIRED'] as const).map((k) => (
             <button
               key={k || 'all'}
@@ -476,14 +572,21 @@ export function QuotesTab() {
               role="radio"
               aria-checked={status === k}
               onClick={() => setStatus(k)}
-              className={cx('min-h-10 rounded-lg px-3 text-sm font-semibold', status === k ? 'bg-surface shadow-card' : 'text-muted')}
+              className={cx(
+                'min-h-10 rounded-lg px-3 text-sm font-semibold',
+                status === k ? 'bg-surface shadow-card' : 'text-muted',
+              )}
             >
               {k ? QUOTE_STATUS[k].label : 'All'}
             </button>
           ))}
         </div>
         {settings.data?.canManage && (
-          <Button className="ml-auto" icon={<Plus className="size-5" aria-hidden />} onClick={() => setCreating(true)}>
+          <Button
+            className="ml-auto"
+            icon={<Plus className="size-5" aria-hidden />}
+            onClick={() => setCreating(true)}
+          >
             New quote
           </Button>
         )}
@@ -511,15 +614,25 @@ export function QuotesTab() {
             </thead>
             <tbody>
               {quotes.data.map((q) => (
-                <tr key={q.id} className="cursor-pointer border-b border-line/60 last:border-0 hover:bg-surface-2" onClick={() => setOpen(q.id)}>
+                <tr
+                  key={q.id}
+                  className="cursor-pointer border-b border-line/60 last:border-0 hover:bg-surface-2"
+                  onClick={() => setOpen(q.id)}
+                >
                   <td className="px-4 py-3">
-                    <button type="button" className="font-bold text-brand" onClick={() => setOpen(q.id)}>
+                    <button
+                      type="button"
+                      className="font-bold text-brand"
+                      onClick={() => setOpen(q.id)}
+                    >
                       {q.number}
                     </button>
                   </td>
                   <td className="px-4 py-3">{q.billToName}</td>
                   <td className="px-4 py-3">{q.validUntil}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{money2(q.total, q.currency)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums">
+                    {money2(q.total, q.currency)}
+                  </td>
                   <td className="px-4 py-3">
                     <Chip cls={QUOTE_STATUS[q.status].cls}>{QUOTE_STATUS[q.status].label}</Chip>
                   </td>
@@ -559,18 +672,41 @@ export function SubscriptionDialog({
   const client = useQueryClient();
   const settings = useCrmSettings();
   const recurring = deal?.items.filter((i) => i.billing !== 'ONE_TIME') ?? [];
-  const [name, setName] = useState(subscription?.name ?? (deal ? deal.title : `${customer.name} plan`));
-  const [interval, setInterval] = useState<'MONTHLY' | 'YEARLY'>(
-    subscription?.interval ?? (recurring.some((i) => i.billing === 'YEARLY') ? 'YEARLY' : 'MONTHLY'),
+  const [name, setName] = useState(
+    subscription?.name ?? (deal ? deal.title : `${customer.name} plan`),
   );
-  const [currency, setCurrency] = useState(subscription?.currency ?? deal?.currency ?? settings.data?.defaultCurrency ?? 'USD');
-  const [startDate, setStartDate] = useState(subscription?.nextInvoiceAt ?? toDateInput(new Date()));
+  const [interval, setInterval] = useState<'MONTHLY' | 'YEARLY'>(
+    subscription?.interval ??
+      (recurring.some((i) => i.billing === 'YEARLY') ? 'YEARLY' : 'MONTHLY'),
+  );
+  const [currency, setCurrency] = useState(
+    subscription?.currency ?? deal?.currency ?? settings.data?.defaultCurrency ?? 'USD',
+  );
+  const [startDate, setStartDate] = useState(
+    subscription?.nextInvoiceAt ?? toDateInput(new Date()),
+  );
   const [dueDays, setDueDays] = useState(subscription?.dueDays ?? 7);
   const [autoEmail, setAutoEmail] = useState(subscription?.autoEmail ?? true);
   const [items, setItems] = useState<DraftItem[]>(
     subscription
-      ? subscription.items.map((i) => ({ key: newKey(), serviceId: null, name: i.name, quantity: i.quantity, unitPrice: i.unitPrice, discountPct: 0, billing: interval }))
-      : recurring.map((i) => ({ key: newKey(), serviceId: i.serviceId, name: i.name, quantity: 1, unitPrice: i.unitPrice, discountPct: i.discountPct, billing: i.billing })),
+      ? subscription.items.map((i) => ({
+          key: newKey(),
+          serviceId: null,
+          name: i.name,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          discountPct: 0,
+          billing: interval,
+        }))
+      : recurring.map((i) => ({
+          key: newKey(),
+          serviceId: i.serviceId,
+          name: i.name,
+          quantity: 1,
+          unitPrice: i.unitPrice,
+          discountPct: i.discountPct,
+          billing: i.billing,
+        })),
   );
   const save = useMutation({
     mutationFn: () => {
@@ -583,7 +719,12 @@ export function SubscriptionDialog({
       return subscription
         ? api<SubscriptionDto>(`/sales/crm/subscriptions/${subscription.id}`, {
             method: 'PATCH',
-            body: { items: lines, autoEmail, dueDays, nextInvoiceAt: new Date(`${startDate}T12:00:00`).toISOString() },
+            body: {
+              items: lines,
+              autoEmail,
+              dueDays,
+              nextInvoiceAt: new Date(`${startDate}T12:00:00`).toISOString(),
+            },
           })
         : api<SubscriptionDto>('/sales/crm/subscriptions', {
             method: 'POST',
@@ -606,7 +747,12 @@ export function SubscriptionDialog({
     },
   });
   return (
-    <Dialog open onClose={onClose} title={subscription ? 'Edit monthly billing' : `Monthly billing · ${customer.name}`} wide>
+    <Dialog
+      open
+      onClose={onClose}
+      title={subscription ? 'Edit monthly billing' : `Monthly billing · ${customer.name}`}
+      wide
+    >
       <form
         className="flex flex-col gap-4"
         onSubmit={(e) => {
@@ -622,27 +768,62 @@ export function SubscriptionDialog({
         </Alert>
         {!subscription && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <TextField label="Plan name" required maxLength={160} value={name} onChange={(e) => setName(e.target.value)} className="sm:col-span-3" />
-            <SelectField label="Every" value={interval} onChange={(e) => setInterval(e.target.value as 'MONTHLY' | 'YEARLY')}>
+            <TextField
+              label="Plan name"
+              required
+              maxLength={160}
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="sm:col-span-3"
+            />
+            <SelectField
+              label="Every"
+              value={interval}
+              onChange={(e) => setInterval(e.target.value as 'MONTHLY' | 'YEARLY')}
+            >
               <option value="MONTHLY">Month</option>
               <option value="YEARLY">Year</option>
             </SelectField>
-            <SelectField label="Currency" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            <SelectField
+              label="Currency"
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value)}
+            >
               <option value="USD">USD</option>
               <option value="PKR">PKR</option>
             </SelectField>
           </div>
         )}
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <TextField label={subscription ? 'Next invoice on' : 'First invoice on'} type="date" required value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-          <TextField label="Days to pay" type="number" min={0} max={90} value={dueDays} onChange={(e) => setDueDays(Math.min(90, Math.max(0, Number(e.target.value) || 0)))} />
+          <TextField
+            label={subscription ? 'Next invoice on' : 'First invoice on'}
+            type="date"
+            required
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+          />
+          <TextField
+            label="Days to pay"
+            type="number"
+            min={0}
+            max={90}
+            value={dueDays}
+            onChange={(e) => setDueDays(Math.min(90, Math.max(0, Number(e.target.value) || 0)))}
+          />
           <label className="flex min-h-12 items-center gap-2 self-end">
-            <input type="checkbox" className="size-5 accent-[var(--color-brand)]" checked={autoEmail} onChange={(e) => setAutoEmail(e.target.checked)} />
+            <input
+              type="checkbox"
+              className="size-5 accent-[var(--color-brand)]"
+              checked={autoEmail}
+              onChange={(e) => setAutoEmail(e.target.checked)}
+            />
             Email each invoice
           </label>
         </div>
         <fieldset>
-          <legend className="mb-1 font-semibold">Billed each {interval === 'MONTHLY' ? 'month' : 'year'}</legend>
+          <legend className="mb-1 font-semibold">
+            Billed each {interval === 'MONTHLY' ? 'month' : 'year'}
+          </legend>
           <ItemsEditor items={items} onChange={setItems} currency={currency} />
         </fieldset>
         <div className="flex justify-end gap-2">
@@ -668,44 +849,80 @@ export function SubscriptionsTab() {
   });
   const update = useMutation({
     mutationFn: (v: { id: string; status: 'ACTIVE' | 'PAUSED' | 'CANCELLED' }) =>
-      api<SubscriptionDto>(`/sales/crm/subscriptions/${v.id}`, { method: 'PATCH', body: { status: v.status } }),
+      api<SubscriptionDto>(`/sales/crm/subscriptions/${v.id}`, {
+        method: 'PATCH',
+        body: { status: v.status },
+      }),
     onSuccess: () => refreshCrm(client),
   });
   const monthly = (subs.data ?? []).filter((s) => s.status === 'ACTIVE');
   const mrr = (cur: string) =>
-    monthly.filter((s) => s.currency === cur).reduce((sum, s) => sum + (s.interval === 'MONTHLY' ? s.amount : s.amount / 12), 0);
+    monthly
+      .filter((s) => s.currency === cur)
+      .reduce((sum, s) => sum + (s.interval === 'MONTHLY' ? s.amount : s.amount / 12), 0);
   const canManage = settings.data?.canManage ?? false;
   return (
     <div className="flex flex-col gap-4">
       <p className="text-muted">
-        Customers billed automatically. Start one from a won deal (<b>Bill monthly</b>) or a customer
-        card (<b>Monthly billing</b>).
+        Customers billed automatically. Start one from a won deal (<b>Bill monthly</b>) or a
+        customer card (<b>Monthly billing</b>).
       </p>
       {monthly.length > 0 && (
         <p className="font-semibold">
-          Monthly recurring revenue: {['USD', 'PKR'].filter((c) => mrr(c) > 0).map((c) => money2(mrr(c), c)).join(' + ')}
+          Monthly recurring revenue:{' '}
+          {['USD', 'PKR']
+            .filter((c) => mrr(c) > 0)
+            .map((c) => money2(mrr(c), c))
+            .join(' + ')}
         </p>
       )}
-      {(subs.isError || update.isError) && <Alert tone="error">{errorMessage(subs.error ?? update.error)}</Alert>}
+      {(subs.isError || update.isError) && (
+        <Alert tone="error">{errorMessage(subs.error ?? update.error)}</Alert>
+      )}
       {subs.isPending && <Spinner />}
-      {subs.data?.length === 0 && <EmptyState icon={<CalendarClock className="size-9" aria-hidden />} title="No monthly billing yet" />}
+      {subs.data?.length === 0 && (
+        <EmptyState
+          icon={<CalendarClock className="size-9" aria-hidden />}
+          title="No monthly billing yet"
+        />
+      )}
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         {subs.data?.map((s) => (
-          <section key={s.id} className={cx('flex flex-col gap-2 rounded-2xl border border-line bg-surface p-4 shadow-card', s.status !== 'ACTIVE' && 'opacity-70')}>
+          <section
+            key={s.id}
+            className={cx(
+              'flex flex-col gap-2 rounded-2xl border border-line bg-surface p-4 shadow-card',
+              s.status !== 'ACTIVE' && 'opacity-70',
+            )}
+          >
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1">
                 <p className="font-bold">{s.customer?.name ?? 'Customer removed'}</p>
                 <p className="text-sm text-muted">{s.name}</p>
               </div>
-              <Chip cls={s.status === 'ACTIVE' ? 'bg-success-soft text-success' : s.status === 'PAUSED' ? 'bg-warning-surface text-warning' : 'bg-surface-3 text-muted'}>
+              <Chip
+                cls={
+                  s.status === 'ACTIVE'
+                    ? 'bg-success-soft text-success'
+                    : s.status === 'PAUSED'
+                      ? 'bg-warning-surface text-warning'
+                      : 'bg-surface-3 text-muted'
+                }
+              >
                 {s.status === 'ACTIVE' ? 'Active' : s.status === 'PAUSED' ? 'Paused' : 'Cancelled'}
               </Chip>
             </div>
             <p className="text-xl font-bold tabular-nums">
-              {money2(s.amount, s.currency)} <span className="text-sm font-normal text-muted">per {s.interval === 'MONTHLY' ? 'month' : 'year'} + tax</span>
+              {money2(s.amount, s.currency)}{' '}
+              <span className="text-sm font-normal text-muted">
+                per {s.interval === 'MONTHLY' ? 'month' : 'year'} + tax
+              </span>
             </p>
             <p className="text-sm text-muted">
-              {s.status === 'ACTIVE' ? `Next invoice ${s.nextInvoiceAt}` : 'No invoices while not active'} · {s.invoiceCount} invoices so far
+              {s.status === 'ACTIVE'
+                ? `Next invoice ${s.nextInvoiceAt}`
+                : 'No invoices while not active'}{' '}
+              · {s.invoiceCount} invoices so far
               {s.lastInvoice ? ` · last ${s.lastInvoice.number}` : ''}
             </p>
             {canManage && (
@@ -716,17 +933,32 @@ export function SubscriptionsTab() {
                   </Button>
                 )}
                 {s.status === 'ACTIVE' && (
-                  <Button size="sm" variant="ghost" icon={<Pause className="size-4" aria-hidden />} onClick={() => update.mutate({ id: s.id, status: 'PAUSED' })}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Pause className="size-4" aria-hidden />}
+                    onClick={() => update.mutate({ id: s.id, status: 'PAUSED' })}
+                  >
                     Pause
                   </Button>
                 )}
                 {s.status !== 'ACTIVE' && (
-                  <Button size="sm" variant="ghost" icon={<Play className="size-4" aria-hidden />} onClick={() => update.mutate({ id: s.id, status: 'ACTIVE' })}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={<Play className="size-4" aria-hidden />}
+                    onClick={() => update.mutate({ id: s.id, status: 'ACTIVE' })}
+                  >
                     Resume
                   </Button>
                 )}
                 {s.status !== 'CANCELLED' && (
-                  <Button size="sm" variant="ghost" className="text-danger" onClick={() => update.mutate({ id: s.id, status: 'CANCELLED' })}>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-danger"
+                    onClick={() => update.mutate({ id: s.id, status: 'CANCELLED' })}
+                  >
                     Cancel
                   </Button>
                 )}
@@ -748,18 +980,37 @@ export function SubscriptionsTab() {
 
 // ───────────────────────────── Commission ─────────────────────────────
 
-export function CommissionDialog({ team, onClose }: { team: PublicUserDto[]; onClose: () => void }) {
+export function CommissionDialog({
+  team,
+  onClose,
+}: {
+  team: PublicUserDto[];
+  onClose: () => void;
+}) {
   const client = useQueryClient();
   const plans = useQuery({
     queryKey: ['crm', 'commission'],
     queryFn: () => api<CommissionPlanDto[]>('/sales/crm/commission-plans'),
   });
   const [scope, setScope] = useState('team');
-  const current = plans.data?.find((p) => p.scope === scope) ?? plans.data?.find((p) => p.scope === 'team');
-  const [form, setForm] = useState<{ baseRate: number; bonusRate: number; basis: 'WON' | 'COLLECTED' } | null>(null);
-  const values = form ?? (current ? { baseRate: current.baseRate, bonusRate: current.bonusRate, basis: current.basis } : null);
+  const current =
+    plans.data?.find((p) => p.scope === scope) ?? plans.data?.find((p) => p.scope === 'team');
+  const [form, setForm] = useState<{
+    baseRate: number;
+    bonusRate: number;
+    basis: 'WON' | 'COLLECTED';
+  } | null>(null);
+  const values =
+    form ??
+    (current
+      ? { baseRate: current.baseRate, bonusRate: current.bonusRate, basis: current.basis }
+      : null);
   const save = useMutation({
-    mutationFn: () => api<CommissionPlanDto[]>('/sales/crm/commission-plans', { method: 'PUT', body: { scope, ...values } }),
+    mutationFn: () =>
+      api<CommissionPlanDto[]>('/sales/crm/commission-plans', {
+        method: 'PUT',
+        body: { scope, ...values },
+      }),
     onSuccess: (data) => {
       client.setQueryData(['crm', 'commission'], data);
       void client.invalidateQueries({ queryKey: ['crm', 'targets'] });
@@ -767,7 +1018,8 @@ export function CommissionDialog({ team, onClose }: { team: PublicUserDto[]; onC
     },
   });
   const remove = useMutation({
-    mutationFn: () => api<CommissionPlanDto[]>(`/sales/crm/commission-plans/${scope}`, { method: 'DELETE' }),
+    mutationFn: () =>
+      api<CommissionPlanDto[]>(`/sales/crm/commission-plans/${scope}`, { method: 'DELETE' }),
     onSuccess: (data) => {
       client.setQueryData(['crm', 'commission'], data);
       void client.invalidateQueries({ queryKey: ['crm', 'targets'] });
@@ -782,8 +1034,17 @@ export function CommissionDialog({ team, onClose }: { team: PublicUserDto[]; onC
           Each person earns the base rate on what they win up to their monthly target, and the bonus
           rate on everything above it. Without a target, the base rate applies to everything.
         </p>
-        {(save.isError || remove.isError) && <Alert tone="error">{errorMessage(save.error ?? remove.error)}</Alert>}
-        <SelectField label="Applies to" value={scope} onChange={(e) => { setScope(e.target.value); setForm(null); }}>
+        {(save.isError || remove.isError) && (
+          <Alert tone="error">{errorMessage(save.error ?? remove.error)}</Alert>
+        )}
+        <SelectField
+          label="Applies to"
+          value={scope}
+          onChange={(e) => {
+            setScope(e.target.value);
+            setForm(null);
+          }}
+        >
           <option value="team">Everyone (team rule)</option>
           {team.map((p) => (
             <option key={p.id} value={p.id}>
@@ -794,9 +1055,29 @@ export function CommissionDialog({ team, onClose }: { team: PublicUserDto[]; onC
         </SelectField>
         {values && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <TextField label="Base %" type="number" min={0} max={100} step="0.1" value={values.baseRate} onChange={(e) => setForm({ ...values, baseRate: Number(e.target.value) || 0 })} />
-            <TextField label="Above target %" type="number" min={0} max={100} step="0.1" value={values.bonusRate} onChange={(e) => setForm({ ...values, bonusRate: Number(e.target.value) || 0 })} />
-            <SelectField label="Paid on" value={values.basis} onChange={(e) => setForm({ ...values, basis: e.target.value as 'WON' | 'COLLECTED' })}>
+            <TextField
+              label="Base %"
+              type="number"
+              min={0}
+              max={100}
+              step="0.1"
+              value={values.baseRate}
+              onChange={(e) => setForm({ ...values, baseRate: Number(e.target.value) || 0 })}
+            />
+            <TextField
+              label="Above target %"
+              type="number"
+              min={0}
+              max={100}
+              step="0.1"
+              value={values.bonusRate}
+              onChange={(e) => setForm({ ...values, bonusRate: Number(e.target.value) || 0 })}
+            />
+            <SelectField
+              label="Paid on"
+              value={values.basis}
+              onChange={(e) => setForm({ ...values, basis: e.target.value as 'WON' | 'COLLECTED' })}
+            >
               <option value="WON">Deals won</option>
               <option value="COLLECTED">Money collected</option>
             </SelectField>
@@ -836,8 +1117,10 @@ export function CrmSettingsTab() {
   const s = settings.data;
   if (settings.isPending) return <Spinner />;
   if (!s) return <Alert tone="error">{errorMessage(settings.error)}</Alert>;
-  const v = <K extends keyof UpdateCrmSettingsRequest>(k: K, fallback: UpdateCrmSettingsRequest[K]) =>
-    (draft[k] !== undefined ? draft[k] : fallback) as NonNullable<UpdateCrmSettingsRequest[K]>;
+  const v = <K extends keyof UpdateCrmSettingsRequest>(
+    k: K,
+    fallback: UpdateCrmSettingsRequest[K],
+  ) => (draft[k] !== undefined ? draft[k] : fallback) as NonNullable<UpdateCrmSettingsRequest[K]>;
   const set = (patch: UpdateCrmSettingsRequest) => setDraft({ ...draft, ...patch });
   const payTo = { ...s.payTo, ...(draft.payTo ?? {}) };
   const disabled = !s.canManage;
@@ -855,33 +1138,125 @@ export function CrmSettingsTab() {
       <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
         <h2 className="mb-3 text-lg font-bold">Money and tax</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <SelectField label="Main currency" hint="Targets, commission and totals use it" disabled={disabled} value={v('defaultCurrency', s.defaultCurrency)} onChange={(e) => set({ defaultCurrency: e.target.value as 'USD' | 'PKR' })}>
+          <SelectField
+            label="Main currency"
+            hint="Targets, commission and totals use it"
+            disabled={disabled}
+            value={v('defaultCurrency', s.defaultCurrency)}
+            onChange={(e) => set({ defaultCurrency: e.target.value as 'USD' | 'PKR' })}
+          >
             <option value="USD">US dollars (USD)</option>
             <option value="PKR">Pakistani rupees (PKR)</option>
           </SelectField>
-          <TextField label="1 USD in PKR" type="number" min={1} step="0.01" disabled={disabled} value={v('usdToPkr', s.usdToPkr)} onChange={(e) => set({ usdToPkr: Number(e.target.value) || s.usdToPkr })} />
-          <TextField label="Tax name" hint="e.g. GST or Sales tax" disabled={disabled} maxLength={30} value={v('taxName', s.taxName)} onChange={(e) => set({ taxName: e.target.value })} />
-          <TextField label="Default tax %" type="number" min={0} max={100} step="0.01" disabled={disabled} value={v('taxRate', s.taxRate)} onChange={(e) => set({ taxRate: Number(e.target.value) || 0 })} />
-          <TextField label="Tax number (NTN / STRN)" disabled={disabled} maxLength={60} value={v('taxNumber', s.taxNumber ?? '')} onChange={(e) => set({ taxNumber: e.target.value || null })} />
+          <TextField
+            label="1 USD in PKR"
+            type="number"
+            min={1}
+            step="0.01"
+            disabled={disabled}
+            value={v('usdToPkr', s.usdToPkr)}
+            onChange={(e) => set({ usdToPkr: Number(e.target.value) || s.usdToPkr })}
+          />
+          <TextField
+            label="Tax name"
+            hint="e.g. GST or Sales tax"
+            disabled={disabled}
+            maxLength={30}
+            value={v('taxName', s.taxName)}
+            onChange={(e) => set({ taxName: e.target.value })}
+          />
+          <TextField
+            label="Default tax %"
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            disabled={disabled}
+            value={v('taxRate', s.taxRate)}
+            onChange={(e) => set({ taxRate: Number(e.target.value) || 0 })}
+          />
+          <TextField
+            label="Tax number (NTN / STRN)"
+            disabled={disabled}
+            maxLength={60}
+            value={v('taxNumber', s.taxNumber ?? '')}
+            onChange={(e) => set({ taxNumber: e.target.value || null })}
+          />
         </div>
       </section>
       <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
         <h2 className="mb-3 text-lg font-bold">On invoices and quotes</h2>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <TextField label="Company name" disabled={disabled} maxLength={160} value={v('companyName', s.companyName)} onChange={(e) => set({ companyName: e.target.value })} />
-          <TextField label="Email" disabled={disabled} maxLength={254} value={v('companyEmail', s.companyEmail ?? '')} onChange={(e) => set({ companyEmail: e.target.value || null })} />
-          <TextField label="Phone" disabled={disabled} maxLength={40} value={v('companyPhone', s.companyPhone ?? '')} onChange={(e) => set({ companyPhone: e.target.value || null })} />
-          <TextArea label="Address" rows={2} disabled={disabled} maxLength={500} value={v('companyAddress', s.companyAddress ?? '')} onChange={(e) => set({ companyAddress: e.target.value || null })} />
+          <TextField
+            label="Company name"
+            disabled={disabled}
+            maxLength={160}
+            value={v('companyName', s.companyName)}
+            onChange={(e) => set({ companyName: e.target.value })}
+          />
+          <TextField
+            label="Email"
+            disabled={disabled}
+            maxLength={254}
+            value={v('companyEmail', s.companyEmail ?? '')}
+            onChange={(e) => set({ companyEmail: e.target.value || null })}
+          />
+          <TextField
+            label="Phone"
+            disabled={disabled}
+            maxLength={40}
+            value={v('companyPhone', s.companyPhone ?? '')}
+            onChange={(e) => set({ companyPhone: e.target.value || null })}
+          />
+          <TextArea
+            label="Address"
+            rows={2}
+            disabled={disabled}
+            maxLength={500}
+            value={v('companyAddress', s.companyAddress ?? '')}
+            onChange={(e) => set({ companyAddress: e.target.value || null })}
+          />
         </div>
       </section>
       <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
         <h2 className="mb-1 text-lg font-bold">How customers pay you</h2>
-        <p className="mb-3 text-sm text-muted">Shown on the pay page and invoices. Customers then tell you the transaction ID.</p>
+        <p className="mb-3 text-sm text-muted">
+          Shown on the pay page and invoices. Customers then tell you the transaction ID.
+        </p>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <TextField label="JazzCash account" hint="Number and account name" disabled={disabled} maxLength={120} value={payTo.jazzcash ?? ''} onChange={(e) => set({ payTo: { ...payTo, jazzcash: e.target.value || null } })} />
-          <TextField label="Easypaisa account" hint="Number and account name" disabled={disabled} maxLength={120} value={payTo.easypaisa ?? ''} onChange={(e) => set({ payTo: { ...payTo, easypaisa: e.target.value || null } })} />
-          <TextArea label="Bank account" hint="Bank, title, account number / IBAN" rows={3} disabled={disabled} maxLength={500} value={payTo.bank ?? ''} onChange={(e) => set({ payTo: { ...payTo, bank: e.target.value || null } })} />
-          <TextArea label="Other payment notes" rows={3} disabled={disabled} maxLength={1000} value={v('paymentDetails', s.paymentDetails ?? '')} onChange={(e) => set({ paymentDetails: e.target.value || null })} />
+          <TextField
+            label="JazzCash account"
+            hint="Number and account name"
+            disabled={disabled}
+            maxLength={120}
+            value={payTo.jazzcash ?? ''}
+            onChange={(e) => set({ payTo: { ...payTo, jazzcash: e.target.value || null } })}
+          />
+          <TextField
+            label="Easypaisa account"
+            hint="Number and account name"
+            disabled={disabled}
+            maxLength={120}
+            value={payTo.easypaisa ?? ''}
+            onChange={(e) => set({ payTo: { ...payTo, easypaisa: e.target.value || null } })}
+          />
+          <TextArea
+            label="Bank account"
+            hint="Bank, title, account number / IBAN"
+            rows={3}
+            disabled={disabled}
+            maxLength={500}
+            value={payTo.bank ?? ''}
+            onChange={(e) => set({ payTo: { ...payTo, bank: e.target.value || null } })}
+          />
+          <TextArea
+            label="Other payment notes"
+            rows={3}
+            disabled={disabled}
+            maxLength={1000}
+            value={v('paymentDetails', s.paymentDetails ?? '')}
+            onChange={(e) => set({ paymentDetails: e.target.value || null })}
+          />
         </div>
       </section>
       <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
@@ -913,7 +1288,13 @@ export function CrmSettingsTab() {
                   className="size-5 accent-[var(--color-brand)]"
                   disabled={disabled}
                   checked={list.includes(c)}
-                  onChange={(e) => set({ reminderChannels: e.target.checked ? [...list, c] : list.filter((x) => x !== c) })}
+                  onChange={(e) =>
+                    set({
+                      reminderChannels: e.target.checked
+                        ? [...list, c]
+                        : list.filter((x) => x !== c),
+                    })
+                  }
                 />
                 {c === 'EMAIL' ? 'Email' : c === 'WHATSAPP' ? 'WhatsApp' : 'SMS'}
                 {!s.channels[c] && <span className="text-xs text-muted">(not set up)</span>}
@@ -971,7 +1352,8 @@ export function LeadImportDialog({
       if (file.size > 4 * 1024 * 1024) throw new Error('The file is too big (4 MB at most).');
       const buf = new Uint8Array(await file.arrayBuffer());
       let bin = '';
-      for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+      for (let i = 0; i < buf.length; i += 0x8000)
+        bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
       return api<LeadImportPreviewDto>('/sales/crm/leads/import/preview', {
         method: 'POST',
         body: { fileName: file.name, contentBase64: btoa(bin) },
@@ -979,7 +1361,9 @@ export function LeadImportDialog({
     },
   });
   const p = preview.data;
-  const importable = (p?.rows ?? []).filter((r) => r.errors.length === 0 && (!skipDuplicates || !r.duplicate));
+  const importable = (p?.rows ?? []).filter(
+    (r) => r.errors.length === 0 && (!skipDuplicates || !r.duplicate),
+  );
   const run = useMutation({
     mutationFn: () =>
       api<LeadImportResultDto>('/sales/crm/leads/import', {
@@ -1012,7 +1396,8 @@ export function LeadImportDialog({
       <div className="flex flex-col gap-4">
         {result ? (
           <Alert tone="success" title="Import finished">
-            {result.created} leads added{result.skipped ? `, ${result.skipped} duplicates skipped` : ''}.
+            {result.created} leads added
+            {result.skipped ? `, ${result.skipped} duplicates skipped` : ''}.
             <div className="mt-2">
               <Button size="sm" onClick={onClose}>
                 Done
@@ -1022,8 +1407,9 @@ export function LeadImportDialog({
         ) : (
           <>
             <p className="text-muted">
-              Use an Excel (.xlsx) or CSV file with a heading row, e.g. Company, Contact, Phone, Email,
-              City, Stores. Columns are matched automatically; leads that already exist are flagged.
+              Use an Excel (.xlsx) or CSV file with a heading row, e.g. Company, Contact, Phone,
+              Email, City, Stores. Columns are matched automatically; leads that already exist are
+              flagged.
             </p>
             <input
               ref={input}
@@ -1039,14 +1425,23 @@ export function LeadImportDialog({
                 e.target.value = '';
               }}
             />
-            <Button variant="secondary" icon={<Upload className="size-5" aria-hidden />} busy={preview.isPending} onClick={() => input.current?.click()}>
+            <Button
+              variant="secondary"
+              icon={<Upload className="size-5" aria-hidden />}
+              busy={preview.isPending}
+              onClick={() => input.current?.click()}
+            >
               {fileName ? `Choose another file (${fileName})` : 'Choose a file'}
             </Button>
             {preview.isError && <Alert tone="error">{errorMessage(preview.error)}</Alert>}
             {p && (
               <>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <SelectField label="Where they came from" value={source} onChange={(e) => setSource(e.target.value as LeadSource)}>
+                  <SelectField
+                    label="Where they came from"
+                    value={source}
+                    onChange={(e) => setSource(e.target.value as LeadSource)}
+                  >
                     {LEAD_SOURCES.map((x) => (
                       <option key={x} value={x}>
                         {SOURCE_LABEL[x]}
@@ -1054,7 +1449,11 @@ export function LeadImportDialog({
                     ))}
                   </SelectField>
                   {canAssign && (
-                    <SelectField label="Give them to" value={ownerId} onChange={(e) => setOwnerId(e.target.value)}>
+                    <SelectField
+                      label="Give them to"
+                      value={ownerId}
+                      onChange={(e) => setOwnerId(e.target.value)}
+                    >
                       <option value="">Me</option>
                       <option value="none">Unassigned queue</option>
                       {team.map((u) => (
@@ -1065,12 +1464,18 @@ export function LeadImportDialog({
                     </SelectField>
                   )}
                   <label className="flex min-h-12 items-center gap-2 self-end">
-                    <input type="checkbox" className="size-5 accent-[var(--color-brand)]" checked={skipDuplicates} onChange={(e) => setSkipDuplicates(e.target.checked)} />
+                    <input
+                      type="checkbox"
+                      className="size-5 accent-[var(--color-brand)]"
+                      checked={skipDuplicates}
+                      onChange={(e) => setSkipDuplicates(e.target.checked)}
+                    />
                     Skip duplicates
                   </label>
                 </div>
                 <p className="text-sm text-muted">
-                  Matched columns: {mapped.map((f) => `${FIELD_LABEL[f]} ← “${p.mapping[f]}”`).join(' · ') || 'none'}
+                  Matched columns:{' '}
+                  {mapped.map((f) => `${FIELD_LABEL[f]} ← “${p.mapping[f]}”`).join(' · ') || 'none'}
                   {p.truncated ? ' · only the first 2,000 rows are shown' : ''}
                 </p>
                 <div className="max-h-80 overflow-auto rounded-2xl border border-line">
@@ -1088,7 +1493,13 @@ export function LeadImportDialog({
                     </thead>
                     <tbody>
                       {p.rows.map((r) => (
-                        <tr key={r.row} className={cx('border-t border-line', (r.errors.length > 0 || r.duplicate) && 'bg-warning-surface/50')}>
+                        <tr
+                          key={r.row}
+                          className={cx(
+                            'border-t border-line',
+                            (r.errors.length > 0 || r.duplicate) && 'bg-warning-surface/50',
+                          )}
+                        >
                           <td className="px-2 py-1.5 text-muted">{r.row}</td>
                           {mapped.slice(0, 5).map((f) => (
                             <td key={f} className="max-w-40 truncate px-2 py-1.5">
@@ -1117,7 +1528,12 @@ export function LeadImportDialog({
                   <Button variant="secondary" onClick={onClose}>
                     Cancel
                   </Button>
-                  <Button icon={<FileSpreadsheet className="size-5" aria-hidden />} busy={run.isPending} disabled={importable.length === 0} onClick={() => run.mutate()}>
+                  <Button
+                    icon={<FileSpreadsheet className="size-5" aria-hidden />}
+                    busy={run.isPending}
+                    disabled={importable.length === 0}
+                    onClick={() => run.mutate()}
+                  >
                     Import {importable.length} leads
                   </Button>
                 </div>

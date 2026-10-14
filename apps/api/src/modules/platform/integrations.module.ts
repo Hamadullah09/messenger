@@ -1,4 +1,14 @@
-import { Body, Controller, Get, HttpCode, Inject, Injectable, Module, Post, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Inject,
+  Injectable,
+  Module,
+  Post,
+  Put,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import {
   INTEGRATION_KEYS,
@@ -18,7 +28,11 @@ import { AuditService } from '../audit/audit.service';
 import { CurrentActor, type Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
 
-const SECRET_KEYS = new Set<IntegrationKey>(['SMTP_URL', 'TWILIO_AUTH_TOKEN', 'WHATSAPP_ACCESS_TOKEN']);
+const SECRET_KEYS = new Set<IntegrationKey>([
+  'SMTP_URL',
+  'TWILIO_AUTH_TOKEN',
+  'WHATSAPP_ACCESS_TOKEN',
+]);
 
 /** Shows enough to recognise a value, never the secret itself. */
 function preview(key: IntegrationKey, value: string): string {
@@ -89,7 +103,10 @@ export class IntegrationsService {
   }
 
   /** Sends one test message so the Super Admin can see the keys work. */
-  async test(actor: Actor, request: TestIntegrationRequest): Promise<{ ok: boolean; detail: string }> {
+  async test(
+    actor: Actor,
+    request: TestIntegrationRequest,
+  ): Promise<{ ok: boolean; detail: string }> {
     await this.requirePlatform(actor);
     const text = 'Test message from SMA Technology: your connection works.';
     const result = await this.channels.send(request.channel, {

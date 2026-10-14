@@ -74,6 +74,7 @@ services:
     ports: ['80:80', '443:443']
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./sites:/etc/caddy/sites:ro
       - caddy-data:/data
     depends_on: [api, web]
 
@@ -112,8 +113,120 @@ services:
       retries: 20
       start_period: 300s
 
+  # Calls relay (TURN) for calls across mobile data and different networks. Host networking:
+  # it needs a wide UDP port range. Private ranges are denied so it cannot be used to reach
+  # the internal network. Firewall: open 3478/udp+tcp and 49160-49200/udp.
+  coturn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - -n
+      - --log-file=stdout
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${TURN_SHARED_SECRET:?set TURN_SHARED_SECRET (same value as in .env.production)}
+      - --realm=${SMA_DOMAIN}
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --external-ip=${TURN_EXTERNAL_IP:?set TURN_EXTERNAL_IP (the server's public IP)}
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+      - --no-multicast-peers
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+      - --total-quota=300
+      - --user-quota=12
+
+  # Encrypted database backups every BACKUP_INTERVAL_HOURS, copied off the server
+  # (docs/operations/backup-restore.md). The passphrase lives in ./secrets/backup-passphrase.
+  backup:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    env_file: .env.backup
+    entrypoint: ['/bin/sh', '/backup-loop.sh']
+    volumes:
+      - ./backup/backup-loop.sh:/backup-loop.sh:ro
+      - ./secrets/backup-passphrase:/run/secrets/backup-passphrase:ro
+      - backups:/backups
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Big group calls (over 8 people): docker compose --profile livekit up -d
+  livekit:
+    image: livekit/livekit-server:v1.8.4
+    profiles: [livekit]
+    restart: unless-stopped
+    command: ['--config', '/etc/livekit.yaml']
+    env_file: .env.livekit
+    ports: ['7881:7881/tcp', '50000-50200:50000-50200/udp']
+    volumes: ['./livekit.yaml:/etc/livekit.yaml:ro']
+
+  # Monitoring: docker compose --profile monitoring up -d
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    environment:
+      SMA_DOMAIN: ${SMA_DOMAIN}
+    # Fills in the public address for the uptime checks, then starts Prometheus.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        sed "s|__SMA_DOMAIN__|$SMA_DOMAIN|g" /etc/prometheus/prometheus.prod.yml > /prometheus/prometheus.yml
+        && exec /bin/prometheus --config.file=/prometheus/prometheus.yml
+        --storage.tsdb.path=/prometheus --storage.tsdb.retention.time=30d
+    volumes:
+      - ../monitoring/prometheus.prod.yml:/etc/prometheus/prometheus.prod.yml:ro
+      - ../monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    ports: ['127.0.0.1:9090:9090']
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    command: ['--config.file=/etc/alertmanager/alertmanager.yml', '--storage.path=/alertmanager']
+    volumes:
+      - ../monitoring/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+
+  blackbox:
+    image: prom/blackbox-exporter:v0.27.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    command: ['--config.file=/etc/blackbox/blackbox.yml']
+    volumes: ['../monitoring/blackbox.yml:/etc/blackbox/blackbox.yml:ro']
+
+  # Dashboards on http://127.0.0.1:3001 (reach them through an SSH tunnel, never publicly).
+  grafana:
+    image: grafana/grafana:12.1.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana-admin-password
+      GF_USERS_ALLOW_SIGN_UP: 'false'
+    volumes:
+      - ./secrets/grafana-admin-password:/run/secrets/grafana-admin-password:ro
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports: ['127.0.0.1:3001:3000']
+
 volumes:
   caddy-data:
   postgres-data:
   redis-data:
   clamav-data:
+  backups:
+  prometheus-data:
+  alertmanager-data:
+  grafana-data:

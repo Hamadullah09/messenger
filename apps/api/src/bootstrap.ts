@@ -8,7 +8,7 @@ import { APP_CONFIG, isAllowedOrigin, type AppConfig } from './infra/config/conf
 import { AllExceptionsFilter } from './infra/http/exception.filter';
 import { requestContextMiddleware } from './infra/http/request-context';
 import { RedisIoAdapter } from './modules/realtime/redis-io.adapter';
-import type { NextFunction, Request, Response } from 'express';
+import { urlencoded, type NextFunction, type Request, type Response } from 'express';
 import { metrics, statusClass } from './infra/metrics/metrics';
 import { LOGO_CONTENT_TYPES, LOGO_MAX_BYTES } from './modules/tenancy/place-details';
 
@@ -43,6 +43,11 @@ export function configureApp(app: NestExpressApplication): INestApplication {
   app.set('trust proxy', config.TRUST_PROXY_HOPS);
   app.disable('x-powered-by');
   app.useBodyParser('json', { limit: '256kb' });
+  // Payment gateways answer with ordinary form posts; only their callback addresses accept them.
+  app.use(
+    '/api/v1/public/payments',
+    urlencoded({ extended: false, limit: '32kb', parameterLimit: 100 }),
+  );
   // Business/store logo uploads send the image bytes as the request body.
   app.useBodyParser('raw', { type: LOGO_CONTENT_TYPES, limit: LOGO_MAX_BYTES });
   app.use(requestContextMiddleware);
@@ -59,7 +64,13 @@ export function configureApp(app: NestExpressApplication): INestApplication {
     origin: (origin, done) => done(null, !origin || isAllowedOrigin(config, origin)),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-Storeline-CSRF', 'X-Business-Id'],
+    allowedHeaders: [
+      'Authorization',
+      'Content-Type',
+      'X-Request-Id',
+      'X-Storeline-CSRF',
+      'X-Business-Id',
+    ],
     exposedHeaders: ['X-Request-Id', 'Retry-After'],
     maxAge: 600,
   });

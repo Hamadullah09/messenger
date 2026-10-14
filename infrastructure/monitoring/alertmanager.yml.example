@@ -1,0 +1,37 @@
+# Where alerts go. Copy to alertmanager.yml (git-ignored) and fill in ONE or more receivers.
+# Critical alerts (site down, API/worker down, emergencies unanswered) repeat every hour until
+# fixed; warnings once every 12 hours.
+global:
+  # Email through your mail provider (the same one the app uses is fine).
+  smtp_smarthost: 'smtp.example.com:587'
+  smtp_from: 'SMA alerts <alerts@example.com>'
+  smtp_auth_username: 'CHANGE_ME'
+  smtp_auth_password: 'CHANGE_ME'
+  smtp_require_tls: true
+
+route:
+  receiver: team
+  group_by: ['alertname']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 12h
+  routes:
+    - matchers: ['severity="critical"']
+      receiver: team
+      repeat_interval: 1h
+
+receivers:
+  - name: team
+    email_configs:
+      - to: 'ops@example.com'
+        send_resolved: true
+    # Telegram (bot token from @BotFather, chat id of your ops group):
+    # telegram_configs:
+    #   - bot_token: 'CHANGE_ME'
+    #     chat_id: -1001234567890
+    #     send_resolved: true
+    # Slack:
+    # slack_configs:
+    #   - api_url: 'https://hooks.slack.com/services/CHANGE_ME'
+    #     channel: '#sma-alerts'
+    #     send_resolved: true

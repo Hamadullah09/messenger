@@ -64,6 +64,8 @@ import {
   SubscriptionsTab,
 } from '@/components/sales/crm-more';
 import { AgendaTab } from '@/components/sales/agenda';
+import { FbrSettingsSection } from '@/components/sales/fbr';
+import { OnlinePaymentsSettings } from '@/components/sales/online-payments';
 import { LeadFormDialog } from '@/components/sales/lead-form';
 import { LeadPanel, OwnerBadge, StageChip } from '@/components/sales/lead-panel';
 import {
@@ -146,9 +148,15 @@ function SalesScreen() {
     setOpenLead(null);
     void queryClient.resetQueries({
       predicate: (q) =>
-        ['sales-context', 'sales-team', 'sales-overview', 'crm', 'lead', 'leads', 'lead-duplicates'].includes(
-          String(q.queryKey[0]),
-        ),
+        [
+          'sales-context',
+          'sales-team',
+          'sales-overview',
+          'crm',
+          'lead',
+          'leads',
+          'lead-duplicates',
+        ].includes(String(q.queryKey[0])),
     });
   }, [activeBusinessId, queryClient]);
   const context = useQuery({
@@ -260,7 +268,13 @@ function SalesScreen() {
           {tab === 'invoices' && <InvoicesTab />}
           {tab === 'quotes' && <QuotesTab />}
           {tab === 'billing' && <SubscriptionsTab />}
-          {tab === 'settings' && <CrmSettingsTab />}
+          {tab === 'settings' && (
+            <div className="flex flex-col gap-6">
+              <CrmSettingsTab />
+              <OnlinePaymentsSettings />
+              <FbrSettingsSection />
+            </div>
+          )}
           {tab === 'targets' && <TargetsTab />}
           {tab === 'services' && <ServicesTab />}
           {tab === 'team' && <TeamTab context={ctx} team={team.data} loading={team.isLoading} />}

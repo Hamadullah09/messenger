@@ -164,7 +164,10 @@ export async function downloadFile(path: string, fallbackName: string): Promise<
   const send = () =>
     fetch(`/api/v1${path}`, {
       credentials: 'same-origin',
-      headers: { Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}`, ...businessHeader() },
+      headers: {
+        Authorization: `Bearer ${useAuth.getState().accessToken ?? ''}`,
+        ...businessHeader(),
+      },
     });
   let res = await send();
   if (res.status === 401 && (await refreshSession()) === 'ok') res = await send();

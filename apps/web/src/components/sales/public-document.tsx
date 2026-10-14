@@ -18,11 +18,24 @@ export function PublicDocument({
 }: {
   kind: string;
   number: string;
-  company: { name: string; address: string | null; email: string | null; phone: string | null; taxNumber: string | null; taxName: string };
+  company: {
+    name: string;
+    address: string | null;
+    email: string | null;
+    phone: string | null;
+    taxNumber: string | null;
+    taxName: string;
+  };
   billToName: string;
   dates: Array<[string, string]>;
   currency: string;
-  items: Array<{ name: string; description: string | null; quantity: number; unitPrice: number; total: number }>;
+  items: Array<{
+    name: string;
+    description: string | null;
+    quantity: number;
+    unitPrice: number;
+    total: number;
+  }>;
   totals: Array<{ label: string; value: number; strong?: boolean; negative?: boolean }>;
   badge?: ReactNode;
   children?: ReactNode;
@@ -74,7 +87,9 @@ export function PublicDocument({
                     {it.description ? ` · ${it.description}` : ''}
                   </span>
                 </span>
-                <span className="shrink-0 font-semibold tabular-nums">{money2(it.total, currency)}</span>
+                <span className="shrink-0 font-semibold tabular-nums">
+                  {money2(it.total, currency)}
+                </span>
               </li>
             ))}
           </ul>
@@ -91,7 +106,12 @@ export function PublicDocument({
           </dl>
         </section>
         {children}
-        <p className="text-center text-xs text-muted">{company.name} · powered by SMA</p>
+        <p className="text-center text-xs text-muted">
+          {company.name} · powered by SMA ·{' '}
+          <a href="/privacy" className="underline">
+            Privacy
+          </a>
+        </p>
       </div>
     </main>
   );

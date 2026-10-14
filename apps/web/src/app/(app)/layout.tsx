@@ -10,11 +10,12 @@ import { WaRail } from '@/components/chat/wa-rail';
 import { Sidebar } from '@/components/shell/sidebar';
 import { Topbar } from '@/components/shell/topbar';
 import { Alert, Badge, cx, IconButton, Spinner } from '@/components/ui';
-import { useAuth } from '@/lib/auth-store';
+import { hasPermission, useAuth } from '@/lib/auth-store';
 import { useConversations } from '@/lib/chat-hooks';
 import { useLive } from '@/lib/live-store';
 import { setTitleCount } from '@/lib/notify';
 import { MessageToast } from '@/components/chat/message-toast';
+import { PlanNotice } from '@/components/manage/plan-billing';
 import { ReminderAlerts } from '@/components/sales/reminder-alert';
 import { CallHost } from '@/lib/calls';
 import { useLiveLocationSharing } from '@/lib/live-location';
@@ -161,6 +162,11 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             </Alert>
           </div>
         )}
+        {activeBusinessId &&
+          !messenger &&
+          hasPermission(me, 'business.update', activeBusinessId) && (
+            <PlanNotice businessId={activeBusinessId} />
+          )}
         <main id="main" className="flex min-h-0 flex-1 flex-col">
           {children}
         </main>

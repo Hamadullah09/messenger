@@ -181,6 +181,15 @@ export default function LoginPage() {
               </>
             )}
           </form>
+          <p className="mt-6 text-center text-sm text-muted">
+            <Link href="/privacy" className="underline">
+              Privacy
+            </Link>{' '}
+            ·{' '}
+            <Link href="/terms" className="underline">
+              Terms
+            </Link>
+          </p>
         </div>
       </div>
     </main>

@@ -81,7 +81,7 @@ export function toMessageDto(row: MessageRow): MessageDto {
           senderDisplayName: row.replyTo.sender.displayName,
           bodyPreview: row.replyTo.deletedAt
             ? null
-            : kindPreview(row.replyTo.kind, row.replyTo.body)?.slice(0, PREVIEW_LENGTH) ?? null,
+            : (kindPreview(row.replyTo.kind, row.replyTo.body)?.slice(0, PREVIEW_LENGTH) ?? null),
           deleted: row.replyTo.deletedAt !== null,
         }
       : null,

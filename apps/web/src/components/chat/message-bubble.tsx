@@ -281,11 +281,14 @@ export function MessageBubble({
             senderName={message.sender.displayName}
           />
         )}
-        {!message.deleted && message.attachment && message.kind !== 'AUDIO' && message.kind !== 'STICKER' && (
-          <div className="-mx-0.5 mb-0.5">
-            <AttachmentView attachment={message.attachment} />
-          </div>
-        )}
+        {!message.deleted &&
+          message.attachment &&
+          message.kind !== 'AUDIO' &&
+          message.kind !== 'STICKER' && (
+            <div className="-mx-0.5 mb-0.5">
+              <AttachmentView attachment={message.attachment} />
+            </div>
+          )}
         {meta?.type === 'location' && <LocationMessage message={message} meta={meta} mine={mine} />}
         {meta?.type === 'contact' && <ContactMessage message={message} meta={meta} mine={mine} />}
         {meta?.type === 'poll' && (

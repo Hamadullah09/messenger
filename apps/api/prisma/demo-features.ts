@@ -9,7 +9,13 @@
  */
 import '../src/load-env';
 import { randomUUID } from 'node:crypto';
-import { type Prisma, PrismaClient, type LeaveStatus, type LeaveType, type TaskPriority } from '@prisma/client';
+import {
+  type Prisma,
+  PrismaClient,
+  type LeaveStatus,
+  type LeaveType,
+  type TaskPriority,
+} from '@prisma/client';
 
 const prisma = new PrismaClient();
 const now = new Date();
@@ -51,16 +57,31 @@ async function main(): Promise<void> {
   if ((await prisma.storeTask.count({ where: { businessId: business.id } })) === 0) {
     const plan: Array<[number, string, TaskPriority, number | null, boolean, string?]> = [
       [0, 'Restock the drinks fridge before lunch', 'HIGH', 0.2, false],
-      [0, 'Check fire extinguisher dates', 'NORMAL', 2, false, 'Write the dates on the checklist by the door.'],
+      [
+        0,
+        'Check fire extinguisher dates',
+        'NORMAL',
+        2,
+        false,
+        'Write the dates on the checklist by the door.',
+      ],
       [0, 'Count the cash float for the evening shift', 'URGENT', -0.1, false],
       [1, 'Put up the new weekend offer posters', 'NORMAL', 1, false],
       [1, 'Clean the stock room shelves', 'LOW', 4, true],
-      [2, 'Return the damaged delivery to the supplier', 'HIGH', -1, false, 'Invoice 4471 — 3 boxes.'],
+      [
+        2,
+        'Return the damaged delivery to the supplier',
+        'HIGH',
+        -1,
+        false,
+        'Invoice 4471 — 3 boxes.',
+      ],
       [2, 'Train the new cashier on returns', 'NORMAL', 3, true],
     ];
     for (const [s, title, priority, dueDays, done, notes] of plan) {
       const store = stores[s % stores.length]!;
-      const assignee = store.memberships[(title.length % Math.max(1, store.memberships.length))]?.user.id ?? null;
+      const assignee =
+        store.memberships[title.length % Math.max(1, store.memberships.length)]?.user.id ?? null;
       await prisma.storeTask.create({
         data: {
           businessId: business.id,
@@ -109,7 +130,9 @@ async function main(): Promise<void> {
   } else console.log('Shifts: already present, skipped.');
 
   // 3. Status updates
-  if ((await prisma.statusPost.count({ where: { businessId: business.id, deletedAt: null } })) === 0) {
+  if (
+    (await prisma.statusPost.count({ where: { businessId: business.id, deletedAt: null } })) === 0
+  ) {
     const expiresAt = new Date(now.getTime() + 20 * 3_600_000);
     await prisma.statusPost.createMany({
       data: [
@@ -148,7 +171,10 @@ async function main(): Promise<void> {
     where: { businessId: business.id, type: 'GROUP', title: 'Regional Managers' },
     select: { id: true, members: { where: { leftAt: null }, select: { userId: true } } },
   });
-  if (group && !(await prisma.message.findFirst({ where: { conversationId: group.id, kind: 'POLL' } }))) {
+  if (
+    group &&
+    !(await prisma.message.findFirst({ where: { conversationId: group.id, kind: 'POLL' } }))
+  ) {
     const sender = group.members[0]?.userId ?? manager;
     const write = async (kind: 'POLL' | 'EVENT', body: string, meta: Prisma.InputJsonValue) => {
       const { lastSeq } = await prisma.conversation.update({
@@ -169,7 +195,10 @@ async function main(): Promise<void> {
         },
         select: { id: true },
       });
-      await prisma.conversation.update({ where: { id: group.id }, data: { lastMessageId: message.id } });
+      await prisma.conversation.update({
+        where: { id: group.id },
+        data: { lastMessageId: message.id },
+      });
       return message.id;
     };
     const poll = await write('POLL', 'Which day works for the quarterly review?', {
@@ -215,7 +244,11 @@ async function main(): Promise<void> {
   console.log(`Store locations: set ${located}.`);
 
   // 6. Daily checklists.
-  if ((await prisma.checklistTemplate.count({ where: { businessId: business.id, deletedAt: null } })) === 0) {
+  if (
+    (await prisma.checklistTemplate.count({
+      where: { businessId: business.id, deletedAt: null },
+    })) === 0
+  ) {
     const list = (labels: Array<[string, boolean]>) =>
       labels.map(([label, photo], i) => ({ key: `i${i + 1}`, label, photo }));
     await prisma.checklistTemplate.createMany({
@@ -287,7 +320,8 @@ async function main(): Promise<void> {
 
   // 8. Leave requests.
   if ((await prisma.leaveRequest.count({ where: { businessId: business.id } })) === 0) {
-    const day = (offset: number) => new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + offset));
+    const day = (offset: number) =>
+      new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate() + offset));
     const plan: Array<[number, number, LeaveType, number, number, LeaveStatus, string]> = [
       [0, 1, 'ANNUAL', 7, 9, 'PENDING', 'Family wedding in Faisalabad.'],
       [1, 0, 'SICK', -1, -1, 'APPROVED', 'Fever.'],
@@ -311,7 +345,8 @@ async function main(): Promise<void> {
           status,
           decidedById: status === 'PENDING' ? null : manager,
           decidedAt: status === 'PENDING' ? null : new Date(now.getTime() - 86_400_000),
-          decisionNote: status === 'REJECTED' ? 'Stock count that week — please pick other dates.' : null,
+          decisionNote:
+            status === 'REJECTED' ? 'Stock count that week — please pick other dates.' : null,
         },
       });
       added += 1;

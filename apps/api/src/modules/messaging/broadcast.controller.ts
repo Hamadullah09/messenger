@@ -57,7 +57,10 @@ export class BroadcastListsController {
 
   @Delete(':id')
   @HttpCode(204)
-  async remove(@CurrentActor() actor: Actor, @Param('id', ParseUUIDPipe) id: string): Promise<void> {
+  async remove(
+    @CurrentActor() actor: Actor,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
     await this.broadcast.remove(actor, id);
   }
 }

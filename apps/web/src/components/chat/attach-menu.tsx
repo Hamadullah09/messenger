@@ -32,17 +32,15 @@ import { useDebounced } from '@/lib/use-debounced';
 import { Alert, Avatar, Button, cx, Dialog, Spinner, TextArea, TextField } from '../ui';
 
 export type AttachAction =
-  | 'document'
-  | 'media'
-  | 'camera'
-  | 'audio'
-  | 'contact'
-  | 'poll'
-  | 'event'
-  | 'location'
-  | 'sticker';
+  'document' | 'media' | 'camera' | 'audio' | 'contact' | 'poll' | 'event' | 'location' | 'sticker';
 
-const ITEMS: Array<{ action: AttachAction; label: string; Icon: LucideIcon; color: string; files?: boolean }> = [
+const ITEMS: Array<{
+  action: AttachAction;
+  label: string;
+  Icon: LucideIcon;
+  color: string;
+  files?: boolean;
+}> = [
   { action: 'document', label: 'Document', Icon: FileText, color: '#7f66ff', files: true },
   { action: 'media', label: 'Photos & videos', Icon: ImageIcon, color: '#007bfc', files: true },
   { action: 'camera', label: 'Camera', Icon: Camera, color: '#ff2e74', files: true },
@@ -122,7 +120,13 @@ export function AttachMenu({
 
 // ───────────────────────────── Poll ─────────────────────────────
 
-export function PollDialog({ onClose, onSend }: { onClose: () => void; onSend: (c: RichContent) => void }) {
+export function PollDialog({
+  onClose,
+  onSend,
+}: {
+  onClose: () => void;
+  onSend: (c: RichContent) => void;
+}) {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']);
   const [multiple, setMultiple] = useState(false);
@@ -137,7 +141,14 @@ export function PollDialog({ onClose, onSend }: { onClose: () => void; onSend: (
           onSend({ kind: 'POLL', question: question.trim(), options: filled, multiple });
         }}
       >
-        <TextField label="Question" required maxLength={255} value={question} placeholder="Ask a question" onChange={(e) => setQuestion(e.target.value)} />
+        <TextField
+          label="Question"
+          required
+          maxLength={255}
+          value={question}
+          placeholder="Ask a question"
+          onChange={(e) => setQuestion(e.target.value)}
+        />
         <fieldset className="flex flex-col gap-2">
           <legend className="mb-1 font-semibold">Options</legend>
           {options.map((o, i) => (
@@ -150,7 +161,12 @@ export function PollDialog({ onClose, onSend }: { onClose: () => void; onSend: (
                 onChange={(e) => {
                   const next = [...options];
                   next[i] = e.target.value;
-                  if (i === options.length - 1 && e.target.value && options.length < POLL_OPTIONS_MAX) next.push('');
+                  if (
+                    i === options.length - 1 &&
+                    e.target.value &&
+                    options.length < POLL_OPTIONS_MAX
+                  )
+                    next.push('');
                   setOptions(next);
                 }}
                 className="min-h-11 flex-1 rounded-xl border border-line-strong/70 bg-surface px-3"
@@ -170,7 +186,12 @@ export function PollDialog({ onClose, onSend }: { onClose: () => void; onSend: (
           {duplicate && <p className="text-sm text-danger">Options must be different.</p>}
         </fieldset>
         <label className="flex min-h-11 items-center gap-3">
-          <input type="checkbox" className="size-5 accent-[var(--color-brand)]" checked={multiple} onChange={(e) => setMultiple(e.target.checked)} />
+          <input
+            type="checkbox"
+            className="size-5 accent-[var(--color-brand)]"
+            checked={multiple}
+            onChange={(e) => setMultiple(e.target.checked)}
+          />
           <span>Allow multiple answers</span>
         </label>
         <div className="flex justify-end gap-2">
@@ -193,7 +214,13 @@ function localInput(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function EventDialog({ onClose, onSend }: { onClose: () => void; onSend: (c: RichContent) => void }) {
+export function EventDialog({
+  onClose,
+  onSend,
+}: {
+  onClose: () => void;
+  onSend: (c: RichContent) => void;
+}) {
   const soon = new Date(Date.now() + 86_400_000);
   soon.setMinutes(0, 0, 0);
   const [title, setTitle] = useState('');
@@ -218,13 +245,44 @@ export function EventDialog({ onClose, onSend }: { onClose: () => void; onSend: 
           });
         }}
       >
-        <TextField label="Event name" required maxLength={120} value={title} placeholder="e.g. Monthly store meeting" onChange={(e) => setTitle(e.target.value)} />
+        <TextField
+          label="Event name"
+          required
+          maxLength={120}
+          value={title}
+          placeholder="e.g. Monthly store meeting"
+          onChange={(e) => setTitle(e.target.value)}
+        />
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <TextField label="Starts" type="datetime-local" required value={startsAt} onChange={(e) => setStartsAt(e.target.value)} />
-          <TextField label="Ends" type="datetime-local" value={endsAt} error={invalid ? 'Must be after the start' : undefined} onChange={(e) => setEndsAt(e.target.value)} />
+          <TextField
+            label="Starts"
+            type="datetime-local"
+            required
+            value={startsAt}
+            onChange={(e) => setStartsAt(e.target.value)}
+          />
+          <TextField
+            label="Ends"
+            type="datetime-local"
+            value={endsAt}
+            error={invalid ? 'Must be after the start' : undefined}
+            onChange={(e) => setEndsAt(e.target.value)}
+          />
         </div>
-        <TextField label="Location (optional)" maxLength={200} value={location} placeholder="e.g. Head office, or a meeting link" onChange={(e) => setLocation(e.target.value)} />
-        <TextArea label="Description (optional)" rows={3} maxLength={1000} value={description} onChange={(e) => setDescription(e.target.value)} />
+        <TextField
+          label="Location (optional)"
+          maxLength={200}
+          value={location}
+          placeholder="e.g. Head office, or a meeting link"
+          onChange={(e) => setLocation(e.target.value)}
+        />
+        <TextArea
+          label="Description (optional)"
+          rows={3}
+          maxLength={1000}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
         <div className="flex justify-end gap-2">
           <Button type="button" variant="secondary" onClick={onClose}>
             Cancel
@@ -296,9 +354,16 @@ export function LocationDialog({
   };
   useEffect(locate, []);
   const here = position
-    ? { lat: position.coords.latitude, lng: position.coords.longitude, accuracy: Math.round(position.coords.accuracy) }
+    ? {
+        lat: position.coords.latitude,
+        lng: position.coords.longitude,
+        accuracy: Math.round(position.coords.accuracy),
+      }
     : null;
-  const withCoords = (stores.data ?? []).map((s) => ({ store: s, at: coordinatesFromMapUrl(s.mapUrl) }));
+  const withCoords = (stores.data ?? []).map((s) => ({
+    store: s,
+    at: coordinatesFromMapUrl(s.mapUrl),
+  }));
   return (
     <Dialog open onClose={onClose} title="Send location">
       <div className="flex flex-col gap-3">
@@ -361,7 +426,9 @@ export function LocationDialog({
                 <button
                   type="button"
                   disabled={!at}
-                  title={at ? undefined : 'Add a map link with coordinates in the store details first'}
+                  title={
+                    at ? undefined : 'Add a map link with coordinates in the store details first'
+                  }
                   onClick={() =>
                     at &&
                     onSend({
@@ -405,13 +472,20 @@ export function ContactDialog({
   const search = useDebounced(query.trim());
   const people = useQuery({
     queryKey: ['directory', businessId, search],
-    queryFn: () => api<PublicUserDto[]>('/directory', { query: { businessId, query: search, limit: 30 } }),
+    queryFn: () =>
+      api<PublicUserDto[]>('/directory', { query: { businessId, query: search, limit: 30 } }),
     placeholderData: keepPreviousData,
   });
   return (
     <Dialog open onClose={onClose} title="Share a contact">
       <div className="flex flex-col gap-3">
-        <TextField label="Search people" placeholder="Name or username" value={query} autoFocus onChange={(e) => setQuery(e.target.value)} />
+        <TextField
+          label="Search people"
+          placeholder="Name or username"
+          value={query}
+          autoFocus
+          onChange={(e) => setQuery(e.target.value)}
+        />
         {people.isError && <Alert tone="error">{errorMessage(people.error)}</Alert>}
         <ul className="flex max-h-80 flex-col gap-1 overflow-y-auto">
           {people.data?.map((u) => (
@@ -467,7 +541,13 @@ function dataUrlToFile(dataUrl: string): File {
 }
 
 /** Square crop with a white sticker outline, 512 × 512 (WebP, or PNG where WebP is unsupported). */
-function makeSticker(image: HTMLImageElement, zoom: number, dx: number, dy: number, round: boolean): string {
+function makeSticker(
+  image: HTMLImageElement,
+  zoom: number,
+  dx: number,
+  dy: number,
+  round: boolean,
+): string {
   const size = 512;
   const border = 18;
   const canvas = document.createElement('canvas');
@@ -475,8 +555,8 @@ function makeSticker(image: HTMLImageElement, zoom: number, dx: number, dy: numb
   canvas.height = size;
   const ctx = canvas.getContext('2d')!;
   const side = Math.min(image.naturalWidth, image.naturalHeight) / zoom;
-  const sx = (image.naturalWidth - side) / 2 + dx * (image.naturalWidth - side) / 2;
-  const sy = (image.naturalHeight - side) / 2 + dy * (image.naturalHeight - side) / 2;
+  const sx = (image.naturalWidth - side) / 2 + (dx * (image.naturalWidth - side)) / 2;
+  const sy = (image.naturalHeight - side) / 2 + (dy * (image.naturalHeight - side)) / 2;
   const shape = (inset: number) => {
     ctx.beginPath();
     if (round) ctx.arc(size / 2, size / 2, size / 2 - inset, 0, Math.PI * 2);
@@ -505,7 +585,9 @@ export function StickerDialog({
   onSendCustom?: (file: File) => void;
 }) {
   const [tab, setTab] = useState<'pack' | 'mine'>('pack');
-  const [mine, setMine] = useState<string[]>(() => (typeof window === 'undefined' ? [] : loadMyStickers()));
+  const [mine, setMine] = useState<string[]>(() =>
+    typeof window === 'undefined' ? [] : loadMyStickers(),
+  );
   const [source, setSource] = useState<HTMLImageElement | null>(null);
   const [zoom, setZoom] = useState(1);
   const [dx, setDx] = useState(0);
@@ -525,7 +607,10 @@ export function StickerDialog({
                 role="tab"
                 aria-selected={tab === t}
                 onClick={() => setTab(t)}
-                className={cx('min-h-10 flex-1 rounded-lg text-sm font-semibold', tab === t ? 'bg-surface shadow-card' : 'text-muted')}
+                className={cx(
+                  'min-h-10 flex-1 rounded-lg text-sm font-semibold',
+                  tab === t ? 'bg-surface shadow-card' : 'text-muted',
+                )}
               >
                 {t === 'pack' ? 'SMA stickers' : 'My stickers'}
               </button>
@@ -552,18 +637,47 @@ export function StickerDialog({
             <img src={preview} alt="Sticker preview" className="size-44 drop-shadow-lg" />
             <label className="flex w-full items-center gap-3 text-sm">
               Zoom
-              <input type="range" min={1} max={3} step={0.05} value={zoom} onChange={(e) => setZoom(Number(e.target.value))} className="flex-1" />
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.05}
+                value={zoom}
+                onChange={(e) => setZoom(Number(e.target.value))}
+                className="flex-1"
+              />
             </label>
             <label className="flex w-full items-center gap-3 text-sm">
               Left / right
-              <input type="range" min={-1} max={1} step={0.02} value={dx} onChange={(e) => setDx(Number(e.target.value))} className="flex-1" />
+              <input
+                type="range"
+                min={-1}
+                max={1}
+                step={0.02}
+                value={dx}
+                onChange={(e) => setDx(Number(e.target.value))}
+                className="flex-1"
+              />
             </label>
             <label className="flex w-full items-center gap-3 text-sm">
               Up / down
-              <input type="range" min={-1} max={1} step={0.02} value={dy} onChange={(e) => setDy(Number(e.target.value))} className="flex-1" />
+              <input
+                type="range"
+                min={-1}
+                max={1}
+                step={0.02}
+                value={dy}
+                onChange={(e) => setDy(Number(e.target.value))}
+                className="flex-1"
+              />
             </label>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" className="size-4 accent-[var(--color-brand)]" checked={round} onChange={(e) => setRound(e.target.checked)} />
+              <input
+                type="checkbox"
+                className="size-4 accent-[var(--color-brand)]"
+                checked={round}
+                onChange={(e) => setRound(e.target.checked)}
+              />
               Round
             </label>
             <div className="flex gap-2">
@@ -637,7 +751,9 @@ export function StickerDialog({
                 </span>
               ))}
             </div>
-            <p className="text-sm text-muted">Make a sticker from any photo. Your stickers are kept on this device.</p>
+            <p className="text-sm text-muted">
+              Make a sticker from any photo. Your stickers are kept on this device.
+            </p>
           </>
         )}
       </div>
@@ -648,7 +764,13 @@ export function StickerDialog({
 // ───────────────────────────── Camera ─────────────────────────────
 
 /** Takes a photo with the computer's camera (phones use their own camera app instead). */
-export function CameraDialog({ onClose, onCapture }: { onClose: () => void; onCapture: (file: File) => void }) {
+export function CameraDialog({
+  onClose,
+  onCapture,
+}: {
+  onClose: () => void;
+  onCapture: (file: File) => void;
+}) {
   const video = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -692,13 +814,27 @@ export function CameraDialog({ onClose, onCapture }: { onClose: () => void; onCa
         {error ? (
           <Alert tone="warning">{error}</Alert>
         ) : (
-          <video ref={video} autoPlay playsInline muted className="max-h-[60vh] w-full rounded-2xl bg-black object-contain" />
+          <video
+            ref={video}
+            autoPlay
+            playsInline
+            muted
+            className="max-h-[60vh] w-full rounded-2xl bg-black object-contain"
+          />
         )}
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setFacing(facing === 'user' ? 'environment' : 'user')} icon={<RefreshCw className="size-4" aria-hidden />}>
+          <Button
+            variant="secondary"
+            onClick={() => setFacing(facing === 'user' ? 'environment' : 'user')}
+            icon={<RefreshCw className="size-4" aria-hidden />}
+          >
             Switch camera
           </Button>
-          <Button onClick={capture} disabled={!stream} icon={<Camera className="size-5" aria-hidden />}>
+          <Button
+            onClick={capture}
+            disabled={!stream}
+            icon={<Camera className="size-5" aria-hidden />}
+          >
             Take photo
           </Button>
         </div>

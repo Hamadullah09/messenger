@@ -39,7 +39,10 @@ function PeoplePicker({
     <div className="flex flex-col gap-2">
       <label className="relative block">
         <span className="sr-only">Search people</span>
-        <Search className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted" aria-hidden />
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3 size-5 -translate-y-1/2 text-muted"
+          aria-hidden
+        />
         <input
           type="search"
           value={query}
@@ -218,9 +221,17 @@ export function BroadcastInfoPanel({
   });
   const l = list.data;
   return (
-    <aside className="flex h-full flex-col border-l border-wa-divider bg-wa-list" aria-label="Broadcast list info">
+    <aside
+      className="flex h-full flex-col border-l border-wa-divider bg-wa-list"
+      aria-label="Broadcast list info"
+    >
       <header className="flex h-[60px] shrink-0 items-center gap-3 bg-wa-panel px-4">
-        <button type="button" aria-label="Close" onClick={onClose} className="inline-flex size-10 items-center justify-center rounded-full hover:bg-wa-hover">
+        <button
+          type="button"
+          aria-label="Close"
+          onClick={onClose}
+          className="inline-flex size-10 items-center justify-center rounded-full hover:bg-wa-hover"
+        >
           <X className="size-5" aria-hidden />
         </button>
         <h2 className="font-medium">Broadcast list info</h2>
@@ -271,7 +282,10 @@ export function BroadcastInfoPanel({
               )}
               <ul className="flex flex-col gap-1">
                 {l.recipients.map((r) => (
-                  <li key={r.id} className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-wa-hover">
+                  <li
+                    key={r.id}
+                    className="flex items-center gap-3 rounded-xl px-2 py-2 hover:bg-wa-hover"
+                  >
                     <Avatar name={r.displayName} size={40} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate font-medium">{r.displayName}</span>
@@ -298,13 +312,23 @@ export function BroadcastInfoPanel({
                   <Button size="sm" variant="secondary" onClick={() => setConfirmDelete(false)}>
                     Keep
                   </Button>
-                  <Button size="sm" variant="danger" busy={remove.isPending} onClick={() => remove.mutate()}>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    busy={remove.isPending}
+                    onClick={() => remove.mutate()}
+                  >
                     Delete list
                   </Button>
                 </div>
               </Alert>
             ) : (
-              <Button variant="ghost" className="text-danger" icon={<Trash2 className="size-5" aria-hidden />} onClick={() => setConfirmDelete(true)}>
+              <Button
+                variant="ghost"
+                className="text-danger"
+                icon={<Trash2 className="size-5" aria-hidden />}
+                onClick={() => setConfirmDelete(true)}
+              >
                 Delete broadcast list
               </Button>
             )}
