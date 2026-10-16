@@ -39,7 +39,9 @@ export type PushJobData =
   | { kind: 'message'; messageId: string; userIds: string[] }
   | { kind: 'emergency'; incidentId: string; userIds: string[] }
   /** ring: a call is ringing them · missed: they did not answer · ended: clear the ringing. */
-  | { kind: 'call'; callId: string; userIds: string[]; event: 'ring' | 'missed' | 'ended' };
+  | { kind: 'call'; callId: string; userIds: string[]; event: 'ring' | 'missed' | 'ended' }
+  /** A short notice (e.g. "invoice due") with where to open it. */
+  | { kind: 'notice'; userIds: string[]; title: string; body: string; url: string; tag: string };
 
 export const PUSH_JOB_OPTIONS = {
   attempts: 4,

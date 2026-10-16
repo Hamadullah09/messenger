@@ -55,8 +55,8 @@ export interface CrmSettingsDto {
   /** Days after the due date when reminders go out, e.g. [1, 7, 14]; 0 = on the due date. */
   reminderDays: number[];
   /**
-   * Monthly payments are due by this day of the month (e.g. 10: the 1st to the 10th). null:
-   * each subscription's own number of days.
+   * Monthly payments are due by this day of the month (default 10: the 1st to the 10th).
+   * null: each subscription's own number of days.
    */
   paymentDueDay: number | null;
   reminderChannels: Array<'EMAIL' | 'WHATSAPP' | 'SMS'>;
@@ -597,6 +597,8 @@ export interface FinanceInvoiceRowDto {
   daysLate: number;
   /** From a monthly/yearly subscription. */
   recurring: boolean;
+  /** The customer is a business on SMA: its admins can be notified in the app. */
+  onSma: boolean;
   reminderCount: number;
   lastReminderAt: string | null;
 }
@@ -645,5 +647,10 @@ export interface FinanceDashboardDto {
 export const financeRemindRequestSchema = z.object({
   /** Invoices to remind now; empty: every overdue invoice. */
   invoiceIds: z.array(idSchema).max(500).default([]),
+  /**
+   * email: by email only. notify: WhatsApp/SMS (where set up) and a notice in the SMA app to the
+   * customer business's admins. all: the business's reminder channels and the app notice.
+   */
+  via: z.enum(['email', 'notify', 'all']).default('all'),
 });
 export type FinanceRemindRequest = z.infer<typeof financeRemindRequestSchema>;

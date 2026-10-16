@@ -9,6 +9,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock,
+  Mail,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -71,16 +72,21 @@ export function AccountsTab() {
     queryFn: () => api<FinanceDashboardDto>('/sales/crm/finance'),
   });
   const remind = useMutation({
-    mutationFn: (invoiceIds: string[]) =>
+    mutationFn: (v: { invoiceIds: string[]; via: 'email' | 'notify' | 'all' }) =>
       api<{ reminded: number; failed: number }>('/sales/crm/finance/remind', {
         method: 'POST',
-        body: { invoiceIds },
+        body: v,
       }),
-    onSuccess: (r) => {
+    onSuccess: (r, v) => {
+      const what = v.via === 'email' ? 'email' : v.via === 'notify' ? 'notification' : 'reminder';
       setNote(
         r.reminded === 0
-          ? 'No reminder could be sent. Check that the customers have an email address (or phone for WhatsApp/SMS) and that email is set up.'
-          : `${r.reminded} reminder${r.reminded === 1 ? '' : 's'} sent${r.failed ? ` · ${r.failed} could not be sent (no email or phone)` : ''}.`,
+          ? v.via === 'email'
+            ? 'No email could be sent. Check the customer has an email address and that email is set up (Features & integrations).'
+            : v.via === 'notify'
+              ? 'Nothing could be sent: the customer is not a business on SMA and WhatsApp/SMS are not set up or there is no phone number.'
+              : 'No reminder could be sent. Check that the customers have an email address (or phone for WhatsApp/SMS) and that email is set up.'
+          : `${r.reminded} ${what}${r.reminded === 1 ? '' : 's'} sent${r.failed ? ` · ${r.failed} could not be sent` : ''}.`,
       );
       void client.invalidateQueries({ queryKey: ['crm'] });
     },
@@ -276,9 +282,9 @@ export function AccountsTab() {
           {d.canRemind && lateCount > 0 && (
             <Button
               variant="secondary"
-              busy={remind.isPending && remind.variables?.length === 0}
+              busy={remind.isPending && remind.variables?.invoiceIds.length === 0}
               icon={<BellRing className="size-5" aria-hidden />}
-              onClick={() => remind.mutate([])}
+              onClick={() => remind.mutate({ invoiceIds: [], via: 'all' })}
             >
               Remind all late ({lateCount})
             </Button>
@@ -330,14 +336,42 @@ export function AccountsTab() {
                     </td>
                     <td className="py-2.5 text-right">
                       {d.canRemind && (
-                        <Button
-                          variant="secondary"
-                          busy={remind.isPending && remind.variables?.[0] === r.id}
-                          disabled={!r.email && !r.phone}
-                          onClick={() => remind.mutate([r.id])}
-                        >
-                          Remind
-                        </Button>
+                        <div className="flex justify-end gap-1.5">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={<Mail className="size-4" aria-hidden />}
+                            busy={
+                              remind.isPending &&
+                              remind.variables?.via === 'email' &&
+                              remind.variables.invoiceIds[0] === r.id
+                            }
+                            disabled={!r.email}
+                            title={r.email ? `Email ${r.email}` : 'No email address'}
+                            onClick={() => remind.mutate({ invoiceIds: [r.id], via: 'email' })}
+                          >
+                            Email
+                          </Button>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={<BellRing className="size-4" aria-hidden />}
+                            busy={
+                              remind.isPending &&
+                              remind.variables?.via === 'notify' &&
+                              remind.variables.invoiceIds[0] === r.id
+                            }
+                            disabled={!r.onSma && !r.phone}
+                            title={
+                              r.onSma
+                                ? 'Notify their admins in the SMA app (and WhatsApp/SMS if set up)'
+                                : 'WhatsApp/SMS to their phone (when set up)'
+                            }
+                            onClick={() => remind.mutate({ invoiceIds: [r.id], via: 'notify' })}
+                          >
+                            Notify
+                          </Button>
+                        </div>
                       )}
                     </td>
                   </tr>

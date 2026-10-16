@@ -1,9 +1,9 @@
 import {
   BarChart3,
   CircleDashed,
+  Phone,
   ClipboardList,
   Plug,
-  Phone,
   Building2,
   Contact,
   HelpCircle,
@@ -30,7 +30,7 @@ export interface NavItem {
   match: (pathname: string, tab: string | null) => boolean;
 }
 
-export function primaryNav(me: MeDto | null, features?: FeaturesDto): NavItem[] {
+export function primaryNav(me: MeDto | null, features?: FeaturesDto | null): NavItem[] {
   const items: NavItem[] = [
     {
       href: '/dashboard',
@@ -45,15 +45,15 @@ export function primaryNav(me: MeDto | null, features?: FeaturesDto): NavItem[] 
       match: (p) => p.startsWith('/chats'),
     },
   ];
-  // Parts the Super Admin switched off are hidden (Settings → Features).
-  if (features?.STATUS !== false)
+  // Status and Calls show only while switched on (Features & integrations → Features).
+  if (features?.STATUS)
     items.push({
       href: '/status',
       label: 'Status',
       Icon: CircleDashed,
       match: (p) => p.startsWith('/status'),
     });
-  if (features?.CALLS !== false)
+  if (features?.CALLS)
     items.push({
       href: '/calls',
       label: 'Calls',

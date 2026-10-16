@@ -18,3 +18,15 @@ export function useFeatures(): FeaturesDto {
   });
   return query.data ?? ALL_ON;
 }
+
+/** For menus: nothing until the real answer arrives (an off item never flashes up). */
+export function useLoadedFeatures(): FeaturesDto | null {
+  const signedIn = useAuth((s) => s.status === 'signed-in');
+  const query = useQuery({
+    queryKey: ['features'],
+    queryFn: () => api<FeaturesDto>('/features'),
+    enabled: signedIn,
+    staleTime: 60_000,
+  });
+  return query.data ?? null;
+}

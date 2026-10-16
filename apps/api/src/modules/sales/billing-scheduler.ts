@@ -5,6 +5,10 @@ import {
   type OnModuleDestroy,
 } from '@nestjs/common';
 import { MailService } from '../../infra/mail/mail.service';
+import { OutboxService } from '../outbox/outbox.service';
+
+/** How a payment reminder goes out; APP = a notice in the SMA app to a customer business. */
+export type ReminderChannel = 'EMAIL' | 'WHATSAPP' | 'SMS' | 'APP';
 import { MarketingChannelsService } from '../../infra/mail/marketing-channels.service';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import {
@@ -42,6 +46,7 @@ export class BillingRunner {
     private readonly settings: CrmSettingsService,
     private readonly mail: MailService,
     private readonly channels: MarketingChannelsService,
+    private readonly outbox: OutboxService,
   ) {}
 
   /** One invoice per due subscription period; the period moves on in the same transaction. */
@@ -257,17 +262,24 @@ export class BillingRunner {
    * Sends one reminder on every configured channel; counts it if any channel accepted it.
    * `step` sets how many reminder steps are done (default: one more than now).
    */
-  async remind(invoiceId: string, step?: number): Promise<boolean> {
+  async remind(invoiceId: string, step?: number, only?: ReminderChannel[]): Promise<boolean> {
     const found = await this.documentFor(invoiceId);
     if (!found) return false;
     const s = await this.settings.load(found.tenantId);
+    // Automatic and "remind" use the business's channels, plus the SMA app when the customer
+    // is a business on SMA; "Email" or "Notify" in the Accounts tab pick their own.
+    const ways: ReminderChannel[] = only ?? [...s.reminderChannels, 'APP'];
     const { doc } = found;
     const dueToday = doc.dueDate === isoDate(today());
     const when = dueToday ? `is due today (${doc.dueDate})` : `was due on ${doc.dueDate}`;
     const intro = `Friendly reminder: invoice ${doc.number} for ${formatMoney(doc.balance ?? doc.total, doc.currency)} ${when}.`;
     const shortText = `${intro} ${doc.actionUrl ? `Pay or view it here: ${doc.actionUrl}` : ''} — ${s.companyName}`;
     let delivered = false;
-    for (const channel of s.reminderChannels) {
+    for (const channel of ways) {
+      if (channel === 'APP') {
+        delivered = (await this.notifyApp(invoiceId, intro)) || delivered;
+        continue;
+      }
       if (channel === 'EMAIL') delivered = (await this.emailInvoice(invoiceId, intro)) || delivered;
       else if (found.phone && s.channels[channel]) {
         const result = await this.channels.send(channel, {
@@ -289,6 +301,44 @@ export class BillingRunner {
       },
     });
     return delivered;
+  }
+
+  /**
+   * Customer is a business on SMA: a phone/app notice to its owners and admins (the SMA bill
+   * is under Admin → Plan & billing). Returns whether anyone was there to notify.
+   */
+  private async notifyApp(invoiceId: string, text: string): Promise<boolean> {
+    const invoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { businessId: true, number: true },
+    });
+    if (!invoice?.businessId) return false;
+    const admins = await this.prisma.roleAssignment.findMany({
+      where: {
+        businessId: invoice.businessId,
+        revokedAt: null,
+        role: { key: { in: ['BUSINESS_OWNER', 'BUSINESS_ADMIN'] }, isSystem: true },
+        user: { status: 'ACTIVE', deletedAt: null },
+      },
+      select: { userId: true },
+    });
+    const userIds = [...new Set(admins.map((a) => a.userId))];
+    if (userIds.length === 0) return false;
+    await this.outbox.pushQueue
+      .add(
+        'notice',
+        {
+          kind: 'notice',
+          userIds,
+          title: 'Payment reminder',
+          body: text,
+          url: '/admin?tab=billing',
+          tag: `invoice-${invoice.number}`,
+        },
+        { jobId: `invoice-${invoiceId}-${Date.now()}` },
+      )
+      .catch(() => undefined);
+    return true;
   }
 }
 

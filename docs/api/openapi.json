@@ -2408,6 +2408,61 @@
         ]
       }
     },
+    "/api/v1/businesses/{businessId}/users/{userId}/export-access": {
+      "put": {
+        "operationId": "BusinessUsersController_setExportAccess_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "businessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "userId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "allowed": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "allowed"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "users"
+        ]
+      }
+    },
     "/api/v1/businesses/{businessId}/users/{userId}/managed-stores/{storeId}": {
       "delete": {
         "operationId": "BusinessUsersController_removeManagedStore_v1",
@@ -10195,6 +10250,15 @@
                     },
                     "maxItems": 500,
                     "type": "array"
+                  },
+                  "via": {
+                    "default": "all",
+                    "enum": [
+                      "email",
+                      "notify",
+                      "all"
+                    ],
+                    "type": "string"
                   }
                 },
                 "type": "object"

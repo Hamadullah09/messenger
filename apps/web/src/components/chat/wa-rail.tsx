@@ -18,6 +18,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { hasPermission, hasTenantPermission, useAuth } from '@/lib/auth-store';
 import { AWAITING, useIncidents } from '@/lib/emergency';
+import { useLoadedFeatures } from '@/lib/features';
 import { resolvedTheme, useTheme } from '@/lib/theme';
 import { BrandIcon } from '../brand';
 import { EmergencyButton } from '../emergency/raise-alert';
@@ -73,6 +74,7 @@ export function WaRail({ unreadChats }: { unreadChats: number }) {
   const pathname = usePathname();
   const me = useAuth((s) => s.me);
   const businessId = useAuth((s) => s.activeBusinessId);
+  const features = useLoadedFeatures();
   const [theme, setTheme] = useTheme();
   const dark = resolvedTheme(theme) === 'dark';
   const incidents = useIncidents(true);
@@ -96,8 +98,10 @@ export function WaRail({ unreadChats }: { unreadChats: number }) {
           active={pathname.startsWith('/chats')}
           badge={unreadChats}
         />
-        <RailLink href="/status" label="Status" Icon={CircleDashed} active={false} />
-        <RailLink href="/calls" label="Calls" Icon={Phone} active={false} />
+        {features?.STATUS && (
+          <RailLink href="/status" label="Status" Icon={CircleDashed} active={false} />
+        )}
+        {features?.CALLS && <RailLink href="/calls" label="Calls" Icon={Phone} active={false} />}
         {showEmergency && (
           <RailLink
             href="/emergency"

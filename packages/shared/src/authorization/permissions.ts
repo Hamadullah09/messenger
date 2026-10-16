@@ -137,6 +137,12 @@ export const PERMISSIONS = definePermissions({
 
 export type Permission = keyof typeof PERMISSIONS;
 
+/**
+ * The business role an admin gives with "Can export data" (People → a person): exporting leads,
+ * customers and reports without being an admin. Created per business when first needed.
+ */
+export const EXPORT_ROLE_KEY = 'data-export';
+
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
 
 export function isPermission(value: string): value is Permission {

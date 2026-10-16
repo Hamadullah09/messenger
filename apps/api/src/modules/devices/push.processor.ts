@@ -65,6 +65,19 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
 
   async process(data: PushJobData): Promise<{ sent: number; skipped: number }> {
     if (data.kind === 'call') return this.call(data.callId, data.userIds, data.event);
+    if (data.kind === 'notice')
+      return this.deliver(
+        data.userIds,
+        false,
+        (): PushPayload => ({
+          type: 'reminder',
+          title: data.title,
+          body: data.body,
+          url: data.url,
+          tag: data.tag,
+        }),
+        { urgency: 'high', ttlSeconds: 24 * 3600 },
+      );
     return data.kind === 'message'
       ? this.message(data.messageId, data.userIds)
       : this.emergency(data.incidentId, data.userIds);

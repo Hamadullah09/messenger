@@ -12,7 +12,7 @@ import { PrismaService } from '../../infra/prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
 import { CurrentActor, type Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
-import { BillingRunner } from './billing-scheduler';
+import { BillingRunner, type ReminderChannel } from './billing-scheduler';
 import { CrmSettingsService, isoDate, num, round2, today } from './crm-core';
 import { SalesService } from './sales.service';
 
@@ -116,6 +116,7 @@ export class FinanceService {
         dueDate: isoDate(i.dueDate),
         daysLate: daysLate(i.dueDate),
         recurring: !!i.subscriptionId,
+        onSma: !!i.businessId,
         reminderCount: i.reminderCount,
         lastReminderAt: i.lastReminderAt?.toISOString() ?? null,
       }))
@@ -208,12 +209,18 @@ export class FinanceService {
       select: { id: true },
       take: 200,
     });
+    const ways: ReminderChannel[] | undefined =
+      request.via === 'email'
+        ? ['EMAIL']
+        : request.via === 'notify'
+          ? ['WHATSAPP', 'SMS', 'APP']
+          : undefined;
     let reminded = 0;
-    for (const row of rows) if (await this.runner.remind(row.id)) reminded += 1;
+    for (const row of rows) if (await this.runner.remind(row.id, undefined, ways)) reminded += 1;
     await this.audit.record(actor, {
       action: 'sales.payment_reminders_sent',
       businessId: tenantId,
-      metadata: { reminded, failed: rows.length - reminded },
+      metadata: { reminded, failed: rows.length - reminded, via: request.via },
     });
     return { reminded, failed: rows.length - reminded };
   }

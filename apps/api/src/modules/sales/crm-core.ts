@@ -29,7 +29,13 @@ export function today(): Date {
   return dateOnly(new Date());
 }
 
+/** Monthly payments are due from the 1st to the 10th unless a business changes it. */
+export const DEFAULT_PAYMENT_DUE_DAY = 10;
+export const DEFAULT_REMINDER_DAYS = [0, 7, 14] as const;
+
+/** Not set: the default (the 10th). "off": each subscription's own number of days. */
 const dueDay = (value: string | undefined): number | null => {
+  if (value === undefined) return DEFAULT_PAYMENT_DUE_DAY;
   const n = Number(value);
   return Number.isInteger(n) && n >= 1 && n <= 28 ? n : null;
 };
@@ -126,7 +132,7 @@ export class CrmSettingsService {
       return v === undefined || v === '' ? undefined : v;
     };
     const currency = (get('CRM_DEFAULT_CURRENCY') ?? c.CRM_CURRENCY) as Currency;
-    const days = (get('REMINDER_DAYS') ?? '1,7,14')
+    const days = (get('REMINDER_DAYS') ?? DEFAULT_REMINDER_DAYS.join(','))
       .split(',')
       .map((d) => Number(d.trim()))
       .filter((d) => Number.isInteger(d) && d >= 0)
@@ -161,7 +167,8 @@ export class CrmSettingsService {
         easypaisa: get('PAY_EASYPAISA_ACCOUNT') ?? null,
         bank: get('PAY_BANK_ACCOUNT') ?? null,
       },
-      reminderDays: days.length > 0 ? days : [1, 7, 14],
+      // Default: an email on the due date, then 7 and 14 days late.
+      reminderDays: days.length > 0 ? days : [...DEFAULT_REMINDER_DAYS],
       paymentDueDay: dueDay(get('PAYMENT_DUE_DAY')),
       reminderChannels: reminderChannels.length > 0 ? reminderChannels : ['EMAIL'],
       channels: this.channels.available(),
@@ -196,7 +203,7 @@ export class CrmSettingsService {
         'PAYMENT_DUE_DAY',
         request.paymentDueDay === undefined
           ? undefined
-          : (request.paymentDueDay?.toString() ?? null),
+          : (request.paymentDueDay?.toString() ?? 'off'),
       ],
     ];
     for (const [key, value] of values) {

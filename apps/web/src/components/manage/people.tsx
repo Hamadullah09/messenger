@@ -2,6 +2,7 @@
 
 import {
   BUSINESS_ROLE_KEYS,
+  EXPORT_ROLE_KEY,
   PASSWORD_MIN_LENGTH,
   STORE_STAFF_ROLE_KEYS,
   SYSTEM_ROLES,
@@ -15,6 +16,7 @@ import { useMutation } from '@tanstack/react-query';
 import { KeyRound, LogOut, ShieldOff, Trash2, UserCheck, UserX } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { api, ApiRequestError, errorMessage } from '@/lib/api';
+import { hasPermission, useAuth } from '@/lib/auth-store';
 import { Alert, Button, ConfirmDialog, Dialog, SelectField, TextField } from '../ui';
 
 export const ROLE_LABELS: Record<SystemRoleKey, string> = {
@@ -390,6 +392,21 @@ export function ManagePersonDialog({
     destroy,
   ].find((a) => a.mutation.isError)?.mutation.error;
   const roleIsStoreScoped = !isBusinessRole(roleKey);
+  // "Can export data": admins give it to people who are not admins.
+  const me = useAuth((s) => s.me);
+  const canGiveExport = full && hasPermission(me, 'report.export', businessId);
+  const adminRole = user.roles.some((r) =>
+    ['SUPER_ADMIN', 'BUSINESS_OWNER', 'BUSINESS_ADMIN'].includes(r.roleKey),
+  );
+  const exportGiven = user.roles.some((r) => r.roleKey === EXPORT_ROLE_KEY);
+  const setExport = useAction(
+    (allowed: boolean) =>
+      api(`/businesses/${businessId}/users/${user.id}/export-access`, {
+        method: 'PUT',
+        body: { allowed },
+      }),
+    after('Export access saved.'),
+  );
   const roleChoices = roles.includes(currentRole) ? roles : [currentRole, ...roles];
 
   return (
@@ -509,6 +526,36 @@ export function ManagePersonDialog({
             >
               Save role
             </Button>
+          </Section>
+        )}
+
+        {canGiveExport && user.kind === 'INTERNAL' && (
+          <Section title="Exporting">
+            {adminRole ? (
+              <p className="text-sm text-muted">
+                As an admin, {user.displayName} can already export leads, customers and reports.
+              </p>
+            ) : (
+              <>
+                <label className="flex min-h-11 items-center gap-3">
+                  <input
+                    type="checkbox"
+                    className="size-5"
+                    checked={exportGiven}
+                    disabled={setExport.mutation.isPending}
+                    onChange={(e) => setExport.mutation.mutate(e.target.checked)}
+                  />
+                  Can export data (Excel/CSV)
+                </label>
+                <p className="text-sm text-muted">
+                  Only admins can export unless you tick this. They export what they can see (a
+                  sales agent: their own leads).
+                </p>
+              </>
+            )}
+            {setExport.mutation.isError && (
+              <Alert tone="error">{errorMessage(setExport.mutation.error)}</Alert>
+            )}
           </Section>
         )}
 

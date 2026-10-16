@@ -870,7 +870,7 @@ function Leads({
           Only stuck leads
         </label>
         <span className="flex-1" />
-        {context.canSeeAll && canExport && (
+        {canExport && (
           <Button
             variant="secondary"
             size="sm"
@@ -1001,7 +1001,7 @@ function Customers({
             ? 'Businesses that buy SMA: what they bought, paid and owe. Use Upsell to sell them more.'
             : 'Your won leads: what they bought, paid and owe. Use Upsell to sell them more.'}
         </p>
-        {context.canSeeAll && canExport && (
+        {canExport && (
           <Button
             variant="secondary"
             size="sm"

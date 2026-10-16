@@ -1267,7 +1267,7 @@ export function CrmSettingsTab() {
         </p>
         <TextField
           label="Monthly payments are due by day"
-          hint="e.g. 10: monthly invoices are paid from the 1st to the 10th. Leave empty to use each subscription’s own number of days."
+          hint="Normally 10: monthly invoices are paid from the 1st to the 10th. Leave empty to use each subscription’s own number of days instead."
           type="number"
           min={1}
           max={28}

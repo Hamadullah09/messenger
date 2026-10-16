@@ -38,8 +38,11 @@ import {
 } from '@storeline/shared';
 import { ApiZodBody, ApiZodQuery, ZodPipe } from '../../infra/http/zod';
 import { CurrentActor, type Actor } from '../auth/actor';
+import { z } from 'zod';
 import { RolesService } from './roles.service';
 import { UsersService } from './users.service';
+
+const exportAccessSchema = z.object({ allowed: z.boolean() });
 
 @ApiTags('users')
 @ApiBearerAuth()
@@ -158,6 +161,18 @@ export class BusinessUsersController {
     @Param('userId', ParseUUIDPipe) userId: string,
   ): Promise<UserContactDto> {
     return this.users.getContact(actor, businessId, userId);
+  }
+
+  /** "Can export data" for someone who is not an admin. */
+  @Put(':userId/export-access')
+  @ApiZodBody(exportAccessSchema)
+  setExportAccess(
+    @CurrentActor() actor: Actor,
+    @Param('businessId', ParseUUIDPipe) businessId: string,
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body(new ZodPipe(exportAccessSchema)) body: z.infer<typeof exportAccessSchema>,
+  ): Promise<AdminUserDto> {
+    return this.users.setExportAccess(actor, businessId, userId, body.allowed);
   }
 
   @Put(':userId/contact')

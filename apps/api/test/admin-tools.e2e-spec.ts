@@ -279,12 +279,69 @@ describe('Features, uploads, exports and accounts', () => {
       await h.prisma.auditLog.count({ where: { action: 'sales.payment_reminders_sent' } }),
     ).toBe(1);
 
-    // The monthly payment window: due by the 10th.
+    // Default: monthly payments due from the 1st to the 10th, an email on the due date.
+    expect(d.paymentDueDay).toBe(10);
+    expect(d.reminderDays).toEqual([0, 7, 14]);
+    // Turned off: each subscription's own number of days; then back to the 10th.
+    await accountant.put('/api/v1/sales/crm/settings').send({ paymentDueDay: null }).expect(200);
+    expect(
+      ((await accountant.get('/api/v1/sales/crm/finance').expect(200)).body as FinanceDashboardDto)
+        .paymentDueDay,
+    ).toBeNull();
     await accountant.put('/api/v1/sales/crm/settings').send({ paymentDueDay: 10 }).expect(200);
     expect(
       ((await accountant.get('/api/v1/sales/crm/finance').expect(200)).body as FinanceDashboardDto)
         .paymentDueDay,
     ).toBe(10);
+  });
+
+  it('lets admins give "Can export data" to others', async () => {
+    const agentUser = await h.createUser({ role: 'SALES_AGENT', businessId: business.id });
+    // Exporting is a privileged right: it needs two-step verification when that is required.
+    const agent = await h.loginWithMfa(agentUser.username);
+    const url = `/api/v1/businesses/${business.id}/users/${agentUser.id}/export-access`;
+    // A sales manager is not an admin: cannot give it.
+    await manager.put(url).send({ allowed: true }).expect(403);
+    await agent.get('/api/v1/sales/leads-export.csv').expect(403);
+    const given = await admin.put(url).send({ allowed: true }).expect(200);
+    expect(given.body.roles.map((r: { roleKey: string }) => r.roleKey)).toContain('data-export');
+    // They export what they can see: an agent, only their own leads.
+    const csv = await agent.get('/api/v1/sales/leads-export.csv').expect(200);
+    expect(csv.text).not.toContain('Golf Stores');
+    await admin.put(url).send({ allowed: false }).expect(200);
+    await agent.get('/api/v1/sales/leads-export.csv').expect(403);
+  });
+
+  it('notifies a customer business on SMA in the app about its bill', async () => {
+    const sma = await h.prisma.business.findFirstOrThrow({ where: { internal: true } });
+    const invoice = await h.prisma.invoice.create({
+      data: {
+        tenantId: sma.id,
+        number: 'INV-NOTIFY-1',
+        businessId: business.id,
+        billToName: 'Delta Mart',
+        issueDate: new Date(Date.now() - 20 * 86_400_000),
+        dueDate: new Date(Date.now() - 6 * 86_400_000),
+        currency: 'USD',
+        subtotal: 99,
+        total: 99,
+        status: 'ISSUED',
+      },
+    });
+    const d = (await superAdmin.get('/api/v1/sales/crm/finance').expect(200))
+      .body as FinanceDashboardDto;
+    expect(d.unpaid.find((r) => r.id === invoice.id)).toMatchObject({ onSma: true });
+    // No email address on file: email cannot go, the in-app notice can.
+    const email = await superAdmin
+      .post('/api/v1/sales/crm/finance/remind')
+      .send({ invoiceIds: [invoice.id], via: 'email' })
+      .expect(200);
+    expect(email.body).toEqual({ reminded: 0, failed: 1 });
+    const notify = await superAdmin
+      .post('/api/v1/sales/crm/finance/remind')
+      .send({ invoiceIds: [invoice.id], via: 'notify' })
+      .expect(200);
+    expect(notify.body).toEqual({ reminded: 1, failed: 0 });
   });
 
   it('works out the due date from the payment window', () => {

@@ -153,6 +153,14 @@ export function AgendaTab({
           value={groups.overdue.length}
           Icon={AlarmClock}
           warn={groups.overdue.length > 0}
+          onClick={
+            groups.overdue.length > 0
+              ? () =>
+                  document
+                    .getElementById('agenda-overdue')
+                    ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              : undefined
+          }
         />
       </div>
 
@@ -167,16 +175,12 @@ export function AgendaTab({
         </EmptyState>
       )}
 
-      {groups.overdue.length > 0 && (
-        <AgendaGroup
-          title="Overdue"
-          tone="danger"
-          items={groups.overdue}
-          showDate
-          showOwner={!mine}
-          onOpen={onOpenLead}
-          onDone={setDoneFor}
-        />
+      {agenda.isSuccess && todays.length === 0 && groups.overdue.length > 0 && (
+        <p className="rounded-2xl border border-line bg-surface p-4 text-muted shadow-card">
+          Nothing planned for today. {groups.overdue.length} follow-up
+          {groups.overdue.length === 1 ? ' from an earlier day is' : 's from earlier days are'}{' '}
+          still waiting below.
+        </p>
       )}
       {groups.days.map((g) => (
         <AgendaGroup
@@ -188,6 +192,18 @@ export function AgendaTab({
           onDone={setDoneFor}
         />
       ))}
+      {groups.overdue.length > 0 && (
+        <AgendaGroup
+          id="agenda-overdue"
+          title="Overdue · from earlier days"
+          tone="danger"
+          items={groups.overdue}
+          showDate
+          showOwner={!mine}
+          onOpen={onOpenLead}
+          onDone={setDoneFor}
+        />
+      )}
 
       {doneFor && <FollowUpDoneDialog lead={doneFor} onClose={() => setDoneFor(null)} />}
     </div>
@@ -199,25 +215,36 @@ function SummaryTile({
   value,
   Icon,
   warn,
+  onClick,
 }: {
   label: string;
   value: number;
   Icon: LucideIcon;
   warn?: boolean;
+  /** Overdue: jumps to the overdue list further down. */
+  onClick?: () => void;
 }) {
+  const Box = onClick ? 'button' : 'div';
   return (
-    <div className="rounded-2xl border border-line bg-surface p-3 shadow-card sm:p-4">
+    <Box
+      {...(onClick ? { type: 'button' as const, onClick } : {})}
+      className={cx(
+        'rounded-2xl border border-line bg-surface p-3 text-left shadow-card sm:p-4',
+        onClick && 'hover:border-danger/50',
+      )}
+    >
       <p className="flex items-center gap-1.5 text-xs font-semibold text-muted sm:text-sm">
         <Icon className="size-4 shrink-0" aria-hidden /> {label}
       </p>
       <p className={cx('mt-1 text-2xl font-bold tabular-nums sm:text-3xl', warn && 'text-danger')}>
         {value}
       </p>
-    </div>
+    </Box>
   );
 }
 
 function AgendaGroup({
+  id,
   title,
   tone,
   items,
@@ -226,6 +253,7 @@ function AgendaGroup({
   onOpen,
   onDone,
 }: {
+  id?: string;
   title: string;
   tone?: 'danger';
   items: LeadDto[];
@@ -235,7 +263,7 @@ function AgendaGroup({
   onDone: (lead: LeadDto) => void;
 }) {
   return (
-    <section className="flex flex-col gap-2">
+    <section id={id} className="flex scroll-mt-4 flex-col gap-2">
       <h2 className={cx('text-lg font-bold', tone === 'danger' && 'text-danger')}>
         {title} <span className="text-sm font-semibold text-muted">· {items.length}</span>
       </h2>

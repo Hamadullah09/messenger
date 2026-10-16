@@ -18,7 +18,7 @@ import { MessageToast } from '@/components/chat/message-toast';
 import { PlanNotice } from '@/components/manage/plan-billing';
 import { ReminderAlerts } from '@/components/sales/reminder-alert';
 import { CallHost } from '@/lib/calls';
-import { useFeatures } from '@/lib/features';
+import { useLoadedFeatures } from '@/lib/features';
 import { useLiveLocationSharing } from '@/lib/live-location';
 import { useDeviceRegistration } from '@/lib/push';
 
@@ -65,7 +65,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const conversations = useConversations();
   const [menuOpen, setMenuOpen] = useState(false);
   const chatOpen = useLive((s) => s.openConversationId !== null);
-  const features = useFeatures();
+  const features = useLoadedFeatures();
   useDeviceRegistration();
   useLiveLocationSharing();
 
@@ -179,14 +179,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           aria-label="Quick"
           className={cx('grid border-t border-line bg-surface md:hidden', chatOpen && 'hidden')}
           style={{
-            gridTemplateColumns: `repeat(${3 + Number(features.STATUS) + Number(features.CALLS)}, minmax(0, 1fr))`,
+            gridTemplateColumns: `repeat(${3 + Number(!!features?.STATUS) + Number(!!features?.CALLS)}, minmax(0, 1fr))`,
           }}
         >
           {[
             { href: '/dashboard', label: 'Home', Icon: LayoutDashboard },
             { href: '/chats', label: 'Messages', Icon: MessageCircle, badge: unread.length },
-            ...(features.STATUS ? [{ href: '/status', label: 'Status', Icon: CircleDashed }] : []),
-            ...(features.CALLS ? [{ href: '/calls', label: 'Calls', Icon: Phone }] : []),
+            ...(features?.STATUS ? [{ href: '/status', label: 'Status', Icon: CircleDashed }] : []),
+            ...(features?.CALLS ? [{ href: '/calls', label: 'Calls', Icon: Phone }] : []),
           ].map(({ href, label, Icon, badge }) => {
             const active = pathname.startsWith(href);
             return (

@@ -737,11 +737,18 @@ export class SalesService {
 
   /** Leads (or only SMA customers) as CSV for campaigns and reports. Admins only. */
   async exportCsv(actor: Actor, customersOnly: boolean): Promise<string> {
-    const { businessId: tenantId } = await this.require(actor, 'sales.lead.read_all');
-    // Exporting is for admins (or people given the export right in a custom role).
+    const { businessId: tenantId } = await this.require(actor, 'sales.access');
+    // Exporting is for admins (or people given "Can export data").
     await this.authz.require(actor, 'report.export', { businessId: tenantId });
+    // Without "see every lead": only their own.
+    const all = await this.authz.can(actor, 'sales.lead.read_all', { businessId: tenantId });
     const rows = await this.prisma.lead.findMany({
-      where: { tenantId, deletedAt: null, ...(customersOnly ? { stage: 'WON' } : {}) },
+      where: {
+        tenantId,
+        deletedAt: null,
+        ...(customersOnly ? { stage: 'WON' } : {}),
+        ...(all ? {} : { ownerId: actor.userId }),
+      },
       include: leadInclude,
       orderBy: { createdAt: 'asc' },
       take: 50_000,

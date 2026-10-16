@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   canAssignRole,
+  EXPORT_ROLE_KEY,
   SALES_ROLE_KEYS,
   STORE_STAFF_ROLE_KEYS,
   SYSTEM_ROLES,
@@ -814,6 +815,64 @@ export class UsersService {
       return pending;
     });
     await this.outbox.dispatch(events);
+  }
+
+  /**
+   * "Can export data": lets someone who is not an admin export (leads, customers, reports).
+   * Only people who can export themselves and manage people (admins) may give or take it.
+   */
+  async setExportAccess(
+    actor: Actor,
+    businessId: string,
+    userId: string,
+    allowed: boolean,
+  ): Promise<AdminUserDto> {
+    await this.requireMember(businessId, userId);
+    await this.authz.require(actor, 'report.export', { businessId });
+    await this.authz.require(actor, 'user.update', { businessId });
+    const role =
+      (await this.prisma.role.findFirst({
+        where: { businessId, key: EXPORT_ROLE_KEY },
+        select: { id: true },
+      })) ??
+      (await this.prisma.role.create({
+        data: {
+          businessId,
+          key: EXPORT_ROLE_KEY,
+          name: 'Can export data',
+          description: 'Export leads, customers and reports to Excel/CSV.',
+          allowedScopes: ['BUSINESS'],
+          permissions: { create: [{ permission: 'report.export' }] },
+        },
+        select: { id: true },
+      }));
+    const current = await this.prisma.roleAssignment.findFirst({
+      where: { userId, roleId: role.id, businessId, revokedAt: null },
+      select: { id: true },
+    });
+    if (allowed && !current)
+      await this.prisma.roleAssignment.create({
+        data: {
+          userId,
+          roleId: role.id,
+          scopeType: 'BUSINESS',
+          businessId,
+          grantedById: actor.userId,
+        },
+      });
+    if (!allowed && current)
+      await this.prisma.roleAssignment.update({
+        where: { id: current.id },
+        data: { revokedAt: new Date() },
+      });
+    await this.audit.record(actor, {
+      action: 'user.export_access_changed',
+      businessId,
+      targetType: 'User',
+      targetId: userId,
+      metadata: { allowed },
+    });
+    return this.get(actor, businessId, userId);
   }
 
   async revokeSessions(actor: Actor, businessId: string, userId: string): Promise<void> {
