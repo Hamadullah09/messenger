@@ -335,6 +335,8 @@ export interface MessageDto {
   body: string | null;
   systemEvent: SystemEventDto | null;
   deleted: boolean;
+  /** Deleted for everyone by someone other than the sender (an admin): who. */
+  deletedById: string | null;
   editedAt: string | null;
   createdAt: string;
   state: MessageState;

@@ -29,6 +29,23 @@ export function today(): Date {
   return dateOnly(new Date());
 }
 
+const dueDay = (value: string | undefined): number | null => {
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 1 && n <= 28 ? n : null;
+};
+
+/**
+ * When a monthly invoice issued on `issued` is due with a payment window ending on `day` of the
+ * month: that day this month, or next month's when the invoice is issued after it.
+ */
+export function dueByDay(issued: Date, day: number): Date {
+  const y = issued.getUTCFullYear();
+  const m = issued.getUTCMonth();
+  return issued.getUTCDate() <= day
+    ? new Date(Date.UTC(y, m, day))
+    : new Date(Date.UTC(y, m + 1, day));
+}
+
 export function newPublicToken(): string {
   return randomBytes(24).toString('base64url');
 }
@@ -145,6 +162,7 @@ export class CrmSettingsService {
         bank: get('PAY_BANK_ACCOUNT') ?? null,
       },
       reminderDays: days.length > 0 ? days : [1, 7, 14],
+      paymentDueDay: dueDay(get('PAYMENT_DUE_DAY')),
       reminderChannels: reminderChannels.length > 0 ? reminderChannels : ['EMAIL'],
       channels: this.channels.available(),
       emailEnabled: this.mail.enabled,
@@ -173,6 +191,12 @@ export class CrmSettingsService {
       [
         'REMINDER_CHANNELS',
         request.reminderChannels ? [...new Set(request.reminderChannels)].join(',') : undefined,
+      ],
+      [
+        'PAYMENT_DUE_DAY',
+        request.paymentDueDay === undefined
+          ? undefined
+          : (request.paymentDueDay?.toString() ?? null),
       ],
     ];
     for (const [key, value] of values) {

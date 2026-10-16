@@ -89,6 +89,8 @@ function CustomersList({ businessId }: { businessId: string }) {
   const [editing, setEditing] = useState<StoreCustomerDto | 'new' | null>(null);
   const [deleting, setDeleting] = useState<StoreCustomerDto | null>(null);
   const canManage = hasPermission(me, 'customer.manage', businessId);
+  // Exporting is for admins (or people given the export right in a custom role).
+  const canExport = hasPermission(me, 'report.export', businessId);
   const stores = useQuery({
     queryKey: ['stores', businessId],
     queryFn: () => api<StoreDto[]>(`/businesses/${businessId}/stores`),
@@ -174,15 +176,17 @@ function CustomersList({ businessId }: { businessId: string }) {
         </SelectField>
         {canManage && (
           <>
-            <Button
-              variant="secondary"
-              busy={exporting.isPending}
-              disabled={!summary?.optedIn}
-              icon={<Download className="size-5" aria-hidden />}
-              onClick={() => exporting.mutate()}
-            >
-              Export for campaign
-            </Button>
+            {canExport && (
+              <Button
+                variant="secondary"
+                busy={exporting.isPending}
+                disabled={!summary?.optedIn}
+                icon={<Download className="size-5" aria-hidden />}
+                onClick={() => exporting.mutate()}
+              >
+                Export for campaign
+              </Button>
+            )}
             <Button
               onClick={() => setEditing('new')}
               icon={<Plus className="size-5" aria-hidden />}

@@ -969,7 +969,7 @@ export class UsersService {
     const salesRole = (SALES_ROLE_KEYS as readonly string[]).includes(roleKey);
     if (!salesRole && business?.internal)
       throw ApiError.validation(
-        'The sales team only has Sales Manager and Sales Agent roles.',
+        'The sales team only has Sales Manager, Sales Agent and Accountant roles.',
         'roleKey',
       );
   }

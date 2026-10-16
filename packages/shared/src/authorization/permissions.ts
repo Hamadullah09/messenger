@@ -91,7 +91,11 @@ export const PERMISSIONS = definePermissions({
   'media.upload': { description: 'Upload attachments', externalAllowed: true },
   'media.download': { description: 'Download attachments', externalAllowed: true },
   'audit.read': { description: 'Read audit logs', privileged: true },
-  'report.export': { description: 'Export administrative reports', privileged: true },
+  'report.export': {
+    description:
+      'Export data to Excel/CSV (leads, customers, reports). Admins only unless given in a custom role.',
+    privileged: true,
+  },
   'customer.read': { description: "View the business's store customers" },
   'customer.manage': {
     description: 'Record store customers and their marketing consent; export for campaigns',
@@ -120,6 +124,11 @@ export const PERMISSIONS = definePermissions({
     description: 'Create and send invoices and record payments',
     salesOnly: true,
   },
+  'sales.finance.read': {
+    description:
+      'See the Accounts dashboard: payments received, due and overdue, and who to remind',
+    salesOnly: true,
+  },
   'task.work': { description: "See your store's tasks and shifts and mark tasks done" },
   'task.manage': { description: 'Assign store tasks and plan staff shifts' },
   'report.read': { description: 'View business reports (messages, response times, campaigns)' },
@@ -144,6 +153,7 @@ export type SystemRoleKey =
   | 'SUPER_ADMIN'
   | 'SALES_MANAGER'
   | 'SALES_AGENT'
+  | 'ACCOUNTANT'
   | 'BUSINESS_OWNER'
   | 'BUSINESS_ADMIN'
   | 'BUSINESS_MANAGER'
@@ -157,6 +167,7 @@ export const SYSTEM_ROLE_ORDER: readonly SystemRoleKey[] = [
   'SUPER_ADMIN',
   'SALES_MANAGER',
   'SALES_AGENT',
+  'ACCOUNTANT',
   'BUSINESS_OWNER',
   'BUSINESS_ADMIN',
   'BUSINESS_MANAGER',
@@ -170,6 +181,7 @@ export const SYSTEM_ROLE_ORDER: readonly SystemRoleKey[] = [
 export const BUSINESS_ROLE_KEYS: readonly SystemRoleKey[] = [
   'SALES_MANAGER',
   'SALES_AGENT',
+  'ACCOUNTANT',
   'BUSINESS_OWNER',
   'BUSINESS_ADMIN',
   'BUSINESS_MANAGER',
@@ -177,7 +189,11 @@ export const BUSINESS_ROLE_KEYS: readonly SystemRoleKey[] = [
 ];
 
 /** Sales & Marketing roles: SMA's own sales team, or a business's own sales people. */
-export const SALES_ROLE_KEYS: readonly SystemRoleKey[] = ['SALES_MANAGER', 'SALES_AGENT'];
+export const SALES_ROLE_KEYS: readonly SystemRoleKey[] = [
+  'SALES_MANAGER',
+  'SALES_AGENT',
+  'ACCOUNTANT',
+];
 
 /** Roles a store manager may give to people in their own stores. */
 export const STORE_STAFF_ROLE_KEYS: readonly SystemRoleKey[] = ['EMPLOYEE', 'SECURITY'];
@@ -253,6 +269,22 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'status.post',
     ],
   },
+  ACCOUNTANT: {
+    key: 'ACCOUNTANT',
+    name: 'Accountant',
+    description:
+      'Looks after the money: invoices, payments received and due, overdue customers and payment reminders (the Accounts tab). Chats only in the sales team groups.',
+    allowedScopes: ['BUSINESS'],
+    permissions: [
+      'sales.access',
+      'sales.finance.read',
+      'sales.billing.manage',
+      'message.send',
+      'media.upload',
+      'media.download',
+      'status.post',
+    ],
+  },
   BUSINESS_OWNER: {
     key: 'BUSINESS_OWNER',
     name: 'Business Owner',
@@ -276,7 +308,10 @@ export const SYSTEM_ROLES: Record<SystemRoleKey, SystemRoleDefinition> = {
       'Runs the stores of one business: adds stores, assigns managers, manages people and groups. Cannot change the business profile, custom roles or read the audit log.',
     allowedScopes: ['BUSINESS'],
     permissions: BUSINESS_WIDE.filter(
-      (p) => !(['business.update', 'role.manage', 'audit.read'] as Permission[]).includes(p),
+      (p) =>
+        !(
+          ['business.update', 'role.manage', 'audit.read', 'report.export'] as Permission[]
+        ).includes(p),
     ),
   },
   STORE_MANAGER: {

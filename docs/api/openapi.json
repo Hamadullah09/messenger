@@ -2118,6 +2118,7 @@
                     "enum": [
                       "SALES_MANAGER",
                       "SALES_AGENT",
+                      "ACCOUNTANT",
                       "BUSINESS_OWNER",
                       "BUSINESS_ADMIN",
                       "BUSINESS_MANAGER",
@@ -2524,6 +2525,7 @@
                     "enum": [
                       "SALES_MANAGER",
                       "SALES_AGENT",
+                      "ACCOUNTANT",
                       "BUSINESS_OWNER",
                       "BUSINESS_ADMIN",
                       "BUSINESS_MANAGER",
@@ -3401,6 +3403,25 @@
         ]
       }
     },
+    "/api/v1/calls/incoming": {
+      "get": {
+        "operationId": "CallsController_incoming_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "calls"
+        ]
+      }
+    },
     "/api/v1/calls/log": {
       "get": {
         "operationId": "CallsController_log_v1",
@@ -3420,9 +3441,65 @@
         ]
       }
     },
+    "/api/v1/calls/{id}": {
+      "get": {
+        "operationId": "CallsController_get_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "calls"
+        ]
+      }
+    },
     "/api/v1/calls/{id}/accept": {
       "post": {
         "operationId": "CallsController_accept_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "calls"
+        ]
+      }
+    },
+    "/api/v1/calls/{id}/alive": {
+      "post": {
+        "operationId": "CallsController_alive_v1",
         "parameters": [
           {
             "in": "path",
@@ -3539,6 +3616,60 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "calls"
+        ]
+      }
+    },
+    "/api/v1/calls/{id}/ring": {
+      "post": {
+        "operationId": "CallsController_ring_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "userIds": {
+                    "items": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "maxItems": 50,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "userIds"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": ""
@@ -6744,6 +6875,25 @@
         ]
       }
     },
+    "/api/v1/features": {
+      "get": {
+        "operationId": "FeaturesController_get_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/api/v1/health/live": {
       "get": {
         "operationId": "HealthController_live_v1",
@@ -6769,6 +6919,274 @@
         },
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/imports/businesses": {
+      "post": {
+        "operationId": "ImportsController_importBusinesses_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "rows": {
+                    "items": {
+                      "properties": {
+                        "row": {
+                          "maximum": 9007199254740991,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "values": {
+                          "additionalProperties": {
+                            "maxLength": 500,
+                            "type": "string"
+                          },
+                          "propertyNames": {
+                            "maxLength": 40,
+                            "type": "string"
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "row",
+                        "values"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 1000,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "rows"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/api/v1/imports/businesses/preview": {
+      "post": {
+        "operationId": "ImportsController_previewBusinesses_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "contentBase64": {
+                    "maxLength": 6000000,
+                    "minLength": 4,
+                    "type": "string"
+                  },
+                  "fileName": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileName",
+                  "contentBase64"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/api/v1/imports/stores/{businessId}": {
+      "post": {
+        "operationId": "ImportsController_importStores_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "businessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "rows": {
+                    "items": {
+                      "properties": {
+                        "row": {
+                          "maximum": 9007199254740991,
+                          "minimum": 1,
+                          "type": "integer"
+                        },
+                        "values": {
+                          "additionalProperties": {
+                            "maxLength": 500,
+                            "type": "string"
+                          },
+                          "propertyNames": {
+                            "maxLength": 40,
+                            "type": "string"
+                          },
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "row",
+                        "values"
+                      ],
+                      "type": "object"
+                    },
+                    "maxItems": 1000,
+                    "minItems": 1,
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "rows"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/api/v1/imports/stores/{businessId}/preview": {
+      "post": {
+        "operationId": "ImportsController_previewStores_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "businessId",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "contentBase64": {
+                    "maxLength": 6000000,
+                    "minLength": 4,
+                    "type": "string"
+                  },
+                  "fileName": {
+                    "maxLength": 200,
+                    "minLength": 1,
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "fileName",
+                  "contentBase64"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
+        ]
+      }
+    },
+    "/api/v1/imports/{kind}/sample.xlsx": {
+      "get": {
+        "operationId": "ImportsController_sample_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "imports"
         ]
       }
     },
@@ -8128,6 +8546,55 @@
         ]
       }
     },
+    "/api/v1/platform/features": {
+      "put": {
+        "operationId": "FeaturesController_update_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "features": {
+                    "additionalProperties": {
+                      "type": "boolean"
+                    },
+                    "propertyNames": {
+                      "enum": [
+                        "STATUS",
+                        "CALLS",
+                        "ONLINE_PAYMENTS"
+                      ],
+                      "type": "string"
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "features"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "platform"
+        ]
+      }
+    },
     "/api/v1/platform/integrations": {
       "get": {
         "operationId": "IntegrationsController_get_v1",
@@ -8292,6 +8759,56 @@
         ],
         "tags": [
           "presence"
+        ]
+      }
+    },
+    "/api/v1/public/calls/{id}/decline": {
+      "post": {
+        "operationId": "PublicCallsController_decline_v1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "token": {
+                    "maxLength": 128,
+                    "minLength": 16,
+                    "type": "string"
+                  },
+                  "userId": {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "userId",
+                  "token"
+                ],
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "tags": [
+          "calls"
         ]
       }
     },
@@ -9637,6 +10154,67 @@
         ],
         "tags": [
           "crm"
+        ]
+      }
+    },
+    "/api/v1/sales/crm/finance": {
+      "get": {
+        "operationId": "FinanceController_dashboard_v1",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "sales"
+        ]
+      }
+    },
+    "/api/v1/sales/crm/finance/remind": {
+      "post": {
+        "operationId": "FinanceController_remind_v1",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "properties": {
+                  "invoiceIds": {
+                    "default": [],
+                    "items": {
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                      "type": "string"
+                    },
+                    "maxItems": 500,
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "sales"
         ]
       }
     },
@@ -11517,6 +12095,18 @@
                       }
                     ]
                   },
+                  "paymentDueDay": {
+                    "anyOf": [
+                      {
+                        "maximum": 28,
+                        "minimum": 1,
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
                   "reminderChannels": {
                     "items": {
                       "enum": [
@@ -13096,7 +13686,8 @@
                   "roleKey": {
                     "enum": [
                       "SALES_MANAGER",
-                      "SALES_AGENT"
+                      "SALES_AGENT",
+                      "ACCOUNTANT"
                     ],
                     "type": "string"
                   },

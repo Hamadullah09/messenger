@@ -103,7 +103,7 @@ export function money2(value: number | null | undefined, currency: string): stri
 }
 
 /** Whole amounts for tiles, e.g. "$1,250". */
-function moneyShort(value: number, currency: string): string {
+export function moneyShort(value: number, currency: string): string {
   try {
     return new Intl.NumberFormat(undefined, {
       style: 'currency',
@@ -220,7 +220,7 @@ function shiftMonth(month: string, by: number): string {
   const d = new Date(y, m - 1 + by, 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
-function monthLabel(month: string, style: 'long' | 'short' = 'long'): string {
+export function monthLabel(month: string, style: 'long' | 'short' = 'long'): string {
   const [y, m] = month.split('-').map(Number) as [number, number];
   return new Date(y, m - 1, 1).toLocaleDateString(undefined, {
     month: style,
@@ -391,13 +391,22 @@ export function RevenueStrip({ myId }: { myId: string }) {
 }
 
 /** Six months of won deal value and payments collected: grouped bars, one money axis. */
-function TrendChart({ trend, currency }: { trend: CrmOverviewDto['trend']; currency: string }) {
+export function TrendChart({
+  trend,
+  currency,
+  labels = { won: 'Won', collected: 'Collected' },
+}: {
+  trend: CrmOverviewDto['trend'];
+  currency: string;
+  /** Names of the two bars (e.g. Invoiced / Received on the Accounts tab). */
+  labels?: { won: string; collected: string };
+}) {
   const [table, setTable] = useState(false);
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(1, ...trend.flatMap((t) => [t.won, t.collected]));
   const series = [
-    { key: 'won' as const, label: 'Won', color: 'var(--series-1)' },
-    { key: 'collected' as const, label: 'Collected', color: 'var(--series-2)' },
+    { key: 'won' as const, label: labels.won, color: 'var(--series-1)' },
+    { key: 'collected' as const, label: labels.collected, color: 'var(--series-2)' },
   ];
   return (
     <div>
@@ -424,8 +433,8 @@ function TrendChart({ trend, currency }: { trend: CrmOverviewDto['trend']; curre
           <thead>
             <tr className="text-left text-muted">
               <th className="py-1 font-semibold">Month</th>
-              <th className="py-1 text-right font-semibold">Won</th>
-              <th className="py-1 text-right font-semibold">Collected</th>
+              <th className="py-1 text-right font-semibold">{labels.won}</th>
+              <th className="py-1 text-right font-semibold">{labels.collected}</th>
             </tr>
           </thead>
           <tbody>
@@ -450,7 +459,7 @@ function TrendChart({ trend, currency }: { trend: CrmOverviewDto['trend']; curre
                 onFocus={() => setHover(i)}
                 onBlur={() => setHover(null)}
                 tabIndex={0}
-                aria-label={`${monthLabel(t.month)}: won ${money2(t.won, currency)}, collected ${money2(t.collected, currency)}`}
+                aria-label={`${monthLabel(t.month)}: ${labels.won} ${money2(t.won, currency)}, ${labels.collected} ${money2(t.collected, currency)}`}
               >
                 {hover === i && (
                   <span
@@ -471,8 +480,12 @@ function TrendChart({ trend, currency }: { trend: CrmOverviewDto['trend']; curre
                 {hover === i && (
                   <span className="absolute bottom-full z-10 mb-2 w-max rounded-xl border border-line bg-surface px-3 py-2 text-xs shadow-pop">
                     <span className="block font-bold">{monthLabel(t.month)}</span>
-                    <span className="block">Won {money2(t.won, currency)}</span>
-                    <span className="block">Collected {money2(t.collected, currency)}</span>
+                    <span className="block">
+                      {labels.won} {money2(t.won, currency)}
+                    </span>
+                    <span className="block">
+                      {labels.collected} {money2(t.collected, currency)}
+                    </span>
                   </span>
                 )}
               </div>

@@ -14,6 +14,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Plus,
   Reply,
   RotateCcw,
   Star,
@@ -37,6 +38,7 @@ import {
   PollMessage,
   StickerMessage,
 } from './rich-content';
+import { EMOJI_FONT, EmojiPicker, emojiOnlyCount } from './emoji-picker';
 
 /** Kinds whose text is a plain body (copy/edit apply). */
 const TEXT_KINDS = new Set(['TEXT', 'IMAGE', 'VIDEO', 'DOCUMENT']);
@@ -185,6 +187,7 @@ export function MessageBubble({
   }
 
   const myReaction = message.reactions.find((r) => r.userId === myId)?.emoji ?? null;
+  const jumbo = message.kind === 'TEXT' ? emojiOnlyCount(message.body) : 0;
   const reactionCounts = message.reactions.reduce<Record<string, number>>((acc, r) => {
     acc[r.emoji] = (acc[r.emoji] ?? 0) + 1;
     return acc;
@@ -302,11 +305,30 @@ export function MessageBubble({
         ) : message.deleted ? (
           <p className={cx('flex items-center gap-1.5 px-1 italic', metaColor)}>
             <Ban className="size-4" aria-hidden />
-            This message was deleted
+            {message.deletedById
+              ? message.deletedById === myId
+                ? 'You deleted this message'
+                : `This message was deleted by admin ${nameOf(message.deletedById)}`
+              : mine
+                ? 'You deleted this message'
+                : 'This message was deleted'}
             <span aria-hidden className="inline-block" style={{ width: metaWidth }} />
           </p>
         ) : message.body ? (
-          <p className="px-1 leading-[1.35] break-words whitespace-pre-wrap">
+          <p
+            className={cx(
+              'px-1 break-words whitespace-pre-wrap',
+              // Only emoji (up to three): shown big, as in WhatsApp.
+              jumbo === 1
+                ? 'text-[2.8rem] leading-[1.15]'
+                : jumbo === 2
+                  ? 'text-[2.3rem] leading-[1.15]'
+                  : jumbo === 3
+                    ? 'text-[1.9rem] leading-[1.2]'
+                    : 'leading-[1.35]',
+            )}
+            style={jumbo ? { fontFamily: EMOJI_FONT } : undefined}
+          >
             {message.body}
             <span aria-hidden className="inline-block" style={{ width: metaWidth }} />
           </p>
@@ -389,6 +411,8 @@ function MessageMenu({
   actions: BubbleActions;
 }) {
   const [open, setOpen] = useState(false);
+  /** The "+" in the reaction bar: every emoji. */
+  const [allEmoji, setAllEmoji] = useState(false);
   const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -408,7 +432,7 @@ function MessageMenu({
     const preferredLeft = mine ? anchor.right - menu.width : anchor.left;
     const left = Math.min(Math.max(margin, preferredLeft), window.innerWidth - menu.width - margin);
     setPosition({ top, left });
-  }, [open, mine]);
+  }, [open, mine, allEmoji]);
 
   useEffect(() => {
     if (!open) return;
@@ -434,6 +458,7 @@ function MessageMenu({
       window.removeEventListener('resize', onScroll);
       document.removeEventListener('scroll', onScroll, true);
       setPosition(null);
+      setAllEmoji(false);
     };
   }, [open]);
 
@@ -476,9 +501,22 @@ function MessageMenu({
               top: position?.top ?? -9999,
               left: position?.left ?? -9999,
             }}
-            className="z-50 w-60 rounded-lg bg-surface py-2 text-fg shadow-pop"
+            className={cx(
+              'z-50 rounded-lg bg-surface text-fg shadow-pop',
+              allEmoji ? 'w-80 overflow-hidden' : 'w-60 py-2',
+            )}
           >
-            {!message.deleted && (
+            {allEmoji && (
+              <EmojiPicker
+                reactions
+                className="h-96"
+                onPick={(emoji) => {
+                  setOpen(false);
+                  actions.onReact(message, myReaction === emoji ? null : emoji);
+                }}
+              />
+            )}
+            {!allEmoji && !message.deleted && (
               <>
                 <div className="mb-1 flex justify-between px-2" aria-label="React">
                   {QUICK_REACTIONS.map((emoji) => (
@@ -492,13 +530,23 @@ function MessageMenu({
                         actions.onReact(message, myReaction === emoji ? null : emoji),
                       )}
                       className={cx(
-                        'size-9 rounded-full text-xl hover:bg-wa-hover',
+                        'size-8 rounded-full text-lg hover:bg-wa-hover',
                         myReaction === emoji && 'bg-wa-active',
                       )}
                     >
                       {emoji}
                     </button>
                   ))}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    aria-label="More emoji"
+                    title="More emoji"
+                    onClick={() => setAllEmoji(true)}
+                    className="inline-flex size-8 items-center justify-center rounded-full bg-wa-hover text-wa-icon hover:text-fg"
+                  >
+                    <Plus className="size-5" aria-hidden />
+                  </button>
                 </div>
                 <button
                   type="button"

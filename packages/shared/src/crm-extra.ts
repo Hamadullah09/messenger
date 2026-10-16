@@ -33,6 +33,7 @@ export const CRM_SETTING_KEYS = [
   'PAY_BANK_ACCOUNT',
   'REMINDER_DAYS',
   'REMINDER_CHANNELS',
+  'PAYMENT_DUE_DAY',
 ] as const;
 export type CrmSettingKey = (typeof CRM_SETTING_KEYS)[number];
 
@@ -51,8 +52,13 @@ export interface CrmSettingsDto {
   companyPhone: string | null;
   paymentDetails: string | null;
   payTo: { jazzcash: string | null; easypaisa: string | null; bank: string | null };
-  /** Days after the due date when reminders go out, e.g. [1, 7, 14]. */
+  /** Days after the due date when reminders go out, e.g. [1, 7, 14]; 0 = on the due date. */
   reminderDays: number[];
+  /**
+   * Monthly payments are due by this day of the month (e.g. 10: the 1st to the 10th). null:
+   * each subscription's own number of days.
+   */
+  paymentDueDay: number | null;
   reminderChannels: Array<'EMAIL' | 'WHATSAPP' | 'SMS'>;
   channels: { EMAIL: boolean; SMS: boolean; WHATSAPP: boolean };
   /** For the pay and quote pages. */
@@ -80,6 +86,7 @@ export const updateCrmSettingsRequestSchema = z.object({
     })
     .optional(),
   reminderDays: z.array(z.number().int().min(0).max(120)).max(6).optional(),
+  paymentDueDay: z.number().int().min(1).max(28).nullable().optional(),
   reminderChannels: z
     .array(z.enum(['EMAIL', 'WHATSAPP', 'SMS']))
     .max(3)
@@ -572,3 +579,71 @@ export const submitToFbrRequestSchema = z.object({
   buyerProvince: z.enum(FBR_PROVINCES),
 });
 export type SubmitToFbrRequest = z.infer<typeof submitToFbrRequestSchema>;
+
+// ── Accounts (finance dashboard for the accountant) ──
+
+export interface FinanceInvoiceRowDto {
+  id: string;
+  number: string;
+  customer: string;
+  email: string | null;
+  phone: string | null;
+  currency: string;
+  total: number;
+  balance: number;
+  issueDate: string;
+  dueDate: string;
+  /** Days past the due date (0 = due today; negative = days left). */
+  daysLate: number;
+  /** From a monthly/yearly subscription. */
+  recurring: boolean;
+  reminderCount: number;
+  lastReminderAt: string | null;
+}
+
+export interface FinancePaymentRowDto {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customer: string;
+  amount: number;
+  currency: string;
+  method: PaymentMethod;
+  reference: string | null;
+  paidAt: string;
+  recordedBy: string | null;
+}
+
+export interface FinanceDashboardDto {
+  /** Totals are in this currency (other currencies converted with the business's rate). */
+  currency: string;
+  month: string;
+  /** Monthly payment window ends on this day (null: not set). */
+  paymentDueDay: number | null;
+  /** Customers with an active subscription, and customers who owe money now. */
+  clients: { active: number; owing: number };
+  invoicedThisMonth: number;
+  receivedThisMonth: number;
+  paymentsThisMonth: number;
+  outstanding: number;
+  overdue: number;
+  overdueCount: number;
+  /** This month's recurring invoices: paid, still inside the payment window, past it. */
+  thisMonth: { paid: number; waiting: number; late: number };
+  /** Unpaid balance by how late it is. */
+  aging: { notDue: number; days1to30: number; days31to60: number; over60: number };
+  /** Last 6 months: invoiced and received. */
+  trend: Array<{ month: string; invoiced: number; received: number }>;
+  /** Unpaid invoices, most overdue first: who to remind. */
+  unpaid: FinanceInvoiceRowDto[];
+  recentPayments: FinancePaymentRowDto[];
+  reminderDays: number[];
+  reminderChannels: Array<'EMAIL' | 'WHATSAPP' | 'SMS'>;
+  canRemind: boolean;
+}
+
+export const financeRemindRequestSchema = z.object({
+  /** Invoices to remind now; empty: every overdue invoice. */
+  invoiceIds: z.array(idSchema).max(500).default([]),
+});
+export type FinanceRemindRequest = z.infer<typeof financeRemindRequestSchema>;

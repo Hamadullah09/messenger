@@ -21,6 +21,7 @@ export const ROLE_LABELS: Record<SystemRoleKey, string> = {
   SUPER_ADMIN: 'Super Admin',
   SALES_MANAGER: 'Sales Manager',
   SALES_AGENT: 'Sales Agent',
+  ACCOUNTANT: 'Accountant',
   BUSINESS_OWNER: 'Business Owner',
   BUSINESS_ADMIN: 'Business Admin',
   BUSINESS_MANAGER: 'Business Manager',

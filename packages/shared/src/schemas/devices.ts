@@ -64,8 +64,11 @@ export interface NotificationConfigDto {
 
 /** Push payload contract shared with clients' service workers / native handlers. */
 export interface PushPayload {
-  /** reminder: a meeting or other follow-up with a lead starts soon. */
-  type: 'message' | 'emergency' | 'reminder';
+  /**
+   * reminder: a meeting or other follow-up with a lead starts soon. call: someone is calling
+   * (Answer / Decline). call-ended: the call is over (replaces and clears the ringing one).
+   */
+  type: 'message' | 'emergency' | 'reminder' | 'call' | 'call-ended';
   title: string;
   body: string;
   /** Where to open on tap. */
@@ -73,6 +76,10 @@ export interface PushPayload {
   conversationId?: string;
   incidentId?: string;
   leadId?: string;
+  callId?: string;
+  /** One-to-one calls: lets the notification's Decline button decline without opening the app. */
+  declineToken?: string;
+  userId?: string;
   /** Collapse key: newer notifications for the same conversation replace older ones. */
   tag: string;
 }

@@ -735,9 +735,11 @@ export class SalesService {
     return this.get(actor, leadId);
   }
 
-  /** Leads (or only SMA customers) as CSV for campaigns and reports. Managers only. */
+  /** Leads (or only SMA customers) as CSV for campaigns and reports. Admins only. */
   async exportCsv(actor: Actor, customersOnly: boolean): Promise<string> {
     const { businessId: tenantId } = await this.require(actor, 'sales.lead.read_all');
+    // Exporting is for admins (or people given the export right in a custom role).
+    await this.authz.require(actor, 'report.export', { businessId: tenantId });
     const rows = await this.prisma.lead.findMany({
       where: { tenantId, deletedAt: null, ...(customersOnly ? { stage: 'WON' } : {}) },
       include: leadInclude,
@@ -895,7 +897,7 @@ export class SalesService {
       where: {
         businessId,
         revokedAt: null,
-        role: { key: { in: [...SALES_PEOPLE_ROLE_KEYS] }, isSystem: true },
+        role: { key: { in: [...SALES_PEOPLE_ROLE_KEYS, 'ACCOUNTANT'] }, isSystem: true },
         user: { deletedAt: null },
       },
       select: { role: { select: { key: true } }, user: { select: publicUserSelect } },

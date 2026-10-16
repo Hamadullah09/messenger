@@ -13,6 +13,7 @@ import {
   Building2,
   Contact,
   CreditCard,
+  FileSpreadsheet,
   Plus,
   ScrollText,
   Siren,
@@ -24,6 +25,7 @@ import {
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { EmergencySettingsTab } from '@/components/emergency/emergency-settings';
+import { BulkImportDialog } from '@/components/manage/bulk-import';
 import { BusinessCard, StoreCard } from '@/components/manage/cards';
 import { PlanBillingTab } from '@/components/manage/plan-billing';
 import { StoreCustomersTab } from '@/components/manage/store-customers';
@@ -227,6 +229,7 @@ function BusinessesTab({
   const [addingStore, setAddingStore] = useState<string | null>(null);
   const [addingAdmin, setAddingAdmin] = useState<BusinessDto | null>(null);
   const [deleting, setDeleting] = useState<BusinessDto | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [form, setForm] = useState({
     name: '',
     slug: '',
@@ -292,10 +295,27 @@ function BusinessesTab({
         >
           Add store
         </Button>
+        <Button
+          variant="secondary"
+          onClick={() => setUploading(true)}
+          icon={<FileSpreadsheet className="size-5" aria-hidden />}
+        >
+          Upload from Excel
+        </Button>
         <Button onClick={() => setCreating(true)} icon={<Plus className="size-5" aria-hidden />}>
           New business
         </Button>
       </div>
+      {uploading && (
+        <BulkImportDialog
+          kind="businesses"
+          onClose={() => setUploading(false)}
+          onDone={() => {
+            void client.invalidateQueries({ queryKey: ['admin-businesses'] });
+            void api<MeDto>('/me').then((next) => useAuth.getState().setMe(next));
+          }}
+        />
+      )}
       {status.isError && <Alert tone="error">{errorMessage(status.error)}</Alert>}
       {list.isLoading && <Spinner label="Loading businesses" />}
       {list.isError && <Alert tone="error">{errorMessage(list.error)}</Alert>}
@@ -520,6 +540,7 @@ function StoresTab({ businessId }: { businessId: string }) {
   >(null);
   const [managersOf, setManagersOf] = useState<StoreDto | null>(null);
   const [deleting, setDeleting] = useState<StoreDto | null>(null);
+  const [uploading, setUploading] = useState(false);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ['stores'] });
     void client.invalidateQueries({ queryKey: ['admin-businesses'] });
@@ -546,16 +567,37 @@ function StoresTab({ businessId }: { businessId: string }) {
             : ''}
         </p>
         {storeBusinesses.length > 0 && (
-          <Button
-            onClick={() =>
-              setDialog({ kind: 'new', businessId: platform ? undefined : businessId })
-            }
-            icon={<Plus className="size-5" aria-hidden />}
-          >
-            New store
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => setUploading(true)}
+              icon={<FileSpreadsheet className="size-5" aria-hidden />}
+            >
+              Upload from Excel
+            </Button>
+            <Button
+              onClick={() =>
+                setDialog({ kind: 'new', businessId: platform ? undefined : businessId })
+              }
+              icon={<Plus className="size-5" aria-hidden />}
+            >
+              New store
+            </Button>
+          </div>
         )}
       </div>
+      {uploading && (
+        <BulkImportDialog
+          kind="stores"
+          businessId={platform ? undefined : businessId}
+          businessChoices={storeBusinesses.map((b) => ({ id: b.id, name: b.name }))}
+          onClose={() => setUploading(false)}
+          onDone={() => {
+            refresh();
+            void api<MeDto>('/me').then((next) => useAuth.getState().setMe(next));
+          }}
+        />
+      )}
 
       {groups.map((b) => (
         <BusinessStoresSection

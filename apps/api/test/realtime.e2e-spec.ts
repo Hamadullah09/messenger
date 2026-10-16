@@ -62,7 +62,8 @@ describe('Real-time delivery', () => {
       .post(`/api/v1/conversations/${groupId}/messages`)
       .send({ clientMessageId: uuid(), body: 'live hello' })
       .expect(201);
-    expect(sent.body.state).toBe('ACCEPTED'); // accepted ≠ delivered
+    // Accepted (or already handed to the delivery worker) — never reported as delivered yet.
+    expect(['ACCEPTED', 'DISPATCHED']).toContain(sent.body.state);
 
     const received = await bobReceives;
     expect(received).toMatchObject({

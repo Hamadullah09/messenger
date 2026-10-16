@@ -1,5 +1,11 @@
 import { createHmac, randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  Inject,
+  Injectable,
+  Logger,
+  type OnModuleDestroy,
+  type OnModuleInit,
+} from '@nestjs/common';
 import type {
   CallConfigDto,
   CallDto,
@@ -21,6 +27,8 @@ import { MessageWriter } from '../messaging/message-writer.service';
 import { OutboxService } from '../outbox/outbox.service';
 import { RealtimeEmitter } from '../realtime/realtime-emitter.service';
 import { publicUserSelect, toPublicUser } from '../users/user.mapper';
+import { FeaturesService } from '../platform/features.module';
+import { validCallDeclineToken } from './call-tokens';
 
 /** Call state kept in Redis while a call rings or is active. */
 interface CallState {
@@ -41,6 +49,9 @@ interface CallState {
   everJoined: boolean;
   /** Media through the LiveKit server (big groups) instead of device to device. */
   sfu?: boolean;
+  /** Everyone who was rung (notified) and everyone who ever joined (for missed-call notices). */
+  rung?: string[];
+  everIn?: string[];
   state: 'ringing' | 'active' | 'ended';
   startedAt: string;
   answeredAt: string | null;
@@ -53,6 +64,16 @@ export const GROUP_CALL_MAX = 8;
 const CALL_TTL_SECONDS = 4 * 3600;
 const callKey = (id: string) => `call:${id}`;
 const busyKey = (userId: string) => `call-busy:${userId}`;
+/**
+ * A device in the call says "still here" every 10 s; without it for this long, it is gone. Long
+ * enough for a browser that slows timers in a background tab (about once a minute).
+ */
+const ALIVE_SECONDS = 75;
+const aliveKey = (callId: string, userId: string) => `call-alive:${callId}:${userId}`;
+/** Calls not yet ended, by start time (for the sweep that ends abandoned calls). */
+const OPEN_KEY = 'calls:open';
+/** The call ringing for someone now (shown again when their app reconnects or reloads). */
+const ringingKey = (userId: string) => `call-ringing:${userId}`;
 
 const base64url = (value: string | Buffer) => Buffer.from(value).toString('base64url');
 
@@ -63,7 +84,10 @@ const base64url = (value: string | Buffer) => Buffer.from(value).toString('base6
  * the chat. Media never passes through this API (only through TURN/LiveKit when used).
  */
 @Injectable()
-export class CallsService {
+export class CallsService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(CallsService.name);
+  private sweeper: NodeJS.Timeout | null = null;
+
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly prisma: PrismaService,
@@ -72,7 +96,108 @@ export class CallsService {
     private readonly writer: MessageWriter,
     private readonly outbox: OutboxService,
     private readonly realtime: RealtimeEmitter,
+    private readonly features: FeaturesService,
   ) {}
+
+  onModuleInit(): void {
+    this.sweeper = setInterval(() => void this.sweep(), 15_000);
+    this.sweeper.unref();
+  }
+
+  onModuleDestroy(): void {
+    if (this.sweeper) clearInterval(this.sweeper);
+  }
+
+  /** Ends abandoned calls (one API instance at a time). */
+  private async sweep(): Promise<void> {
+    try {
+      const lock = await this.redis.client.set('calls:sweep-lock', '1', 'EX', 14, 'NX');
+      if (!lock) return;
+      const ids = await this.redis.client.zrangebyscore(
+        OPEN_KEY,
+        '-inf',
+        Date.now() - ALIVE_SECONDS * 1000,
+      );
+      for (const id of ids.slice(0, 200)) await this.reap(id);
+    } catch (error) {
+      this.logger.warn({ err: error }, 'Call sweep failed');
+    }
+  }
+
+  private async markAlive(callId: string, userId: string): Promise<void> {
+    await this.redis.client.set(aliveKey(callId, userId), '1', 'EX', ALIVE_SECONDS);
+  }
+
+  /**
+   * Ends what nobody is in any more: a call still ringing after the ring time, or people whose
+   * device stopped saying it is in the call (tab closed, page reloaded, phone off the network).
+   * Returns the call as it is now.
+   */
+  private async reap(callId: string): Promise<CallState | null> {
+    const call = await this.load(callId);
+    if (!call || call.state === 'ended') {
+      await this.redis.client.zrem(OPEN_KEY, callId);
+      return call;
+    }
+    const age = Date.now() - Date.parse(call.startedAt);
+    if (age < ALIVE_SECONDS * 1000) return call;
+    if (
+      !call.group &&
+      call.state === 'ringing' &&
+      age > (this.config.CALL_RING_SECONDS + 20) * 1000
+    ) {
+      await this.finish(call, 'missed');
+      return call;
+    }
+    const gone: string[] = [];
+    for (const userId of Object.keys(call.joined))
+      if (!(await this.redis.client.exists(aliveKey(call.id, userId)))) gone.push(userId);
+    if (gone.length === 0) return call;
+    if (!call.group) {
+      await this.finish(call, call.state === 'active' ? 'answered' : 'cancelled');
+      return call;
+    }
+    for (const userId of gone) {
+      delete call.joined[userId];
+      const current = await this.redis.client.get(busyKey(userId));
+      if (current === call.id) await this.redis.client.del(busyKey(userId));
+    }
+    if (Object.keys(call.joined).length === 0) {
+      await this.finish(call, call.everJoined ? 'answered' : 'missed');
+      return call;
+    }
+    await this.save(call);
+    this.realtime.toUsers(this.everyone(call), 'call.updated', this.toDto(call));
+    return call;
+  }
+
+  /** "Still in the call" from a device (every 10 s). Tells it when the call is over for it. */
+  async alive(actor: Actor, callId: string): Promise<{ state: CallState['state'] }> {
+    const call = await this.requireParty(actor, callId);
+    const inCall = call.state !== 'ended' && call.joined[actor.userId] === actor.sessionId;
+    if (inCall) await this.markAlive(call.id, actor.userId);
+    return { state: inCall ? call.state : 'ended' };
+  }
+
+  /** A call ringing for this person right now (e.g. their app reconnected or reloaded). */
+  async incoming(actor: Actor): Promise<{ call: CallDto | null }> {
+    const id = await this.redis.client.get(ringingKey(actor.userId));
+    const call = id ? await this.reap(id) : null;
+    const ringing =
+      !!call &&
+      call.state !== 'ended' &&
+      !(actor.userId in call.joined) &&
+      (call.group || (call.state === 'ringing' && call.callee.id === actor.userId));
+    return { call: ringing && call ? this.toDto(call) : null };
+  }
+
+  private async setRinging(callId: string, userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return;
+    const pipeline = this.redis.client.pipeline();
+    for (const id of userIds)
+      pipeline.set(ringingKey(id), callId, 'EX', this.config.CALL_RING_SECONDS);
+    await pipeline.exec();
+  }
 
   private get liveKit(): { url: string; key: string; secret: string } | null {
     const c = this.config;
@@ -154,6 +279,7 @@ export class CallsService {
       participants: Object.keys(call.joined)
         .map((id) => call.members[id]!)
         .filter(Boolean),
+      members: call.group ? Object.values(call.members) : [],
       state: call.state,
       startedAt: call.startedAt,
       answeredAt: call.answeredAt,
@@ -175,8 +301,12 @@ export class CallsService {
   private async busy(userId: string): Promise<boolean> {
     const callId = await this.redis.client.get(busyKey(userId));
     if (!callId) return false;
-    const call = await this.load(callId);
-    return !!call && call.state !== 'ended' && userId in call.joined;
+    // An abandoned call (closed tab, reload, lost network) does not keep anyone busy.
+    const call = await this.reap(callId);
+    if (call && call.state !== 'ended' && userId in call.joined) return true;
+    if ((await this.redis.client.get(busyKey(userId))) === callId)
+      await this.redis.client.del(busyKey(userId));
+    return false;
   }
 
   private everyone(call: CallState): string[] {
@@ -184,6 +314,7 @@ export class CallsService {
   }
 
   async start(actor: Actor, request: StartCallRequest): Promise<CallDto> {
+    this.features.require('CALLS');
     const { conversation } = await this.access.requireMember(request.conversationId, actor.userId);
     if (conversation.type !== 'DIRECT' && conversation.type !== 'GROUP')
       throw ApiError.validation('Calls are available in chats and groups.', 'conversationId');
@@ -201,7 +332,7 @@ export class CallsService {
     if (group) {
       // One group call per group at a time: join it instead.
       const existing = await this.redis.client.get(`group-call:${conversation.id}`);
-      const live = existing ? await this.load(existing) : null;
+      const live = existing ? await this.reap(existing) : null;
       if (live && live.state !== 'ended') return this.join(actor, live.id);
     }
     const callee = group ? caller : Object.values(members).find((m) => m.id !== actor.userId);
@@ -238,12 +369,56 @@ export class CallsService {
       await this.finish(call, 'busy');
       return this.toDto(call);
     }
+    const invite = this.everyone(call).filter((id) => id !== actor.userId);
+    call.rung = invite;
+    call.everIn = [actor.userId];
     await this.save(call);
+    await this.markAlive(call.id, actor.userId);
+    await this.redis.client.zadd(OPEN_KEY, Date.now(), call.id);
     await this.redis.client.set(busyKey(actor.userId), call.id, 'EX', CALL_TTL_SECONDS);
     if (group)
       await this.redis.client.set(`group-call:${conversation.id}`, call.id, 'EX', CALL_TTL_SECONDS);
-    const invite = this.everyone(call).filter((id) => id !== actor.userId);
+    await this.setRinging(call.id, invite);
     this.realtime.toUsers(invite, 'call.incoming', this.toDto(call));
+    await this.push(call.id, invite, 'ring');
+    return this.toDto(call);
+  }
+
+  /** Phone notifications for a call (people whose app is closed). Never fails the call. */
+  private async push(callId: string, userIds: string[], event: 'ring' | 'missed' | 'ended') {
+    if (userIds.length === 0) return;
+    await this.outbox.pushQueue
+      .add(
+        'call',
+        { kind: 'call', callId, userIds, event },
+        { jobId: `call-${callId}-${event}-${Date.now()}` },
+      )
+      .catch(() => undefined);
+  }
+
+  /** A call this person is part of (e.g. opened from a "X is calling" notification). */
+  async get(actor: Actor, callId: string): Promise<CallDto> {
+    await this.reap(callId);
+    return this.toDto(await this.requireParty(actor, callId));
+  }
+
+  /** Group calls: ring people of the group who are not in the call (again). */
+  async ring(actor: Actor, callId: string, userIds: string[]): Promise<CallDto> {
+    const call = await this.requireParty(actor, callId);
+    if (!call.group) throw ApiError.validation('Only group calls can ring more people.', 'callId');
+    if (call.state === 'ended') throw ApiError.conflict('This call has ended.');
+    if (call.joined[actor.userId] !== actor.sessionId)
+      throw ApiError.forbidden('Join the call first.');
+    const targets = [...new Set(userIds)].filter(
+      (id) => id in call.members && !(id in call.joined),
+    );
+    if (targets.length === 0)
+      throw ApiError.validation('Everyone chosen is already in the call.', 'userIds');
+    call.rung = [...new Set([...(call.rung ?? []), ...targets])];
+    await this.save(call);
+    await this.setRinging(call.id, targets);
+    this.realtime.toUsers(targets, 'call.incoming', this.toDto(call));
+    await this.push(call.id, targets, 'ring');
     return this.toDto(call);
   }
 
@@ -255,6 +430,7 @@ export class CallsService {
 
   /** Group calls: join (or re-join) a running call. */
   async join(actor: Actor, callId: string): Promise<CallDto> {
+    this.features.require('CALLS');
     const call = await this.requireParty(actor, callId);
     if (call.state === 'ended') throw ApiError.conflict('This call has ended.');
     if (!(actor.userId in call.joined) && Object.keys(call.joined).length >= this.maxFor(call))
@@ -263,7 +439,10 @@ export class CallsService {
       throw ApiError.conflict('You are already in a call.');
     call.joined[actor.userId] = actor.sessionId;
     if (actor.userId !== call.caller.id) call.everJoined = true;
+    call.everIn = [...new Set([...(call.everIn ?? []), actor.userId])];
     await this.save(call);
+    await this.markAlive(call.id, actor.userId);
+    await this.redis.client.del(ringingKey(actor.userId));
     await this.redis.client.set(busyKey(actor.userId), call.id, 'EX', CALL_TTL_SECONDS);
     this.realtime.toUsers(this.everyone(call), 'call.updated', this.toDto(call));
     return this.toDto(call);
@@ -278,7 +457,11 @@ export class CallsService {
     call.state = 'active';
     call.answeredAt = new Date().toISOString();
     call.joined[actor.userId] = actor.sessionId;
+    call.everIn = [...new Set([...(call.everIn ?? []), actor.userId])];
     await this.save(call);
+    await this.markAlive(call.id, actor.userId);
+    await this.redis.client.del(ringingKey(actor.userId));
+    await this.push(call.id, [actor.userId], 'ended');
     await this.redis.client.set(busyKey(actor.userId), call.id, 'EX', CALL_TTL_SECONDS);
     // Every device of both people: the other phones/tabs stop ringing.
     this.realtime.toUsers([call.caller.id, call.callee.id], 'call.updated', this.toDto(call));
@@ -293,6 +476,15 @@ export class CallsService {
     if (call.state !== 'ringing') return this.toDto(call);
     await this.finish(call, 'declined');
     return this.toDto(call);
+  }
+
+  /** Decline from the phone notification (no session there): proven by the call's token. */
+  async declineWithToken(callId: string, userId: string, token: string): Promise<void> {
+    if (!validCallDeclineToken(this.config.JWT_ACCESS_SECRET, callId, userId, token))
+      throw ApiError.notFound('Call');
+    const call = await this.load(callId);
+    if (!call || call.group || call.callee.id !== userId || call.state !== 'ringing') return;
+    await this.finish(call, 'declined');
   }
 
   /** Hang up (either person / leave a group call), cancel (caller while ringing) or time out. */
@@ -343,12 +535,31 @@ export class CallsService {
     call.endedAt = now.toISOString();
     call.joined = {};
     await this.save(call);
+    await this.redis.client.zrem(OPEN_KEY, call.id);
+    for (const userId of call.rung ?? [])
+      if ((await this.redis.client.get(ringingKey(userId))) === call.id)
+        await this.redis.client.del(ringingKey(userId));
     for (const userId of this.everyone(call)) {
       const current = await this.redis.client.get(busyKey(userId));
       if (current === call.id) await this.redis.client.del(busyKey(userId));
     }
     if (call.group) await this.redis.client.del(`group-call:${call.conversationId}`);
     this.realtime.toUsers(this.everyone(call), 'call.updated', this.toDto(call));
+    // Phones that were ringing: "Missed call" for whoever never picked up (not for a decline
+    // or a busy line), otherwise just stop the ringing.
+    const rung = call.rung ?? [];
+    const never = rung.filter((id) => !(call.everIn ?? []).includes(id));
+    const missed = call.group
+      ? never
+      : outcome === 'missed' || outcome === 'cancelled'
+        ? never
+        : [];
+    await this.push(call.id, missed, 'missed');
+    await this.push(
+      call.id,
+      rung.filter((id) => !missed.includes(id)),
+      'ended',
+    );
     const meta: MessageMeta = {
       type: 'call',
       media: call.media,

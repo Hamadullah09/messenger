@@ -252,6 +252,12 @@ export class ReportsService {
 
   /** The same report as an Excel workbook (one sheet per section). */
   async excel(actor: Actor, query: ReportQuery): Promise<{ buffer: Buffer; fileName: string }> {
+    // Exporting is for admins (or people given the export right in a custom role).
+    await this.authz.require(
+      actor,
+      'report.export',
+      query.businessId ? { businessId: query.businessId } : null,
+    );
     const r = await this.report(actor, query);
     const name = r.businessId
       ? ((

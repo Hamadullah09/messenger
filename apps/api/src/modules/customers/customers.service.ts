@@ -209,6 +209,8 @@ export class CustomersService {
   /** Customers who agreed to marketing, as CSV for a campaign tool. Every export is audited. */
   async exportCsv(actor: Actor, businessId: string): Promise<string> {
     const { where } = await this.scope(actor, businessId, 'customer.manage');
+    // Exporting is for admins (or people given the export right in a custom role).
+    await this.authz.require(actor, 'report.export', { businessId });
     const rows = await this.prisma.storeCustomer.findMany({
       where: { AND: [where, { marketingOptIn: true }] },
       include,

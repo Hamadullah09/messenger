@@ -1,13 +1,19 @@
 import { Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import {
   CRM_SETTING_KEYS,
+  FEATURE_SETTING_KEYS,
   INTEGRATION_KEYS,
   type CrmSettingKey,
+  type FeatureSettingKey,
   type IntegrationKey,
 } from '@storeline/shared';
 
-export type SettingKey = IntegrationKey | CrmSettingKey;
-const ALL_KEYS: readonly SettingKey[] = [...INTEGRATION_KEYS, ...CRM_SETTING_KEYS];
+export type SettingKey = IntegrationKey | CrmSettingKey | FeatureSettingKey;
+const ALL_KEYS: readonly SettingKey[] = [
+  ...INTEGRATION_KEYS,
+  ...CRM_SETTING_KEYS,
+  ...FEATURE_SETTING_KEYS,
+];
 import { CryptoService } from '../crypto/crypto.service';
 import { PrismaService } from '../prisma/prisma.service';
 

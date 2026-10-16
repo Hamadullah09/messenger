@@ -43,6 +43,7 @@ import {
   UserPlus,
   Users,
   Settings2,
+  Wallet,
   type LucideIcon,
 } from 'lucide-react';
 import Link from 'next/link';
@@ -91,7 +92,9 @@ import {
   TextField,
 } from '@/components/ui';
 import { api, downloadFile, errorMessage } from '@/lib/api';
-import { useAuth } from '@/lib/auth-store';
+import { hasPermission, useAuth } from '@/lib/auth-store';
+import { useFeatures } from '@/lib/features';
+import { AccountsTab } from '@/components/sales/accounts';
 import { formatDay, formatRelativeShort } from '@/lib/format';
 
 type Tab =
@@ -107,9 +110,11 @@ type Tab =
   | 'targets'
   | 'services'
   | 'settings'
-  | 'team';
+  | 'team'
+  | 'accounts';
 const TABS: Array<{ key: Tab; label: string; Icon: LucideIcon }> = [
   { key: 'overview', label: 'Overview', Icon: BarChart3 },
+  { key: 'accounts', label: 'Accounts', Icon: Wallet },
   { key: 'today', label: 'Today', Icon: CalendarCheck },
   { key: 'pipeline', label: 'Pipeline', Icon: Kanban },
   { key: 'leads', label: 'Leads', Icon: List },
@@ -128,7 +133,18 @@ function SalesScreen() {
   const router = useRouter();
   const params = useSearchParams();
   const me = useAuth((s) => s.me)!;
-  const tab = (TABS.find((t) => t.key === params.get('tab'))?.key ?? 'overview') as Tab;
+  const features = useFeatures();
+  // The Accounts tab (accountants, sales managers, owners, admins).
+  const canFinance = hasPermission(me, 'sales.finance.read');
+  // Accountants: money tabs only (no leads).
+  const financeOnly = canFinance && !hasPermission(me, 'sales.lead.manage');
+  const visibleTabs = TABS.filter((t) =>
+    financeOnly
+      ? ['accounts', 'invoices', 'billing', 'settings'].includes(t.key)
+      : t.key !== 'accounts' || canFinance,
+  );
+  const tab = (visibleTabs.find((t) => t.key === params.get('tab'))?.key ??
+    (financeOnly ? 'accounts' : 'overview')) as Tab;
   const [creating, setCreating] = useState(false);
   const [websiteForm, setWebsiteForm] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -191,36 +207,38 @@ function SalesScreen() {
               : `${ctx.businessName}’s own leads, deals, quotes, invoices and customers. Only your business sees them.`
           }
           actions={
-            <>
-              {ctx.teamGroupId && (
-                <Link
-                  href={`/chats?c=${ctx.teamGroupId}`}
-                  className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-line-strong/60 bg-surface px-4 font-semibold hover:bg-surface-2"
+            financeOnly ? undefined : (
+              <>
+                {ctx.teamGroupId && (
+                  <Link
+                    href={`/chats?c=${ctx.teamGroupId}`}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-line-strong/60 bg-surface px-4 font-semibold hover:bg-surface-2"
+                  >
+                    <MessageCircle className="size-5" aria-hidden /> Team chat
+                  </Link>
+                )}
+                <Button
+                  variant="secondary"
+                  onClick={() => setImporting(true)}
+                  icon={<Upload className="size-5" aria-hidden />}
                 >
-                  <MessageCircle className="size-5" aria-hidden /> Team chat
-                </Link>
-              )}
-              <Button
-                variant="secondary"
-                onClick={() => setImporting(true)}
-                icon={<Upload className="size-5" aria-hidden />}
-              >
-                Import
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setWebsiteForm(true)}
-                icon={<Globe className="size-5" aria-hidden />}
-              >
-                Website form
-              </Button>
-              <Button
-                onClick={() => setCreating(true)}
-                icon={<Plus className="size-5" aria-hidden />}
-              >
-                New lead
-              </Button>
-            </>
+                  Import
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => setWebsiteForm(true)}
+                  icon={<Globe className="size-5" aria-hidden />}
+                >
+                  Website form
+                </Button>
+                <Button
+                  onClick={() => setCreating(true)}
+                  icon={<Plus className="size-5" aria-hidden />}
+                >
+                  New lead
+                </Button>
+              </>
+            )
           }
         />
         <div
@@ -228,8 +246,9 @@ function SalesScreen() {
           aria-label="Sales sections"
           className="scroll-thin flex gap-1 overflow-x-auto border-b border-line"
         >
-          {TABS.filter((t) => t.key !== 'team' || ctx.canManageTeam || ctx.canSeeAll).map(
-            ({ key, label, Icon }) => (
+          {visibleTabs
+            .filter((t) => t.key !== 'team' || ctx.canManageTeam || ctx.canSeeAll)
+            .map(({ key, label, Icon }) => (
               <button
                 key={key}
                 role="tab"
@@ -248,8 +267,7 @@ function SalesScreen() {
                   />
                 )}
               </button>
-            ),
-          )}
+            ))}
         </div>
         <div role="tabpanel">
           {tab === 'overview' && (
@@ -258,6 +276,7 @@ function SalesScreen() {
               <Overview context={ctx} onOpen={setOpenLead} />
             </div>
           )}
+          {tab === 'accounts' && <AccountsTab />}
           {tab === 'today' && <AgendaTab context={ctx} onOpenLead={setOpenLead} />}
           {tab === 'pipeline' && <Pipeline context={ctx} onOpen={setOpenLead} />}
           {tab === 'leads' && <Leads context={ctx} team={team.data ?? []} onOpen={setOpenLead} />}
@@ -271,7 +290,7 @@ function SalesScreen() {
           {tab === 'settings' && (
             <div className="flex flex-col gap-6">
               <CrmSettingsTab />
-              <OnlinePaymentsSettings />
+              {features.ONLINE_PAYMENTS && <OnlinePaymentsSettings />}
               <FbrSettingsSection />
             </div>
           )}
@@ -771,6 +790,8 @@ function Leads({
     direction: direction || undefined,
     stuck: stuckOnly ? 'true' : undefined,
   });
+  // Exporting is for admins (or people given the export right in a custom role).
+  const canExport = useAuth((s) => hasPermission(s.me, 'report.export', s.activeBusinessId));
   const exporting = useMutation({
     mutationFn: () => downloadFile('/sales/leads-export.csv', 'sma-leads.csv'),
   });
@@ -849,7 +870,7 @@ function Leads({
           Only stuck leads
         </label>
         <span className="flex-1" />
-        {context.canSeeAll && (
+        {context.canSeeAll && canExport && (
           <Button
             variant="secondary"
             size="sm"
@@ -967,6 +988,8 @@ function Customers({
   onOpen: (id: string) => void;
 }) {
   const won = useLeads({ stage: 'WON' });
+  // Exporting is for admins (or people given the export right in a custom role).
+  const canExport = useAuth((s) => hasPermission(s.me, 'report.export', s.activeBusinessId));
   const exporting = useMutation({
     mutationFn: () => downloadFile('/sales/leads-export.csv?customers=true', 'customers.csv'),
   });
@@ -978,7 +1001,7 @@ function Customers({
             ? 'Businesses that buy SMA: what they bought, paid and owe. Use Upsell to sell them more.'
             : 'Your won leads: what they bought, paid and owe. Use Upsell to sell them more.'}
         </p>
-        {context.canSeeAll && (
+        {context.canSeeAll && canExport && (
           <Button
             variant="secondary"
             size="sm"
@@ -1018,7 +1041,7 @@ function TeamTab({
     username: '',
     email: '',
     password: '',
-    roleKey: 'SALES_AGENT' as 'SALES_AGENT' | 'SALES_MANAGER',
+    roleKey: 'SALES_AGENT' as 'SALES_AGENT' | 'SALES_MANAGER' | 'ACCOUNTANT',
   });
   const add = useMutation({
     mutationFn: () =>
@@ -1132,6 +1155,9 @@ function TeamTab({
               <option value="SALES_AGENT">Sales Agent: own leads and the unassigned queue</option>
               <option value="SALES_MANAGER">
                 Sales Manager: all leads, team, reports, conversions
+              </option>
+              <option value="ACCOUNTANT">
+                Accountant: invoices, payments, dues and reminders (no leads)
               </option>
             </SelectField>
           </div>

@@ -35,6 +35,9 @@ const handle = app.getRequestHandler();
 await app.prepare();
 
 const listener = (req, res) => {
+  // Tell the API which protocol the browser used (photo and file links must match the page:
+  // an https page cannot load http links). Never trust a value the browser sent itself.
+  req.headers['x-forwarded-proto'] = req.socket.encrypted ? 'https' : 'http';
   if (req.url === '/sma-local-ca.crt' && existsSync(join(certs, 'sma-local-ca.crt'))) {
     // Only the public certificate; the CA key never leaves the .certs folder.
     res.writeHead(200, {

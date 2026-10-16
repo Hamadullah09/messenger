@@ -27,6 +27,8 @@ import {
 } from '@/components/ui';
 import { formatDuration } from '@/components/chat/rich-content';
 import { api, errorMessage } from '@/lib/api';
+import { useFeatures } from '@/lib/features';
+import { FeatureOff } from '@/components/feature-off';
 import { useAuth } from '@/lib/auth-store';
 import { startCall } from '@/lib/calls';
 import { useConversations } from '@/lib/chat-hooks';
@@ -187,6 +189,12 @@ function NewCallDialog({ onClose }: { onClose: () => void }) {
 }
 
 export default function CallsPage() {
+  const features = useFeatures();
+  if (!features.CALLS) return <FeatureOff name="Calls" />;
+  return <CallsPageContent />;
+}
+
+function CallsPageContent() {
   const [newCall, setNewCall] = useState(false);
   const log = useQuery({
     queryKey: ['calls-log'],

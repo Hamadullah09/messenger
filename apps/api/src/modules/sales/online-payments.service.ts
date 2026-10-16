@@ -16,6 +16,7 @@ import { RateLimiterService } from '../../infra/redis/rate-limiter.service';
 import { AuditService } from '../audit/audit.service';
 import type { Actor } from '../auth/actor';
 import { AuthorizationService } from '../authorization/authorization.service';
+import { FeaturesService } from '../platform/features.module';
 import { CrmSettingsService, InvoiceFactory, num, round2 } from './crm-core';
 import {
   easypaisaCheckout,
@@ -64,6 +65,7 @@ export class OnlinePaymentsService {
     private readonly factory: InvoiceFactory,
     private readonly audit: AuditService,
     private readonly rateLimiter: RateLimiterService,
+    private readonly features: FeaturesService,
   ) {}
 
   private aad(businessId: string, gateway: PaymentGateway) {
@@ -194,6 +196,8 @@ export class OnlinePaymentsService {
   async enabledFor(
     tenantId: string,
   ): Promise<Array<{ gateway: PaymentGateway; methods: GatewayMethod[]; sandbox: boolean }>> {
+    // Switched off: the pay page shows only the manual ways to pay.
+    if (!this.features.enabled('ONLINE_PAYMENTS')) return [];
     const rows = await this.prisma.paymentGatewayConfig.findMany({
       where: { businessId: tenantId, enabled: true },
     });
@@ -211,6 +215,7 @@ export class OnlinePaymentsService {
   }
 
   async checkout(token: string, request: CheckoutRequest, ipHash: string): Promise<CheckoutDto> {
+    this.features.require('ONLINE_PAYMENTS');
     await this.rateLimiter.consume(CHECKOUT_LIMIT, ipHash);
     const invoice = await this.prisma.invoice.findUnique({
       where: { payToken: token },

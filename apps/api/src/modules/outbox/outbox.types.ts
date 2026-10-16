@@ -37,7 +37,9 @@ export const PUSH_QUEUE = 'push';
 
 export type PushJobData =
   | { kind: 'message'; messageId: string; userIds: string[] }
-  | { kind: 'emergency'; incidentId: string; userIds: string[] };
+  | { kind: 'emergency'; incidentId: string; userIds: string[] }
+  /** ring: a call is ringing them · missed: they did not answer · ended: clear the ringing. */
+  | { kind: 'call'; callId: string; userIds: string[]; event: 'ring' | 'missed' | 'ended' };
 
 export const PUSH_JOB_OPTIONS = {
   attempts: 4,

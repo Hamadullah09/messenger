@@ -21,3 +21,5 @@ export * from './crm';
 export * from './crm-extra';
 export * from './ops-types';
 export * from './sma-plans';
+export * from './bulk-import';
+export * from './features';

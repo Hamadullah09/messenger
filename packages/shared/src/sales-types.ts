@@ -103,7 +103,7 @@ export interface SalesOverviewDto {
 
 export interface SalesUserDto extends PublicUserDto {
   /** Business Owners and Admins use their own business's CRM as managers. */
-  roleKey: 'SALES_MANAGER' | 'SALES_AGENT' | 'BUSINESS_OWNER' | 'BUSINESS_ADMIN';
+  roleKey: 'SALES_MANAGER' | 'SALES_AGENT' | 'ACCOUNTANT' | 'BUSINESS_OWNER' | 'BUSINESS_ADMIN';
   openLeads: number;
   wonLeads: number;
 }

@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   Logger,
   type OnApplicationBootstrap,
@@ -6,12 +7,14 @@ import {
 } from '@nestjs/common';
 import { resolveBusinessPolicy, type PushPayload } from '@storeline/shared';
 import { Worker } from 'bullmq';
+import { APP_CONFIG, type AppConfig } from '../../infra/config/config';
 import { CryptoService } from '../../infra/crypto/crypto.service';
 import { metrics } from '../../infra/metrics/metrics';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RedisService } from '../../infra/redis/redis.service';
 import { PUSH_QUEUE, type PushJobData } from '../outbox/outbox.types';
 import { PushGateway } from './push-gateway';
+import { callDeclineToken } from '../calls/call-tokens';
 import { kindPreview } from '../messaging/mappers';
 
 const PREVIEW_MAX = 120;
@@ -41,6 +44,7 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
   private worker: Worker<PushJobData> | null = null;
 
   constructor(
+    @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly crypto: CryptoService,
@@ -60,9 +64,69 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   async process(data: PushJobData): Promise<{ sent: number; skipped: number }> {
+    if (data.kind === 'call') return this.call(data.callId, data.userIds, data.event);
     return data.kind === 'message'
       ? this.message(data.messageId, data.userIds)
       : this.emergency(data.incidentId, data.userIds);
+  }
+
+  /**
+   * Calls: "X is calling" with Answer / Decline to people whose app is closed (an open app
+   * rings by itself), then "Missed call" or a silent clear when the call is over.
+   */
+  private async call(callId: string, userIds: string[], event: 'ring' | 'missed' | 'ended') {
+    const raw = await this.redis.client.get(`call:${callId}`);
+    if (!raw) return { sent: 0, skipped: 0 };
+    const call = JSON.parse(raw) as {
+      id: string;
+      media: 'audio' | 'video';
+      group: boolean;
+      title: string | null;
+      caller: { displayName: string };
+      state: string;
+    };
+    if (event === 'ring' && call.state === 'ended') return { sent: 0, skipped: 0 };
+    // Ringing only where the app is closed (an open app rings by itself); missed and clears go
+    // everywhere, so a phone that rang stops ringing.
+    const targets = event === 'ring' ? await this.offline(userIds) : userIds;
+    const kind = call.media === 'video' ? 'video' : 'voice';
+    const who = call.group
+      ? `${call.caller.displayName} · ${call.title ?? 'Group'}`
+      : call.caller.displayName;
+    const tag = `call-${callId.slice(0, 8)}`;
+    return this.deliver(
+      targets,
+      false,
+      (preview, userId): PushPayload => {
+        const named = preview !== 'NONE';
+        if (event === 'ring')
+          return {
+            type: 'call',
+            title: named ? who : 'SMA call',
+            body: `Incoming ${call.group ? 'group ' : ''}${kind} call`,
+            url: `/chats?call=${callId}`,
+            callId,
+            declineToken: call.group
+              ? undefined
+              : callDeclineToken(this.config.JWT_ACCESS_SECRET, callId, userId),
+            userId: call.group ? undefined : userId,
+            tag,
+          };
+        if (event === 'missed')
+          return {
+            type: 'message',
+            title: 'Missed call',
+            body: named ? `${who} · ${kind} call` : `Missed ${kind} call`,
+            url: '/calls',
+            tag,
+          };
+        return { type: 'call-ended', title: 'Call ended', body: '', url: '/calls', callId, tag };
+      },
+      // A ring is useless once the phone would have stopped ringing.
+      event === 'ring'
+        ? { urgency: 'high', ttlSeconds: 60 }
+        : { urgency: 'high', ttlSeconds: 3600 },
+    );
   }
 
   private async message(messageId: string, userIds: string[]) {
@@ -88,7 +152,9 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
         },
       },
     });
-    if (!message || message.deletedAt || message.kind === 'SYSTEM') return { sent: 0, skipped: 0 };
+    // Calls notify through their own ring / missed-call notifications.
+    if (!message || message.deletedAt || message.kind === 'SYSTEM' || message.kind === 'CALL')
+      return { sent: 0, skipped: 0 };
     const now = new Date();
     const eligible = message.conversation.members
       .filter(
@@ -172,7 +238,7 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
   private async deliver(
     userIds: string[],
     emergency: boolean,
-    build: (preview: 'NONE' | 'SENDER' | 'CONTENT') => PushPayload,
+    build: (preview: 'NONE' | 'SENDER' | 'CONTENT', userId: string) => PushPayload,
     options?: { urgency: 'normal' | 'high'; ttlSeconds: number },
   ): Promise<{ sent: number; skipped: number }> {
     if (userIds.length === 0) return { sent: 0, skipped: 0 };
@@ -190,6 +256,7 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
       },
       select: {
         id: true,
+        userId: true,
         pushProvider: true,
         pushTokenEnc: true,
         user: { select: { notificationPrefs: { select: { preview: true } } } },
@@ -202,7 +269,7 @@ export class PushProcessor implements OnApplicationBootstrap, OnModuleDestroy {
         skipped += 1;
         continue;
       }
-      const payload = build(device.user.notificationPrefs?.preview ?? 'NONE');
+      const payload = build(device.user.notificationPrefs?.preview ?? 'NONE', device.userId);
       try {
         const outcome = await this.gateway.send(
           {

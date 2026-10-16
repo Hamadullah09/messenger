@@ -48,6 +48,7 @@ import { ChatInfoPanel } from './chat-info';
 import { ForwardDialog, MessageInfoDialog } from './dialogs';
 import type { BubbleActions } from './message-bubble';
 import { MessageList } from './message-list';
+import { useFeatures } from '@/lib/features';
 
 const MUTE_FOREVER = '9999-12-31T00:00:00.000Z';
 const HEADER_ICON =
@@ -61,6 +62,7 @@ export function ChatPanel({
   onBack: () => void;
 }) {
   const me = useAuth((s) => s.me)!;
+  const features = useFeatures();
   const socket = useSocket();
   const detail = useConversationDetail(conversationId);
   const messages = useMessages(conversationId);
@@ -76,6 +78,7 @@ export function ChatPanel({
   const [replyTo, setReplyTo] = useState<MessageDto | null>(null);
   const [editing, setEditing] = useState<MessageDto | null>(null);
   const [deleting, setDeleting] = useState<MessageDto | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [forwarding, setForwarding] = useState<MessageDto | null>(null);
   const [infoFor, setInfoFor] = useState<MessageDto | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -143,7 +146,10 @@ export function ChatPanel({
         setReplyTo(null);
         setEditing(m);
       },
-      onDelete: (m) => setDeleting(m),
+      onDelete: (m) => {
+        setDeleteError(null);
+        setDeleting(m);
+      },
       onForward: (m) => setForwarding(m),
       onStar: (m, star) => action.mutate({ message: m, kind: star ? 'star' : 'unstar' }),
       onPin: (m, pin) => action.mutate({ message: m, kind: pin ? 'pin' : 'unpin' }),
@@ -245,7 +251,8 @@ export function ChatPanel({
             </span>
           </button>
           {(conversation.type === 'DIRECT' || conversation.type === 'GROUP') &&
-            conversation.me.canPost && (
+            conversation.me.canPost &&
+            features.CALLS && (
               <>
                 <button
                   type="button"
@@ -414,12 +421,19 @@ export function ChatPanel({
               !deleting.deleted && (deleting.sender.id === me.user.id || canModerate)
             }
             deletingForEveryone={action.isPending}
-            onDeleteForEveryone={() =>
+            asAdmin={deleting.sender.id !== me.user.id}
+            error={deleteError}
+            onDeleteForEveryone={() => {
+              setDeleteError(null);
               action.mutate(
                 { message: deleting, kind: 'delete' },
-                { onSettled: () => setDeleting(null) },
-              )
-            }
+                {
+                  onSuccess: () => setDeleting(null),
+                  // Keep the dialog open and say why (e.g. too late to delete for everyone).
+                  onError: (error) => setDeleteError(errorMessage(error)),
+                },
+              );
+            }}
             onClose={() => setDeleting(null)}
           />
         )}
@@ -531,6 +545,8 @@ function DeleteMessageDialog({
   conversationId,
   canDeleteForEveryone,
   deletingForEveryone,
+  asAdmin,
+  error,
   onDeleteForEveryone,
   onClose,
 }: {
@@ -538,6 +554,9 @@ function DeleteMessageDialog({
   conversationId: string;
   canDeleteForEveryone: boolean;
   deletingForEveryone: boolean;
+  /** Someone else's message, deleted with admin rights. */
+  asAdmin: boolean;
+  error: string | null;
   onDeleteForEveryone: () => void;
   onClose: () => void;
 }) {
@@ -553,9 +572,12 @@ function DeleteMessageDialog({
     <Dialog open onClose={onClose} title="Delete message?">
       <div className="flex flex-col gap-3">
         {hide.isError && <Alert tone="error">{errorMessage(hide.error)}</Alert>}
+        {error && <Alert tone="error">{error}</Alert>}
         <p className="text-muted">
           {canDeleteForEveryone
-            ? '“Delete for everyone” removes it from the chat for all members. “Delete for me” only removes it from your devices.'
+            ? asAdmin
+              ? `As an admin you can delete ${message.sender.displayName}’s message for everyone. Members will see “This message was deleted by admin”.`
+              : '“Delete for everyone” removes it from the chat for all members. “Delete for me” only removes it from your devices.'
             : 'It will be removed from your devices only. Others in the chat still see it.'}
         </p>
         <div className="flex flex-col gap-2 sm:flex-row-reverse">

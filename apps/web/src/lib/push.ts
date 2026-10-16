@@ -67,7 +67,17 @@ function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
 }
 
 async function registration(): Promise<ServiceWorkerRegistration> {
-  return navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  try {
+    return await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  } catch (error) {
+    // Browsers refuse background notifications on an address whose certificate they do not
+    // trust, even after "Proceed anyway" on the warning page.
+    if (error instanceof Error && /SSL|certificate/i.test(error.message))
+      throw new Error(
+        'This browser does not trust this address’s security certificate, so it blocks notifications. On this computer open http://localhost:3000 instead; on a phone, install the SMA certificate first (see the setup guide).',
+      );
+    throw error;
+  }
 }
 
 /**

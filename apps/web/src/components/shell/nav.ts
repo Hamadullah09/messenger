@@ -19,7 +19,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
-import type { MeDto } from '@storeline/shared';
+import type { FeaturesDto, MeDto } from '@storeline/shared';
 import { hasPermission, hasTenantPermission, isPlatformAdmin } from '@/lib/auth-store';
 
 export interface NavItem {
@@ -30,7 +30,7 @@ export interface NavItem {
   match: (pathname: string, tab: string | null) => boolean;
 }
 
-export function primaryNav(me: MeDto | null): NavItem[] {
+export function primaryNav(me: MeDto | null, features?: FeaturesDto): NavItem[] {
   const items: NavItem[] = [
     {
       href: '/dashboard',
@@ -45,15 +45,21 @@ export function primaryNav(me: MeDto | null): NavItem[] {
       match: (p) => p.startsWith('/chats'),
     },
   ];
-  items.push(
-    {
+  // Parts the Super Admin switched off are hidden (Settings → Features).
+  if (features?.STATUS !== false)
+    items.push({
       href: '/status',
       label: 'Status',
       Icon: CircleDashed,
       match: (p) => p.startsWith('/status'),
-    },
-    { href: '/calls', label: 'Calls', Icon: Phone, match: (p) => p.startsWith('/calls') },
-  );
+    });
+  if (features?.CALLS !== false)
+    items.push({
+      href: '/calls',
+      label: 'Calls',
+      Icon: Phone,
+      match: (p) => p.startsWith('/calls'),
+    });
   if (hasPermission(me, 'task.work') || hasPermission(me, 'task.manage')) {
     items.push({
       href: '/tasks',
@@ -137,7 +143,7 @@ export function adminNav(me: MeDto | null, businessId: string | null): NavItem[]
   if (isPlatformAdmin(me) && hasPermission(me, 'platform.config')) {
     items.push({
       href: '/integrations',
-      label: 'Integrations',
+      label: 'Features & integrations',
       Icon: Plug,
       match: (p) => p.startsWith('/integrations'),
     });

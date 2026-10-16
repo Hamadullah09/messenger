@@ -9,6 +9,7 @@ import { CrmController } from './crm.controller';
 import { CrmService } from './crm.service';
 import { FbrController } from './fbr.controller';
 import { FbrService } from './fbr.service';
+import { FinanceController, FinanceService } from './finance.service';
 import { LeadImportService } from './lead-import.service';
 import {
   OnlinePaymentsPublicController,
@@ -33,6 +34,7 @@ import { SmaBillingService } from './sma-billing.service';
     OnlinePaymentsPublicController,
     SmaBillingController,
     FbrController,
+    FinanceController,
   ],
   providers: [
     SalesService,
@@ -47,6 +49,7 @@ import { SmaBillingService } from './sma-billing.service';
     OnlinePaymentsService,
     SmaBillingService,
     FbrService,
+    FinanceService,
   ],
 })
 export class SalesModule {}

@@ -49,6 +49,7 @@ import {
   TextField,
 } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
+import { SampleFileButton } from '@/components/manage/bulk-import';
 import { copyText } from '@/lib/clipboard';
 import { formatDay } from '@/lib/format';
 import {
@@ -1260,11 +1261,28 @@ export function CrmSettingsTab() {
         </div>
       </section>
       <section className="rounded-3xl border border-line bg-surface p-5 shadow-card">
-        <h2 className="mb-1 text-lg font-bold">Payment reminders</h2>
-        <p className="mb-3 text-sm text-muted">Sent automatically when an invoice is overdue.</p>
+        <h2 className="mb-1 text-lg font-bold">Payment window and reminders</h2>
+        <p className="mb-3 text-sm text-muted">
+          Reminders are sent automatically to customers who have not paid.
+        </p>
         <TextField
-          label="Days after the due date"
-          hint="Separate with commas, e.g. 1, 7, 14"
+          label="Monthly payments are due by day"
+          hint="e.g. 10: monthly invoices are paid from the 1st to the 10th. Leave empty to use each subscription’s own number of days."
+          type="number"
+          min={1}
+          max={28}
+          disabled={disabled}
+          value={String(
+            (draft.paymentDueDay !== undefined ? draft.paymentDueDay : s.paymentDueDay) ?? '',
+          )}
+          onChange={(e) => {
+            const n = parseInt(e.target.value, 10);
+            set({ paymentDueDay: Number.isInteger(n) ? Math.min(28, Math.max(1, n)) : null });
+          }}
+        />
+        <TextField
+          label="Send reminders this many days after the due date"
+          hint="Separate with commas. 0 = on the due date itself, e.g. 0, 3, 7, 14"
           disabled={disabled}
           value={(draft.reminderDays ?? s.reminderDays).join(', ')}
           onChange={(e) =>
@@ -1407,10 +1425,11 @@ export function LeadImportDialog({
         ) : (
           <>
             <p className="text-muted">
-              Use an Excel (.xlsx) or CSV file with a heading row, e.g. Company, Contact, Phone,
-              Email, City, Stores. Columns are matched automatically; leads that already exist are
-              flagged.
+              Use an Excel (.xlsx) or CSV file with a heading row. Start from the sample file to get
+              the right columns; your own headings (e.g. Company, Contact, Phone) are matched too.
+              Leads that already exist are flagged.
             </p>
+            <SampleFileButton kind="leads" />
             <input
               ref={input}
               type="file"

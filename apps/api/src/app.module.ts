@@ -21,6 +21,8 @@ import { OutboxModule } from './modules/outbox/outbox.module';
 import { RealtimeEmitterModule } from './modules/realtime/realtime-emitter.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { TenancyModule } from './modules/tenancy/tenancy.module';
+import { ImportsModule } from './modules/imports/imports.module';
+import { FeaturesModule } from './modules/platform/features.module';
 import { CustomersModule } from './modules/customers/customers.module';
 import { SalesModule } from './modules/sales/sales.module';
 import { StatusModule } from './modules/status/status.module';
@@ -51,6 +53,8 @@ export const CORE_IMPORTS = [
     ...CORE_IMPORTS,
     AuthModule,
     TenancyModule,
+    ImportsModule,
+    FeaturesModule,
     UsersModule,
     SalesModule,
     CustomersModule,

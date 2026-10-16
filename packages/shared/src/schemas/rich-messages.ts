@@ -186,6 +186,11 @@ export const callSignalSchema = z.object({
     }),
     /** Camera or microphone turned on/off on the other side. */
     z.object({ type: z.literal('media'), audio: z.boolean(), video: z.boolean() }),
+    /** One-to-one voice call → video call: asked, answered, or withdrawn (like WhatsApp). */
+    z.object({
+      type: z.literal('video'),
+      action: z.enum(['request', 'accept', 'decline', 'cancel']),
+    }),
   ]),
 });
 export type CallSignal = z.infer<typeof callSignalSchema>;

@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { logout } from '@/lib/api';
 import { useAuth } from '@/lib/auth-store';
 import { AWAITING, useIncidents } from '@/lib/emergency';
+import { useFeatures } from '@/lib/features';
 import { resolvedTheme, useTheme } from '@/lib/theme';
 import { BRAND, BrandMark } from '../brand';
 import { Badge, cx } from '../ui';
@@ -82,6 +83,7 @@ export function Sidebar({
   const [theme, setTheme] = useTheme();
   const [adminOpen, setAdminOpen] = useState(true);
   const admin = adminNav(me, businessId);
+  const features = useFeatures();
   const incidents = useIncidents(true);
   const waiting = (incidents.data?.items ?? []).filter((i) => AWAITING.includes(i.status)).length;
   const current = resolvedTheme(theme);
@@ -101,7 +103,7 @@ export function Sidebar({
       {!compact && <hr className="mb-4 border-line" />}
 
       <nav aria-label="Main" className="scroll-thin flex flex-1 flex-col gap-1 overflow-y-auto">
-        {primaryNav(me).map((item) => (
+        {primaryNav(me, features).map((item) => (
           <NavLink
             key={item.href}
             item={item}

@@ -35,6 +35,8 @@ import {
   TextArea,
 } from '@/components/ui';
 import { api, errorMessage } from '@/lib/api';
+import { useFeatures } from '@/lib/features';
+import { FeatureOff } from '@/components/feature-off';
 import { useAuth } from '@/lib/auth-store';
 import { formatRelativeShort, formatTime } from '@/lib/format';
 import { useMediaUrl } from '@/lib/media-store';
@@ -83,6 +85,12 @@ function Ring({
 }
 
 export default function StatusPage() {
+  const features = useFeatures();
+  if (!features.STATUS) return <FeatureOff name="Status" />;
+  return <StatusPageContent />;
+}
+
+function StatusPageContent() {
   const me = useAuth((s) => s.me)!;
   const businessId = useAuth((s) => s.activeBusinessId);
   const [composing, setComposing] = useState(false);

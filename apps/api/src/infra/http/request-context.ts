@@ -29,7 +29,13 @@ export function requestContextMiddleware(req: Request, _res: Response, next: Nex
     const v = req.headers[name];
     return Array.isArray(v) ? v[0] : v;
   };
-  const proto = header('x-forwarded-proto')?.split(',')[0]?.trim() || 'http';
+  // Behind the web app's proxy the protocol comes from X-Forwarded-Proto; without it, from the
+  // page address the browser sent (an https page needs https links).
+  const proto =
+    header('x-forwarded-proto')?.split(',')[0]?.trim() ||
+    urlOf(header('origin'))?.protocol.replace(':', '') ||
+    urlOf(header('referer'))?.protocol.replace(':', '') ||
+    'http';
   const page =
     urlOf(header('x-forwarded-host'), proto) ??
     urlOf(header('origin')) ??

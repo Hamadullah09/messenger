@@ -199,7 +199,7 @@ export const createSalesUserRequestSchema = z.object({
   username: usernameSchema,
   email: emailSchema,
   password: passwordSchema,
-  roleKey: z.enum(['SALES_MANAGER', 'SALES_AGENT']),
+  roleKey: z.enum(['SALES_MANAGER', 'SALES_AGENT', 'ACCOUNTANT']),
 });
 export type CreateSalesUserRequest = z.infer<typeof createSalesUserRequestSchema>;
 

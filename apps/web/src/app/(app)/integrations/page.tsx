@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { Alert, Button, cx, PageHeader, Spinner, TextField } from '@/components/ui';
+import { FeaturesCard } from '@/components/manage/features-card';
 import { api, errorMessage } from '@/lib/api';
 
 const CHANNELS: Array<{
@@ -107,8 +108,9 @@ export default function IntegrationsPage() {
       <div className="mx-auto flex w-full max-w-4xl flex-col gap-5 p-4 sm:p-6">
         <PageHeader
           title="Integrations"
-          subtitle="Connect email, SMS and WhatsApp so campaigns and invoices actually go out."
+          subtitle="Connect email, SMS and WhatsApp so campaigns and invoices actually go out, and turn features on or off."
         />
+        <FeaturesCard />
         <Alert tone="info">
           Keys are stored encrypted and never shown again in full. Values set here replace the
           server’s settings file. Sending through these providers may cost money on your account.

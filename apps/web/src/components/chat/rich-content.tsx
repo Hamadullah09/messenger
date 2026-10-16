@@ -61,7 +61,32 @@ export function formatDuration(totalSeconds: number): string {
 
 const SPEEDS = [1, 1.5, 2] as const;
 
-/** WhatsApp-style voice note: play/pause, waveform progress, speed (1×, 1.5×, 2×). */
+/** Only one voice note plays at a time (starting one pauses the other). */
+let playingAudio: HTMLAudioElement | null = null;
+
+/** Voice notes this device has played (the mic turns blue, as in WhatsApp). */
+const PLAYED_KEY = 'sma-voice-played';
+function playedSet(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(PLAYED_KEY) ?? '[]') as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function markPlayed(id: string) {
+  try {
+    const ids = [...playedSet(), id].slice(-500);
+    localStorage.setItem(PLAYED_KEY, JSON.stringify(ids));
+  } catch {
+    // Private mode: the colour just does not stick.
+  }
+}
+
+/**
+ * WhatsApp-style voice note: play/pause, a waveform with a dot you can drag, the speed button
+ * (1×, 1.5×, 2×) in place of the photo while playing, a mic that turns blue once played, and
+ * the next unplayed voice note in the chat plays on by itself.
+ */
 export function AudioMessage({
   attachment,
   meta,
@@ -76,21 +101,52 @@ export function AudioMessage({
   const [requested, setRequested] = useState(false);
   const url = useMediaUrl(attachment.mediaId, 'original', requested);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const [playing, setPlaying] = useState(false);
   const [position, setPosition] = useState(0);
   const [duration, setDuration] = useState((meta?.durationMs ?? 0) / 1000);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
+  const [played, setPlayed] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const bars = meta?.waveform?.length
     ? meta.waveform
     : Array.from({ length: 40 }, (_, i) => 6 + ((i * 7) % 13));
-  const progress = duration > 0 ? position / duration : 0;
+  const progress = duration > 0 ? Math.min(1, position / duration) : 0;
   const voice = meta?.voice ?? false;
+  const started = playing || position > 0;
+
+  useEffect(
+    () => setPlayed(mine || playedSet().has(attachment.mediaId)),
+    [mine, attachment.mediaId],
+  );
 
   useEffect(() => {
-    if (requested && url.data && audioRef.current && audioRef.current.paused && playing) {
-      void audioRef.current.play().catch(() => setPlaying(false));
+    const el = audioRef.current;
+    if (requested && url.data && el && el.paused && playing) void play(el);
+  }, [requested, url.data, playing]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(
+    () => () => {
+      if (playingAudio === audioRef.current) playingAudio = null;
+    },
+    [],
+  );
+
+  async function play(el: HTMLAudioElement) {
+    if (playingAudio && playingAudio !== el) playingAudio.pause();
+    playingAudio = el;
+    el.playbackRate = speed;
+    try {
+      await el.play();
+      setPlaying(true);
+      if (!played) {
+        setPlayed(true);
+        markPlayed(attachment.mediaId);
+      }
+    } catch {
+      setPlaying(false);
     }
-  }, [requested, url.data, playing]);
+  }
 
   const toggle = () => {
     const el = audioRef.current;
@@ -100,41 +156,73 @@ export function AudioMessage({
       return;
     }
     if (!el) return;
-    if (el.paused)
-      void el
-        .play()
-        .then(() => setPlaying(true))
-        .catch(() => setPlaying(false));
-    else {
-      el.pause();
-      setPlaying(false);
-    }
-  };
-  const seek = (fraction: number) => {
-    const el = audioRef.current;
-    if (!el || !duration) return;
-    el.currentTime = fraction * duration;
-    setPosition(el.currentTime);
+    if (el.paused) void play(el);
+    else el.pause();
   };
 
-  return (
-    <div className="flex w-[min(19rem,70vw)] items-center gap-2.5 px-1 py-1">
-      {voice && !mine && (
-        <span className="relative shrink-0">
+  const seekTo = (clientX: number, target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    const fraction = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    setPosition(fraction * duration);
+    const el = audioRef.current;
+    if (el && duration) el.currentTime = fraction * duration;
+  };
+
+  /** At the end: the next unplayed voice note below plays on (WhatsApp does this). */
+  const playNext = () => {
+    if (!voice || !rootRef.current) return;
+    const all = [...document.querySelectorAll<HTMLElement>('[data-voice-note]')];
+    const next = all[all.indexOf(rootRef.current) + 1];
+    if (next?.dataset.unplayed === 'true')
+      next.querySelector<HTMLButtonElement>('[data-voice-play]')?.click();
+  };
+
+  const avatarSide = (
+    <span className="relative flex w-11 shrink-0 justify-center">
+      {started ? (
+        <button
+          type="button"
+          onClick={() => {
+            const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]!;
+            setSpeed(next);
+            if (audioRef.current) audioRef.current.playbackRate = next;
+          }}
+          className="rounded-full bg-black/10 px-2 py-1 text-xs font-bold dark:bg-white/15"
+          aria-label={`Playback speed ${speed}×`}
+        >
+          {speed}×
+        </button>
+      ) : voice ? (
+        <>
           <Avatar name={senderName} size={44} />
           <Mic
-            className="absolute -right-1 -bottom-1 size-4 rounded-full bg-wa-in text-brand"
-            aria-hidden
+            className={cx(
+              'absolute -right-0.5 -bottom-1 size-4 rounded-full bg-[var(--wa-in)]',
+              played ? 'text-sky-500' : 'text-brand',
+            )}
+            aria-label={played ? 'Played' : 'Not played yet'}
           />
-        </span>
-      )}
+        </>
+      ) : null}
+    </span>
+  );
+
+  return (
+    <div
+      ref={rootRef}
+      data-voice-note={voice ? '' : undefined}
+      data-unplayed={voice && !played && !mine ? 'true' : 'false'}
+      className="flex w-[min(19rem,72vw)] items-center gap-2 px-1 py-1"
+    >
+      {!mine && avatarSide}
       <button
         type="button"
+        data-voice-play=""
         onClick={toggle}
         aria-label={
           playing ? 'Pause' : voice ? 'Play voice message' : `Play ${attachment.fileName}`
         }
-        className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-wa-icon hover:bg-black/5"
+        className="inline-flex size-9 shrink-0 items-center justify-center rounded-full text-wa-icon hover:bg-black/5"
       >
         {requested && url.isPending ? (
           <Loader2 className="size-6 animate-spin" aria-hidden />
@@ -146,20 +234,30 @@ export function AudioMessage({
       </button>
       <div className="min-w-0 flex-1">
         <div
-          className="flex h-8 cursor-pointer items-center gap-[2px]"
+          className="relative flex h-8 cursor-pointer touch-none items-center gap-[2px]"
           role="slider"
           tabIndex={0}
           aria-label="Position"
           aria-valuemin={0}
           aria-valuemax={Math.round(duration)}
           aria-valuenow={Math.round(position)}
-          onClick={(e) => {
-            const rect = e.currentTarget.getBoundingClientRect();
-            seek((e.clientX - rect.left) / rect.width);
+          onPointerDown={(e) => {
+            e.currentTarget.setPointerCapture(e.pointerId);
+            setDragging(true);
+            seekTo(e.clientX, e.currentTarget);
           }}
+          onPointerMove={(e) => dragging && seekTo(e.clientX, e.currentTarget)}
+          onPointerUp={() => setDragging(false)}
+          onPointerCancel={() => setDragging(false)}
           onKeyDown={(e) => {
-            if (e.key === 'ArrowRight') seek(Math.min(1, progress + 0.05));
-            if (e.key === 'ArrowLeft') seek(Math.max(0, progress - 0.05));
+            const el = audioRef.current;
+            const step = (dir: number) => {
+              const next = Math.min(duration, Math.max(0, position + dir * duration * 0.05));
+              setPosition(next);
+              if (el) el.currentTime = next;
+            };
+            if (e.key === 'ArrowRight') step(1);
+            if (e.key === 'ArrowLeft') step(-1);
           }}
         >
           {bars.map((b, i) => (
@@ -167,38 +265,31 @@ export function AudioMessage({
               key={i}
               className={cx(
                 'w-[3px] flex-1 rounded-full',
-                i / bars.length < progress ? 'bg-brand' : 'bg-wa-icon/45',
+                i / bars.length < progress
+                  ? played && !mine
+                    ? 'bg-sky-500'
+                    : 'bg-brand'
+                  : 'bg-wa-icon/45',
               )}
               style={{ height: `${Math.max(12, (b / 31) * 100)}%` }}
             />
           ))}
+          <span
+            className={cx(
+              'pointer-events-none absolute top-1/2 size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full shadow',
+              played && !mine ? 'bg-sky-500' : 'bg-brand',
+              dragging && 'scale-125',
+            )}
+            style={{ left: `${progress * 100}%` }}
+            aria-hidden
+          />
         </div>
         <div className="flex items-center justify-between text-[0.7rem] text-wa-meta-in">
-          <span className="tabular-nums">
-            {formatDuration(playing || position > 0 ? position : duration)}
-          </span>
+          <span className="tabular-nums">{formatDuration(started ? position : duration)}</span>
           {!voice && <span className="truncate">{attachment.fileName}</span>}
         </div>
       </div>
-      {(playing || position > 0) && (
-        <button
-          type="button"
-          onClick={() => {
-            const next = SPEEDS[(SPEEDS.indexOf(speed) + 1) % SPEEDS.length]!;
-            setSpeed(next);
-            if (audioRef.current) audioRef.current.playbackRate = next;
-          }}
-          className="shrink-0 rounded-full bg-black/10 px-2 py-0.5 text-xs font-bold dark:bg-white/15"
-          aria-label={`Playback speed ${speed}×`}
-        >
-          {speed}×
-        </button>
-      )}
-      {voice && mine && (
-        <span className="relative shrink-0">
-          <Mic className="size-5 text-wa-icon" aria-hidden />
-        </span>
-      )}
+      {mine && avatarSide}
       {requested && url.data && (
         <audio
           ref={audioRef}
@@ -209,10 +300,14 @@ export function AudioMessage({
             if (Number.isFinite(d) && d > 0) setDuration(d);
             e.currentTarget.playbackRate = speed;
           }}
-          onTimeUpdate={(e) => setPosition(e.currentTarget.currentTime)}
+          onTimeUpdate={(e) => !dragging && setPosition(e.currentTarget.currentTime)}
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
           onEnded={() => {
             setPlaying(false);
             setPosition(0);
+            if (playingAudio === audioRef.current) playingAudio = null;
+            playNext();
           }}
           onError={() => void url.refetch()}
         />

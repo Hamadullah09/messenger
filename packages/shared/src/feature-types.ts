@@ -27,6 +27,8 @@ export interface CallDto {
   callee: PublicUserDto;
   /** Group calls: who is in the call now. */
   participants: PublicUserDto[];
+  /** Group calls: everyone in the group (people who can be rung). Empty for one-to-one. */
+  members: PublicUserDto[];
   state: CallState;
   startedAt: string;
   answeredAt: string | null;

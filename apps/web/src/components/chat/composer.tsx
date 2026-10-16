@@ -24,28 +24,9 @@ import {
   StickerDialog,
   type AttachAction,
 } from './attach-menu';
+import { EmojiPicker } from './emoji-picker';
 import { VoiceRecorder } from './voice-recorder';
 
-const EMOJI = [
-  '😀',
-  '😊',
-  '😂',
-  '👍',
-  '🙏',
-  '❤️',
-  '👏',
-  '🎉',
-  '✅',
-  '❗',
-  '👀',
-  '🙂',
-  '😢',
-  '🔥',
-  '📦',
-  '🛒',
-  '⏰',
-  '📞',
-];
 const TYPING_REPEAT_MS = 3_000;
 
 const acceptFor = (kinds: string[]) =>
@@ -253,26 +234,20 @@ export function Composer({
         </div>
       )}
       {emojiOpen && (
-        <div
-          role="group"
-          aria-label="Emoji"
-          className="grid grid-cols-6 gap-1 border-b border-wa-divider px-3 py-2 sm:grid-cols-9 sm:px-14"
-        >
-          {EMOJI.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              aria-label={`Insert ${emoji}`}
-              className="size-11 rounded-lg text-2xl hover:bg-wa-hover"
-              onClick={() => {
-                setText((t) => t + emoji);
-                textRef.current?.focus();
-              }}
-            >
-              {emoji}
-            </button>
-          ))}
-        </div>
+        <EmojiPicker
+          className="h-80 border-b border-wa-divider"
+          onPick={(emoji) => {
+            const el = textRef.current;
+            const at = el?.selectionStart ?? text.length;
+            const to = el?.selectionEnd ?? at;
+            setText((t) => t.slice(0, at) + emoji + t.slice(to));
+            // Keep the cursor just after the emoji (several in a row, as on a keyboard).
+            requestAnimationFrame(() => {
+              el?.focus();
+              el?.setSelectionRange(at + emoji.length, at + emoji.length);
+            });
+          }}
+        />
       )}
       <form
         className="flex items-end gap-1 px-2 py-2 sm:px-4"

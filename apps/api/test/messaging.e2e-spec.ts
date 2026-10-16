@@ -210,14 +210,21 @@ describe('Conversations and messages', () => {
       const msg = await send(bob, groupId, 'old message').expect(201);
       await h.prisma.message.update({
         where: { id: msg.body.id },
-        data: { createdAt: new Date(Date.now() - 2 * 3600_000) },
+        // Older than the delete window (about 2½ days, as in WhatsApp).
+        data: { createdAt: new Date(Date.now() - 3 * 24 * 3600_000) },
       });
       await bob.patch(`/api/v1/messages/${msg.body.id}`).send({ body: 'too late' }).expect(409);
       await bob.delete(`/api/v1/messages/${msg.body.id}`).expect(403);
       await alice.delete(`/api/v1/messages/${msg.body.id}`).expect(403);
       // The manager is a group admin and a moderator for store A.
       const deleted = await manager.delete(`/api/v1/messages/${msg.body.id}`).expect(200);
-      expect(deleted.body).toMatchObject({ deleted: true, body: null });
+      expect(deleted.body).toMatchObject({ deleted: true, body: null, deletedById: ids.manager });
+      // Your own message: deleted for everyone without the "by admin" label.
+      const own = await send(bob, groupId, 'oops').expect(201);
+      expect((await bob.delete(`/api/v1/messages/${own.body.id}`).expect(200)).body).toMatchObject({
+        deleted: true,
+        deletedById: null,
+      });
       const audit = await h.prisma.auditLog.findFirst({
         where: { action: 'message.moderated_delete', targetId: msg.body.id },
       });

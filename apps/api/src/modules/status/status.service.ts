@@ -11,6 +11,7 @@ import { ApiError } from '../../infra/http/api-error';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RATE_LIMITS, RateLimiterService } from '../../infra/redis/rate-limiter.service';
 import type { Actor } from '../auth/actor';
+import { FeaturesService } from '../platform/features.module';
 import { AuthorizationService } from '../authorization/authorization.service';
 import { attachmentMediaSelect, toAttachmentDto } from '../media/media.mapper';
 import { RealtimeEmitter } from '../realtime/realtime-emitter.service';
@@ -39,6 +40,7 @@ export class StatusService {
     private readonly authz: AuthorizationService,
     private readonly realtime: RealtimeEmitter,
     private readonly rateLimiter: RateLimiterService,
+    private readonly features: FeaturesService,
   ) {}
 
   private toDto(row: PostRow, actor: Actor): StatusPostDto {
@@ -60,6 +62,7 @@ export class StatusService {
   }
 
   async feed(actor: Actor, businessId?: string): Promise<StatusFeedDto> {
+    this.features.require('STATUS');
     const rows = await this.prisma.statusPost.findMany({
       where: { AND: [visibleStatusWhere(actor.userId), businessId ? { businessId } : {}] },
       include: postInclude(actor.userId),
@@ -84,6 +87,7 @@ export class StatusService {
   }
 
   async create(actor: Actor, request: CreateStatusRequest): Promise<StatusPostDto> {
+    this.features.require('STATUS');
     await this.rateLimiter.consume(RATE_LIMITS.messageSendPerUser, actor.userId);
     const storeId = request.storeId ?? null;
     const business = await this.prisma.business.findFirst({
@@ -132,6 +136,7 @@ export class StatusService {
   }
 
   async view(actor: Actor, statusId: string): Promise<void> {
+    this.features.require('STATUS');
     const post = await this.requireVisible(actor, statusId);
     if (post.authorId === actor.userId) return;
     await this.prisma.statusView.upsert({
@@ -142,6 +147,7 @@ export class StatusService {
   }
 
   async viewers(actor: Actor, statusId: string): Promise<StatusViewerDto[]> {
+    this.features.require('STATUS');
     const post = await this.requireVisible(actor, statusId);
     if (post.authorId !== actor.userId)
       throw ApiError.forbidden('Only the author can see who viewed it.');

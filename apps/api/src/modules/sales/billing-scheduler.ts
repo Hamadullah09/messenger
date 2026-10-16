@@ -20,6 +20,7 @@ import {
   round2,
   today,
   type DocumentForEmail,
+  dueByDay,
 } from './crm-core';
 import { SMA_PLANS, type SmaPlanKey } from '@storeline/shared';
 import { nextPeriod } from './billing.service';
@@ -76,6 +77,8 @@ export class BillingRunner {
         });
         for (const item of sub.items) item.quantity = stores;
       }
+      const dueBy =
+        sub.interval === 'MONTHLY' ? (await this.settings.load(sub.tenantId)).paymentDueDay : null;
       const periodStart = sub.nextInvoiceAt;
       const periodEnd = nextPeriod(periodStart, sub.interval as 'MONTHLY' | 'YEARLY');
       try {
@@ -115,7 +118,12 @@ export class BillingRunner {
               billToPhone: party.phone,
               billToAddress: party.address,
               issueDate: today(),
-              dueDate: dateOnly(new Date(Date.now() + sub.dueDays * 86_400_000)),
+              // The business's monthly payment window (e.g. by the 10th), else the
+              // subscription's own number of days.
+              dueDate:
+                sub.interval === 'MONTHLY' && dueBy
+                  ? dueByDay(today(), dueBy)
+                  : dateOnly(new Date(Date.now() + sub.dueDays * 86_400_000)),
               currency: sub.currency,
               taxRate: sub.taxRate,
               notes: `${sub.name} · ${isoDate(periodStart)} to ${isoDate(new Date(periodEnd.getTime() - 86_400_000))}`,
@@ -218,12 +226,14 @@ export class BillingRunner {
   }
 
   /**
-   * Overdue reminders on the configured days after the due date (e.g. 1, 7 and 14 days). Each
+   * Reminders on the configured days after the due date (e.g. 0 = on the due date, then 1, 7
+   * and 14 days late). Each
    * invoice gets each reminder once; the next is due when it is that many days overdue.
    */
   async sendReminders(): Promise<number> {
     const overdue = await this.prisma.invoice.findMany({
-      where: { status: { in: ['ISSUED', 'PARTIALLY_PAID'] }, dueDate: { lt: today() } },
+      // Due today too: a reminder day of 0 means "on the due date".
+      where: { status: { in: ['ISSUED', 'PARTIALLY_PAID'] }, dueDate: { lte: today() } },
       select: { id: true, dueDate: true, reminderCount: true, tenantId: true },
       orderBy: { dueDate: 'asc' },
       take: 500,
@@ -252,7 +262,9 @@ export class BillingRunner {
     if (!found) return false;
     const s = await this.settings.load(found.tenantId);
     const { doc } = found;
-    const intro = `Friendly reminder: invoice ${doc.number} for ${formatMoney(doc.balance ?? doc.total, doc.currency)} was due on ${doc.dueDate}.`;
+    const dueToday = doc.dueDate === isoDate(today());
+    const when = dueToday ? `is due today (${doc.dueDate})` : `was due on ${doc.dueDate}`;
+    const intro = `Friendly reminder: invoice ${doc.number} for ${formatMoney(doc.balance ?? doc.total, doc.currency)} ${when}.`;
     const shortText = `${intro} ${doc.actionUrl ? `Pay or view it here: ${doc.actionUrl}` : ''} — ${s.companyName}`;
     let delivered = false;
     for (const channel of s.reminderChannels) {

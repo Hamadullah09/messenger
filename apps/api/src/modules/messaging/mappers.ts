@@ -69,6 +69,7 @@ export function toMessageDto(row: MessageRow): MessageDto {
     body: deleted ? null : row.body,
     systemEvent: (row.systemEvent as SystemEventDto | null) ?? null,
     deleted,
+    deletedById: deleted && row.deletedById !== row.senderId ? row.deletedById : null,
     editedAt: row.editedAt?.toISOString() ?? null,
     createdAt: row.createdAt.toISOString(),
     state: row.state,

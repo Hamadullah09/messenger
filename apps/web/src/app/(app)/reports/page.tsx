@@ -231,6 +231,8 @@ export default function ReportsPage() {
   const me = useAuth((s) => s.me)!;
   const activeBusinessId = useAuth((s) => s.activeBusinessId);
   const platform = isPlatformAdmin(me) && hasPermission(me, 'report.read');
+  // Exporting is for admins (or people given the export right in a custom role).
+  const canExport = hasPermission(me, 'report.export', activeBusinessId);
   const [range, setRange] = useState<Range>('this-month');
   const [scope, setScope] = useState<string>(platform ? '' : (activeBusinessId ?? ''));
   const businesses = useQuery({
@@ -265,15 +267,17 @@ export default function ReportsPage() {
           title="Reports"
           subtitle="How the business communicates and sells. Counts and timings only, never message content."
           actions={
-            <Button
-              variant="secondary"
-              busy={exporting.isPending}
-              disabled={!r}
-              icon={<Download className="size-5" aria-hidden />}
-              onClick={() => exporting.mutate()}
-            >
-              Export to Excel
-            </Button>
+            canExport && (
+              <Button
+                variant="secondary"
+                busy={exporting.isPending}
+                disabled={!r}
+                icon={<Download className="size-5" aria-hidden />}
+                onClick={() => exporting.mutate()}
+              >
+                Export to Excel
+              </Button>
+            )
           }
         />
         <div className="flex flex-wrap items-center gap-2">

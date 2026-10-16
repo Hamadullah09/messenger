@@ -313,6 +313,92 @@ describe('Devices and push notifications', () => {
     managerSocket.disconnect();
   });
 
+  it('rings a closed app for a call, declines from the notification and notifies missed calls', async () => {
+    const t = await setup();
+    const id = await registerPush(t.sa);
+    const mine = () => received.filter((r) => r.path.endsWith(id));
+    const outsider = await h.login(
+      (await h.createUser({ role: 'EMPLOYEE', businessId: t.businessId, storeIds: [t.storeId] }))
+        .username,
+    );
+
+    const call = (
+      await t.sb
+        .post('/api/v1/calls')
+        .send({ conversationId: t.conversationId, media: 'video' })
+        .expect(201)
+    ).body as { id: string; members: unknown[] };
+    expect(call.members).toEqual([]);
+    const ring = await waitFor(mine, (r) => r.length === 1);
+    expect(ring[0]).toMatchObject({
+      urgency: 'high',
+      payload: {
+        type: 'call',
+        title: 'SMA call', // preview NONE: no caller name on the lock screen
+        body: 'Incoming video call',
+        url: `/chats?call=${call.id}`,
+        callId: call.id,
+        userId: t.a.id,
+      },
+    });
+    const token = ring[0]!.payload.declineToken!;
+    expect(token.length).toBeGreaterThan(20);
+
+    // Opened from the notification: the person called can load it, nobody else.
+    await t.sa.get(`/api/v1/calls/${call.id}`).expect(200);
+    await outsider.get(`/api/v1/calls/${call.id}`).expect(404);
+    // One-to-one calls cannot ring more people.
+    await t.sb
+      .post(`/api/v1/calls/${call.id}/ring`)
+      .send({ userIds: [t.a.id] })
+      .expect(400);
+
+    // Decline straight from the notification: a forged or borrowed token does nothing.
+    await h
+      .http()
+      .post(`/api/v1/public/calls/${call.id}/decline`)
+      .send({ userId: t.b.id, token })
+      .expect(404);
+    await h
+      .http()
+      .post(`/api/v1/public/calls/${call.id}/decline`)
+      .send({ userId: t.a.id, token: 'x'.repeat(43) })
+      .expect(404);
+    expect((await t.sa.get(`/api/v1/calls/${call.id}`).expect(200)).body.state).toBe('ringing');
+    await h
+      .http()
+      .post(`/api/v1/public/calls/${call.id}/decline`)
+      .send({ userId: t.a.id, token })
+      .expect(204);
+    expect((await t.sa.get(`/api/v1/calls/${call.id}`).expect(200)).body).toMatchObject({
+      state: 'ended',
+      outcome: 'declined',
+    });
+    // The ringing notification is cleared (no "missed call" for a decline).
+    const cleared = await waitFor(mine, (r) => r.length === 2);
+    expect(cleared[1]!.payload).toMatchObject({ type: 'call-ended', callId: call.id });
+
+    // The caller gives up while it rings: a missed-call notice.
+    const second = (
+      await t.sb
+        .post('/api/v1/calls')
+        .send({ conversationId: t.conversationId, media: 'audio' })
+        .expect(201)
+    ).body as { id: string };
+    await waitFor(mine, (r) => r.length === 3);
+    await t.sb.post(`/api/v1/calls/${second.id}/end`).send({ reason: 'hangup' }).expect(200);
+    const missed = await waitFor(mine, (r) => r.length === 4);
+    expect(missed[3]!.payload).toMatchObject({
+      type: 'message',
+      title: 'Missed call',
+      body: 'Missed voice call',
+      url: '/calls',
+    });
+    // The call record in the chat does not add a second 'New message' notification.
+    await new Promise((r) => setTimeout(r, 1500));
+    expect(mine()).toHaveLength(4);
+  });
+
   it('forgets expired subscriptions and signs devices out across sessions', async () => {
     const t = await setup();
     await registerPush(t.sa);

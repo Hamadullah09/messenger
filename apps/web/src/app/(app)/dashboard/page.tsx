@@ -94,6 +94,9 @@ function StatTile({
 export default function DashboardPage() {
   const router = useRouter();
   const me = useAuth((s) => s.me)!;
+  // Accountants (money only, no leads) go straight to the Accounts tab.
+  const accountant =
+    hasPermission(me, 'sales.finance.read') && !hasPermission(me, 'sales.lead.manage');
   const businessId = useAuth((s) => s.activeBusinessId);
   const conversations = useConversations();
   const presence = useLive((s) => s.presence);
@@ -196,20 +199,25 @@ export default function DashboardPage() {
         {/* Sales & Marketing people land here: quick way into their pipeline. */}
         {hasPermission(me, 'sales.access') && !isPlatformAdmin(me) && (
           <Link
-            href="/sales"
+            href={accountant ? '/sales?tab=accounts' : '/sales'}
             className="flex flex-wrap items-center gap-4 rounded-3xl border border-line bg-surface p-5 shadow-card transition-colors hover:border-brand/50"
           >
             <span className="inline-flex size-12 items-center justify-center rounded-2xl bg-brand-soft text-brand">
               <Target className="size-6" aria-hidden />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-xl font-bold">Sales & Marketing</span>
+              <span className="block text-xl font-bold">
+                {accountant ? 'Accounts' : 'Sales & Marketing'}
+              </span>
               <span className="text-muted">
-                Your leads, follow-ups and pipeline, from first contact to SMA customer.
+                {accountant
+                  ? 'Payments received, money owed, overdue customers and reminders.'
+                  : 'Your leads, follow-ups and pipeline, from first contact to SMA customer.'}
               </span>
             </span>
             <span className="inline-flex items-center gap-1 font-semibold text-brand">
-              Open pipeline <ArrowRight className="size-5" aria-hidden />
+              {accountant ? 'Open accounts' : 'Open pipeline'}{' '}
+              <ArrowRight className="size-5" aria-hidden />
             </span>
           </Link>
         )}
